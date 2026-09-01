@@ -86,7 +86,8 @@ async function loadFromFirestore() {
 
 async function saveToFirestore(collectionName: string, id: string, data: any) {
   try {
-    await setDoc(doc(firestoreDb, collectionName, id), data);
+    const cleanData = JSON.parse(JSON.stringify(data));
+    await setDoc(doc(firestoreDb, collectionName, id), cleanData);
   } catch (err) {
     console.error("Firestore sync error (save):", err);
   }

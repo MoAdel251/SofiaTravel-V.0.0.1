@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2 } from 'lucide-react';
 import { CompanySettings } from '../types';
 
@@ -10,6 +10,10 @@ interface SettingsViewProps {
 export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) {
   const [formData, setFormData] = useState<CompanySettings>(settings);
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setFormData(settings);
+  }, [settings]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
