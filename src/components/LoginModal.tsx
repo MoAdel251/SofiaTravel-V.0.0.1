@@ -13,11 +13,11 @@ export function LoginModal({ onLogin, companyName }: LoginModalProps) {
   const [error, setError] = useState('');
 
   const accounts = [
-    { name: 'Admin', pass: '1282', role: 'Administrator' as UserRole, label: 'Administrator' },
-    { name: 'Ahmed Ali', pass: 'AA01', role: 'Manager' as UserRole, label: 'First Manager' },
-    { name: 'Mahmoud Makhlouf', pass: 'MM02', role: 'Manager' as UserRole, label: 'Second Manager' },
-    { name: 'Ahmed Makhlouf', pass: 'AM03', role: 'Manager' as UserRole, label: 'Third Manager' },
-    { name: 'Mohamed Ali Gediana', pass: 'MA04', role: 'Accountant' as UserRole, label: 'Accountant' },
+    { name: 'IT', pass: '1282', role: 'Administrator' as UserRole, label: 'IT Administrator' },
+    { name: 'Ahmed Ali', pass: 'AA01', role: 'Administrator' as UserRole, label: 'Administrator' },
+    { name: 'Mahmoud Makhlouf', pass: 'MM02', role: 'Administrator' as UserRole, label: 'Administrator' },
+    { name: 'Ahmed Makhlouf', pass: 'AM03', role: 'Administrator' as UserRole, label: 'Administrator' },
+    { name: 'Mohamed Ali Jadian', pass: 'MA04', role: 'Administrator' as UserRole, label: 'Administrator' },
   ];
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -35,8 +35,8 @@ export function LoginModal({ onLogin, companyName }: LoginModalProps) {
 
     if (validAcc) {
       onLogin(validAcc.name, validAcc.role);
-    } else if (username === 'Admin' && password === '1282') {
-      onLogin('Admin', 'Administrator');
+    } else if (username.trim().toUpperCase() === 'IT' && password === '1282') {
+      onLogin('IT', 'Administrator');
     } else {
       setError('Invalid username or password. Please check your credentials.');
     }

@@ -8,7 +8,7 @@ export interface User {
   avatar: string;
 }
 
-export type CustomerType = 'Individual' | 'Family' | 'Corporate' | 'Travel Agent';
+export type CustomerType = 'Individual' | 'Family' | 'Corporate' | 'Travel Agent' | 'Partner';
 
 export interface Customer {
   id: string;

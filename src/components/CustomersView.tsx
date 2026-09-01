@@ -221,6 +221,7 @@ export function CustomersView({
             <option value="Family">Family</option>
             <option value="Corporate">Corporate</option>
             <option value="Travel Agent">Travel Agent</option>
+            <option value="Partner">Partner</option>
           </select>
         </div>
       </div>
@@ -264,6 +265,7 @@ export function CustomersView({
                         cust.customer_type === 'Corporate' ? 'bg-indigo-100 text-indigo-800' :
                         cust.customer_type === 'Family' ? 'bg-purple-100 text-purple-800' :
                         cust.customer_type === 'Travel Agent' ? 'bg-amber-100 text-amber-800' :
+                        cust.customer_type === 'Partner' ? 'bg-teal-100 text-teal-800' :
                         'bg-slate-100 text-slate-700'
                       }`}>
                         {cust.customer_type}
@@ -615,6 +617,7 @@ export function CustomersView({
                     <option value="Family">Family</option>
                     <option value="Corporate">Corporate</option>
                     <option value="Travel Agent">Travel Agent</option>
+                    <option value="Partner">Partner</option>
                   </select>
                 </div>
                 <div>

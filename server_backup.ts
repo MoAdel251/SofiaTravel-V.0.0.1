@@ -1,18 +1,14 @@
+import express from "express";
+import path from "path";
+import { createServer as createViteServer } from "vite";
+import { GoogleGenAI } from "@google/genai";
 
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
+const app = express();
+const PORT = 3000;
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDbv4GKEAs7x38VU0fX9W9ERrnR5b_G4cQ",
-  authDomain: "sofiatravel-c86ec.firebaseapp.com",
-  projectId: "sofiatravel-c86ec",
-  storageBucket: "sofiatravel-c86ec.firebasestorage.app",
-  messagingSenderId: "818590455835",
-  appId: "1:818590455835:web:fbc8af8acb3bbe54fc80be"
-};
-const firebaseApp = initializeApp(firebaseConfig);
-const firestoreDb = getFirestore(firebaseApp);
+app.use(express.json());
 
+// In-Memory Database Store with Rich Seed Data
 let db = {
   settings: {
     company_name: "Sofia Travel",
@@ -57,65 +53,12 @@ let db = {
   activity_logs: []
 };
 
-
-
-async function loadFromFirestore() {
-  const collections = ['employees', 'customers', 'suppliers', 'hotels', 'flights', 'tour_packages', 'reservations', 'customer_payments', 'supplier_payments', 'expenses', 'tasks', 'documents', 'notifications', 'invoices', 'activity_logs'];
-  try {
-    console.log("Loading data from Firestore...");
-    // Load Settings
-    const setSnap = await getDocs(collection(firestoreDb, 'settings'));
-    if (!setSnap.empty) {
-       db.settings = { ...db.settings, ...setSnap.docs[0].data() };
-    } else {
-       // Save default settings if empty
-       await setDoc(doc(firestoreDb, 'settings', 'main'), db.settings);
-    }
-
-    for (const c of collections) {
-       const snap = await getDocs(collection(firestoreDb, c));
-       if (!snap.empty) {
-          db[c] = snap.docs.map(d => d.data());
-       }
-    }
-    console.log("Firestore data loaded successfully.");
-  } catch (err) {
-    console.error("Error loading from Firestore:", err);
-  }
-}
-
-async function saveToFirestore(collectionName: string, id: string, data: any) {
-  try {
-    await setDoc(doc(firestoreDb, collectionName, id), data);
-  } catch (err) {
-    console.error("Firestore sync error (save):", err);
-  }
-}
-async function deleteFromFirestore(collectionName: string, id: string) {
-  try {
-    await deleteDoc(doc(firestoreDb, collectionName, id));
-  } catch (err) {
-    console.error("Firestore sync error (delete):", err);
-  }
-}
-
-import express from "express";
-import path from "path";
-import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
-
-const app = express();
-const PORT = 3000;
-
-app.use(express.json());
-
-// In-Memory Database Store with Rich Seed Data
 // Helper function to log activity
 function logActivity(userName: string, action: string, module: string, record: string) {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
   const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const newLog = {
+  db.activity_logs.unshift({
     id: 'LOG-' + Math.random().toString(36).substring(2, 9),
     user_name: userName,
     action,
@@ -123,9 +66,7 @@ function logActivity(userName: string, action: string, module: string, record: s
     record,
     date: dateStr,
     time: timeStr
-  };
-  db.activity_logs.unshift(newLog);
-  saveToFirestore('activity_logs', newLog.id, newLog);
+  });
 }
 
 // REST API Endpoints
@@ -138,7 +79,6 @@ app.get("/api/settings", (req, res) => {
 app.put("/api/settings", (req, res) => {
   db.settings = { ...db.settings, ...req.body };
   logActivity("Administrator", "Updated company settings", "Settings", "Settings");
-  saveToFirestore('settings', 'main', db.settings);
   res.json(db.settings);
 });
 
@@ -158,7 +98,6 @@ app.post("/api/customers", (req, res) => {
   };
   db.customers.push(newCust);
   logActivity("Ahmed Hassan", `Created customer ${newCust.full_name}`, "Customers", newCust.customer_id);
-  saveToFirestore('customers', newCust.id, newCust);
   res.json(newCust);
 });
 
@@ -168,7 +107,6 @@ app.put("/api/customers/:id", (req, res) => {
   if (idx === -1) return res.status(404).json({ error: "Customer not found" });
   db.customers[idx] = { ...db.customers[idx], ...req.body };
   logActivity("Manager", `Updated customer ${db.customers[idx].full_name}`, "Customers", db.customers[idx].customer_id);
-  saveToFirestore('customers', db.customers[idx].id, db.customers[idx]);
   res.json(db.customers[idx]);
 });
 
@@ -176,7 +114,6 @@ app.delete("/api/customers/:id", (req, res) => {
   const { id } = req.params;
   db.customers = db.customers.filter(c => c.id !== id);
   logActivity("Administrator", "Deleted customer", "Customers", id);
-  deleteFromFirestore('customers', id);
   res.json({ success: true });
 });
 
@@ -214,7 +151,6 @@ app.post("/api/reservations", (req, res) => {
   }
 
   logActivity("Karim Nabil", `Created reservation ${newRes.reservation_id}`, "Reservations", newRes.reservation_id);
-  saveToFirestore('reservations', newRes.id, newRes);
   res.json(newRes);
 });
 
@@ -242,7 +178,6 @@ app.put("/api/reservations/:id", (req, res) => {
   };
 
   logActivity("Manager", `Updated reservation ${db.reservations[idx].reservation_id}`, "Reservations", db.reservations[idx].reservation_id);
-  saveToFirestore('reservations', db.reservations[idx].id, db.reservations[idx]);
   res.json(db.reservations[idx]);
 });
 
@@ -250,7 +185,6 @@ app.delete("/api/reservations/:id", (req, res) => {
   const { id } = req.params;
   db.reservations = db.reservations.filter(r => r.id !== id);
   logActivity("Administrator", "Deleted reservation", "Reservations", id);
-  deleteFromFirestore('reservations', id);
   res.json({ success: true });
 });
 
@@ -266,7 +200,6 @@ app.post("/api/tour-packages", (req, res) => {
   };
   db.tour_packages.push(pkg);
   logActivity("Karim Nabil", `Created tour package ${pkg.package_name}`, "Tour Packages", pkg.package_name);
-  saveToFirestore('tour_packages', pkg.id, pkg);
   res.json(pkg);
 });
 
@@ -275,14 +208,12 @@ app.put("/api/tour-packages/:id", (req, res) => {
   const idx = db.tour_packages.findIndex(p => p.id === id);
   if (idx === -1) return res.status(404).json({ error: "Package not found" });
   db.tour_packages[idx] = { ...db.tour_packages[idx], ...req.body };
-  saveToFirestore('tour_packages', db.tour_packages[idx].id, db.tour_packages[idx]);
   res.json(db.tour_packages[idx]);
 });
 
 app.delete("/api/tour-packages/:id", (req, res) => {
   const { id } = req.params;
   db.tour_packages = db.tour_packages.filter(p => p.id !== id);
-  deleteFromFirestore('tour_packages', id);
   res.json({ success: true });
 });
 
@@ -297,7 +228,6 @@ app.post("/api/hotels", (req, res) => {
     ...req.body
   };
   db.hotels.push(hotel);
-  saveToFirestore('hotels', hotel.id, hotel);
   res.json(hotel);
 });
 
@@ -306,14 +236,12 @@ app.put("/api/hotels/:id", (req, res) => {
   const idx = db.hotels.findIndex(h => h.id === id);
   if (idx === -1) return res.status(404).json({ error: "Hotel not found" });
   db.hotels[idx] = { ...db.hotels[idx], ...req.body };
-  saveToFirestore('hotels', db.hotels[idx].id, db.hotels[idx]);
   res.json(db.hotels[idx]);
 });
 
 app.delete("/api/hotels/:id", (req, res) => {
   const { id } = req.params;
   db.hotels = db.hotels.filter(h => h.id !== id);
-  deleteFromFirestore('hotels', id);
   res.json({ success: true });
 });
 
@@ -328,7 +256,6 @@ app.post("/api/flights", (req, res) => {
     ...req.body
   };
   db.flights.push(flight);
-  saveToFirestore('flights', flight.id, flight);
   res.json(flight);
 });
 
@@ -337,14 +264,12 @@ app.put("/api/flights/:id", (req, res) => {
   const idx = db.flights.findIndex(f => f.id === id);
   if (idx === -1) return res.status(404).json({ error: "Flight not found" });
   db.flights[idx] = { ...db.flights[idx], ...req.body };
-  saveToFirestore('flights', db.flights[idx].id, db.flights[idx]);
   res.json(db.flights[idx]);
 });
 
 app.delete("/api/flights/:id", (req, res) => {
   const { id } = req.params;
   db.flights = db.flights.filter(f => f.id !== id);
-  deleteFromFirestore('flights', id);
   res.json({ success: true });
 });
 
@@ -360,7 +285,6 @@ app.post("/api/suppliers", (req, res) => {
     ...req.body
   };
   db.suppliers.push(sup);
-  saveToFirestore('suppliers', sup.id, sup);
   res.json(sup);
 });
 
@@ -369,14 +293,12 @@ app.put("/api/suppliers/:id", (req, res) => {
   const idx = db.suppliers.findIndex(s => s.id === id);
   if (idx === -1) return res.status(404).json({ error: "Supplier not found" });
   db.suppliers[idx] = { ...db.suppliers[idx], ...req.body };
-  saveToFirestore('suppliers', db.suppliers[idx].id, db.suppliers[idx]);
   res.json(db.suppliers[idx]);
 });
 
 app.delete("/api/suppliers/:id", (req, res) => {
   const { id } = req.params;
   db.suppliers = db.suppliers.filter(s => s.id !== id);
-  deleteFromFirestore('suppliers', id);
   res.json({ success: true });
 });
 
@@ -408,7 +330,6 @@ app.post("/api/customer-payments", (req, res) => {
   }
 
   logActivity("Tarek Lotfy", `Recorded customer payment of $${pay.amount}`, "Finance", pay.payment_id);
-  saveToFirestore('customer_payments', pay.id, pay);
   res.json(pay);
 });
 
@@ -432,7 +353,6 @@ app.post("/api/supplier-payments", (req, res) => {
   }
 
   logActivity("Tarek Lotfy", `Recorded supplier payment of $${pay.amount}`, "Finance", pay.payment_id || pay.id);
-  saveToFirestore('supplier_payments', pay.id, pay);
   res.json(pay);
 });
 
@@ -450,14 +370,12 @@ app.post("/api/expenses", (req, res) => {
   };
   db.expenses.push(exp);
   logActivity("Tarek Lotfy", `Recorded expense ${exp.category} ($${exp.amount})`, "Finance", exp.expense_id);
-  saveToFirestore('expenses', exp.id, exp);
   res.json(exp);
 });
 
 app.delete("/api/expenses/:id", (req, res) => {
   const { id } = req.params;
   db.expenses = db.expenses.filter(e => e.id !== id);
-  deleteFromFirestore('expenses', id);
   res.json({ success: true });
 });
 
@@ -489,7 +407,6 @@ app.post("/api/employees", (req, res) => {
     ...req.body
   };
   db.employees.push(emp);
-  saveToFirestore('employees', emp.id, emp);
   res.json(emp);
 });
 
@@ -498,14 +415,12 @@ app.put("/api/employees/:id", (req, res) => {
   const idx = db.employees.findIndex(e => e.id === id);
   if (idx === -1) return res.status(404).json({ error: "Employee not found" });
   db.employees[idx] = { ...db.employees[idx], ...req.body };
-  saveToFirestore('employees', db.employees[idx].id, db.employees[idx]);
   res.json(db.employees[idx]);
 });
 
 app.delete("/api/employees/:id", (req, res) => {
   const { id } = req.params;
   db.employees = db.employees.filter(e => e.id !== id);
-  deleteFromFirestore('employees', id);
   res.json({ success: true });
 });
 
@@ -520,7 +435,6 @@ app.post("/api/tasks", (req, res) => {
     ...req.body
   };
   db.tasks.push(task);
-  saveToFirestore('tasks', task.id, task);
   res.json(task);
 });
 
@@ -529,14 +443,12 @@ app.put("/api/tasks/:id", (req, res) => {
   const idx = db.tasks.findIndex(t => t.id === id);
   if (idx === -1) return res.status(404).json({ error: "Task not found" });
   db.tasks[idx] = { ...db.tasks[idx], ...req.body };
-  saveToFirestore('tasks', db.tasks[idx].id, db.tasks[idx]);
   res.json(db.tasks[idx]);
 });
 
 app.delete("/api/tasks/:id", (req, res) => {
   const { id } = req.params;
   db.tasks = db.tasks.filter(t => t.id !== id);
-  deleteFromFirestore('tasks', id);
   res.json({ success: true });
 });
 
@@ -554,14 +466,12 @@ app.post("/api/documents", (req, res) => {
     ...req.body
   };
   db.documents.push(doc);
-  saveToFirestore('documents', doc.id, doc);
   res.json(doc);
 });
 
 app.delete("/api/documents/:id", (req, res) => {
   const { id } = req.params;
   db.documents = db.documents.filter(d => d.id !== id);
-  deleteFromFirestore('documents', id);
   res.json({ success: true });
 });
 
@@ -625,7 +535,6 @@ app.post("/api/invoices", (req, res) => {
     link_id: newInvoice.id
   });
 
-  saveToFirestore('invoices', newInvoice.id, newInvoice);
   res.json(newInvoice);
 });
 
@@ -636,7 +545,6 @@ app.put("/api/invoices/:id", (req, res) => {
 
   db.invoices[index] = { ...db.invoices[index], ...req.body };
   logActivity("Employee", `Updated invoice ${db.invoices[index].invoice_number}`, "Invoicing", db.invoices[index].invoice_number);
-  saveToFirestore('invoices', db.invoices[index].id, db.invoices[index]);
   res.json(db.invoices[index]);
 });
 
@@ -644,7 +552,6 @@ app.delete("/api/invoices/:id", (req, res) => {
   const { id } = req.params;
   db.invoices = (db.invoices || []).filter(inv => inv.id !== id);
   logActivity("Employee", `Deleted invoice ${id}`, "Invoicing", id);
-  deleteFromFirestore('invoices', id);
   res.json({ success: true });
 });
 
@@ -788,8 +695,6 @@ app.post("/api/ai-assistant", async (req, res) => {
 });
 
 async function startServer() {
-  await loadFromFirestore();
-
   // Vite middleware for development or static serving for production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
