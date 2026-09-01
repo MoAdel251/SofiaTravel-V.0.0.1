@@ -1,0 +1,6 @@
+{
+  "name": "Sofia Travel Management System",
+  "description": "Comprehensive SaaS platform for Sofia Travel to manage customers, reservations, tours, hotels, flights, financials, employees, and operations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
