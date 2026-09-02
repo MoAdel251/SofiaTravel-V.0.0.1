@@ -95,7 +95,24 @@ export default function App() {
         settRes,
         logRes
       ] = await Promise.all([
-        fetch('/api/dashboard-stats').then(r => r.json()).catch(() => null),
+        fetch('/api/dashboard-stats').then(r => r.json()).catch(() => ({
+      total_customers: 0,
+      active_reservations: 0,
+      todays_reservations: 0,
+      upcoming_trips: 0,
+      total_sales: 0,
+      total_expenses: 0,
+      net_profit: 0,
+      outstanding_customer_payments: 0,
+      outstanding_supplier_payments: 0,
+      today_tasks: 0,
+      recent_reservations: [],
+      recent_payments: [],
+      recent_activities: [],
+      monthlyData: [],
+      destinationPopularity: [],
+      topAgent: { name: 'No data', sales: 0 }
+})),
         fetch('/api/customers').then(r => r.json()).catch(() => []),
         fetch('/api/reservations').then(r => r.json()).catch(() => []),
         fetch('/api/tour-packages').then(r => r.json()).catch(() => []),
@@ -129,7 +146,7 @@ export default function App() {
       setTasks(taskRes);
       setDocuments(docRes);
       setNotifications(notifRes);
-      setSettings(settRes);
+      if (settRes) setSettings(settRes);
       setActivityLogs(logRes);
     } catch (err) { console.error("TEST SCRIPT ERROR CATCH:", err);
       console.error("Error fetching data:", err);
