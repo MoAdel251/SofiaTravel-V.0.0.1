@@ -74,7 +74,7 @@ export default function App() {
     fetchAllData();
   }, []);
 
-  const fetchAllData = async () => {
+  const fetchAllData = async () => { console.log("Fetching all data..."); 
     try {
       const [
         statsRes,
@@ -95,26 +95,26 @@ export default function App() {
         settRes,
         logRes
       ] = await Promise.all([
-        fetch('/api/dashboard-stats').then(r => r.json()),
-        fetch('/api/customers').then(r => r.json()),
-        fetch('/api/reservations').then(r => r.json()),
-        fetch('/api/tour-packages').then(r => r.json()),
-        fetch('/api/hotels').then(r => r.json()),
-        fetch('/api/flights').then(r => r.json()),
-        fetch('/api/suppliers').then(r => r.json()),
+        fetch('/api/dashboard-stats').then(r => r.json()).catch(() => null),
+        fetch('/api/customers').then(r => r.json()).catch(() => []),
+        fetch('/api/reservations').then(r => r.json()).catch(() => []),
+        fetch('/api/tour-packages').then(r => r.json()).catch(() => []),
+        fetch('/api/hotels').then(r => r.json()).catch(() => []),
+        fetch('/api/flights').then(r => r.json()).catch(() => []),
+        fetch('/api/suppliers').then(r => r.json()).catch(() => []),
         fetch('/api/invoices').then(r => r.json()).catch(() => []),
-        fetch('/api/customer-payments').then(r => r.json()),
-        fetch('/api/supplier-payments').then(r => r.json()),
-        fetch('/api/expenses').then(r => r.json()),
-        fetch('/api/employees').then(r => r.json()),
-        fetch('/api/tasks').then(r => r.json()),
-        fetch('/api/documents').then(r => r.json()),
-        fetch('/api/notifications').then(r => r.json()),
-        fetch('/api/settings').then(r => r.json()),
-        fetch('/api/activity-logs').then(r => r.json()),
+        fetch('/api/customer-payments').then(r => r.json()).catch(() => []),
+        fetch('/api/supplier-payments').then(r => r.json()).catch(() => []),
+        fetch('/api/expenses').then(r => r.json()).catch(() => []),
+        fetch('/api/employees').then(r => r.json()).catch(() => []),
+        fetch('/api/tasks').then(r => r.json()).catch(() => []),
+        fetch('/api/documents').then(r => r.json()).catch(() => []),
+        fetch('/api/notifications').then(r => r.json()).catch(() => []),
+        fetch('/api/settings').then(r => r.json()).catch(() => null),
+        fetch('/api/activity-logs').then(r => r.json()).catch(() => []),
       ]);
 
-      setStats(statsRes);
+      console.log("Setting stats:", statsRes); setStats(statsRes);
       setCustomers(custRes);
       setReservations(resvRes);
       setPackages(pkgRes);
@@ -131,7 +131,7 @@ export default function App() {
       setNotifications(notifRes);
       setSettings(settRes);
       setActivityLogs(logRes);
-    } catch (err) {
+    } catch (err) { console.error("TEST SCRIPT ERROR CATCH:", err);
       console.error("Error fetching data:", err);
     }
   };

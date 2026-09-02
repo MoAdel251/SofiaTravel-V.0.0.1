@@ -90,6 +90,7 @@ async function saveToFirestore(collectionName: string, id: string, data: any) {
     await setDoc(doc(firestoreDb, collectionName, id), cleanData);
   } catch (err) {
     console.error("Firestore sync error (save):", err);
+    throw err;
   }
 }
 async function deleteFromFirestore(collectionName: string, id: string) {
@@ -97,6 +98,7 @@ async function deleteFromFirestore(collectionName: string, id: string) {
     await deleteDoc(doc(firestoreDb, collectionName, id));
   } catch (err) {
     console.error("Firestore sync error (delete):", err);
+    throw err;
   }
 }
 
@@ -112,7 +114,7 @@ app.use(express.json());
 
 // In-Memory Database Store with Rich Seed Data
 // Helper function to log activity
-function logActivity(userName: string, action: string, module: string, record: string) {
+async function logActivity(userName: string, action: string, module: string, record: string) {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
   const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -126,29 +128,29 @@ function logActivity(userName: string, action: string, module: string, record: s
     time: timeStr
   };
   db.activity_logs.unshift(newLog);
-  saveToFirestore('activity_logs', newLog.id, newLog);
+  await saveToFirestore('activity_logs', newLog.id, newLog);
 }
 
 // REST API Endpoints
 
 // Settings
-app.get("/api/settings", (req, res) => {
+app.get("/api/settings", async (req, res) => {
   res.json(db.settings);
 });
 
-app.put("/api/settings", (req, res) => {
+app.put("/api/settings", async (req, res) => {
   db.settings = { ...db.settings, ...req.body };
-  logActivity("Administrator", "Updated company settings", "Settings", "Settings");
-  saveToFirestore('settings', 'main', db.settings);
+  await logActivity("Administrator", "Updated company settings", "Settings", "Settings");
+  await saveToFirestore('settings', 'main', db.settings);
   res.json(db.settings);
 });
 
 // Customers
-app.get("/api/customers", (req, res) => {
+app.get("/api/customers", async (req, res) => {
   res.json(db.customers);
 });
 
-app.post("/api/customers", (req, res) => {
+app.post("/api/customers", async (req, res) => {
   const newCust = {
     id: "CUST-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     customer_id: "C-" + Math.floor(1000 + Math.random() * 9000),
@@ -158,35 +160,35 @@ app.post("/api/customers", (req, res) => {
     ...req.body
   };
   db.customers.push(newCust);
-  logActivity("Ahmed Hassan", `Created customer ${newCust.full_name}`, "Customers", newCust.customer_id);
-  saveToFirestore('customers', newCust.id, newCust);
+  await logActivity("Ahmed Hassan", `Created customer ${newCust.full_name}`, "Customers", newCust.customer_id);
+  await saveToFirestore('customers', newCust.id, newCust);
   res.json(newCust);
 });
 
-app.put("/api/customers/:id", (req, res) => {
+app.put("/api/customers/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.customers.findIndex(c => c.id === id);
   if (idx === -1) return res.status(404).json({ error: "Customer not found" });
   db.customers[idx] = { ...db.customers[idx], ...req.body };
-  logActivity("Manager", `Updated customer ${db.customers[idx].full_name}`, "Customers", db.customers[idx].customer_id);
-  saveToFirestore('customers', db.customers[idx].id, db.customers[idx]);
+  await logActivity("Manager", `Updated customer ${db.customers[idx].full_name}`, "Customers", db.customers[idx].customer_id);
+  await saveToFirestore('customers', db.customers[idx].id, db.customers[idx]);
   res.json(db.customers[idx]);
 });
 
-app.delete("/api/customers/:id", (req, res) => {
+app.delete("/api/customers/:id", async (req, res) => {
   const { id } = req.params;
   db.customers = db.customers.filter(c => c.id !== id);
-  logActivity("Administrator", "Deleted customer", "Customers", id);
-  deleteFromFirestore('customers', id);
+  await logActivity("Administrator", "Deleted customer", "Customers", id);
+  await deleteFromFirestore('customers', id);
   res.json({ success: true });
 });
 
 // Reservations
-app.get("/api/reservations", (req, res) => {
+app.get("/api/reservations", async (req, res) => {
   res.json(db.reservations);
 });
 
-app.post("/api/reservations", (req, res) => {
+app.post("/api/reservations", async (req, res) => {
   const data = req.body;
   const selling = Number(data.selling_price) || 0;
   const cost = Number(data.cost_price) || 0;
@@ -214,12 +216,12 @@ app.post("/api/reservations", (req, res) => {
     cust.outstanding_balance += remaining;
   }
 
-  logActivity("Karim Nabil", `Created reservation ${newRes.reservation_id}`, "Reservations", newRes.reservation_id);
-  saveToFirestore('reservations', newRes.id, newRes);
+  await logActivity("Karim Nabil", `Created reservation ${newRes.reservation_id}`, "Reservations", newRes.reservation_id);
+  await saveToFirestore('reservations', newRes.id, newRes);
   res.json(newRes);
 });
 
-app.put("/api/reservations/:id", (req, res) => {
+app.put("/api/reservations/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.reservations.findIndex(r => r.id === id);
   if (idx === -1) return res.status(404).json({ error: "Reservation not found" });
@@ -242,151 +244,151 @@ app.put("/api/reservations/:id", (req, res) => {
     payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending"
   };
 
-  logActivity("Manager", `Updated reservation ${db.reservations[idx].reservation_id}`, "Reservations", db.reservations[idx].reservation_id);
-  saveToFirestore('reservations', db.reservations[idx].id, db.reservations[idx]);
+  await logActivity("Manager", `Updated reservation ${db.reservations[idx].reservation_id}`, "Reservations", db.reservations[idx].reservation_id);
+  await saveToFirestore('reservations', db.reservations[idx].id, db.reservations[idx]);
   res.json(db.reservations[idx]);
 });
 
-app.delete("/api/reservations/:id", (req, res) => {
+app.delete("/api/reservations/:id", async (req, res) => {
   const { id } = req.params;
   db.reservations = db.reservations.filter(r => r.id !== id);
-  logActivity("Administrator", "Deleted reservation", "Reservations", id);
-  deleteFromFirestore('reservations', id);
+  await logActivity("Administrator", "Deleted reservation", "Reservations", id);
+  await deleteFromFirestore('reservations', id);
   res.json({ success: true });
 });
 
 // Tour Packages
-app.get("/api/tour-packages", (req, res) => {
+app.get("/api/tour-packages", async (req, res) => {
   res.json(db.tour_packages);
 });
 
-app.post("/api/tour-packages", (req, res) => {
+app.post("/api/tour-packages", async (req, res) => {
   const pkg = {
     id: "PKG-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     ...req.body
   };
   db.tour_packages.push(pkg);
-  logActivity("Karim Nabil", `Created tour package ${pkg.package_name}`, "Tour Packages", pkg.package_name);
-  saveToFirestore('tour_packages', pkg.id, pkg);
+  await logActivity("Karim Nabil", `Created tour package ${pkg.package_name}`, "Tour Packages", pkg.package_name);
+  await saveToFirestore('tour_packages', pkg.id, pkg);
   res.json(pkg);
 });
 
-app.put("/api/tour-packages/:id", (req, res) => {
+app.put("/api/tour-packages/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.tour_packages.findIndex(p => p.id === id);
   if (idx === -1) return res.status(404).json({ error: "Package not found" });
   db.tour_packages[idx] = { ...db.tour_packages[idx], ...req.body };
-  saveToFirestore('tour_packages', db.tour_packages[idx].id, db.tour_packages[idx]);
+  await saveToFirestore('tour_packages', db.tour_packages[idx].id, db.tour_packages[idx]);
   res.json(db.tour_packages[idx]);
 });
 
-app.delete("/api/tour-packages/:id", (req, res) => {
+app.delete("/api/tour-packages/:id", async (req, res) => {
   const { id } = req.params;
   db.tour_packages = db.tour_packages.filter(p => p.id !== id);
-  deleteFromFirestore('tour_packages', id);
+  await deleteFromFirestore('tour_packages', id);
   res.json({ success: true });
 });
 
 // Hotels
-app.get("/api/hotels", (req, res) => {
+app.get("/api/hotels", async (req, res) => {
   res.json(db.hotels);
 });
 
-app.post("/api/hotels", (req, res) => {
+app.post("/api/hotels", async (req, res) => {
   const hotel = {
     id: "HOT-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     ...req.body
   };
   db.hotels.push(hotel);
-  saveToFirestore('hotels', hotel.id, hotel);
+  await saveToFirestore('hotels', hotel.id, hotel);
   res.json(hotel);
 });
 
-app.put("/api/hotels/:id", (req, res) => {
+app.put("/api/hotels/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.hotels.findIndex(h => h.id === id);
   if (idx === -1) return res.status(404).json({ error: "Hotel not found" });
   db.hotels[idx] = { ...db.hotels[idx], ...req.body };
-  saveToFirestore('hotels', db.hotels[idx].id, db.hotels[idx]);
+  await saveToFirestore('hotels', db.hotels[idx].id, db.hotels[idx]);
   res.json(db.hotels[idx]);
 });
 
-app.delete("/api/hotels/:id", (req, res) => {
+app.delete("/api/hotels/:id", async (req, res) => {
   const { id } = req.params;
   db.hotels = db.hotels.filter(h => h.id !== id);
-  deleteFromFirestore('hotels', id);
+  await deleteFromFirestore('hotels', id);
   res.json({ success: true });
 });
 
 // Flights
-app.get("/api/flights", (req, res) => {
+app.get("/api/flights", async (req, res) => {
   res.json(db.flights);
 });
 
-app.post("/api/flights", (req, res) => {
+app.post("/api/flights", async (req, res) => {
   const flight = {
     id: "FL-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     ...req.body
   };
   db.flights.push(flight);
-  saveToFirestore('flights', flight.id, flight);
+  await saveToFirestore('flights', flight.id, flight);
   res.json(flight);
 });
 
-app.put("/api/flights/:id", (req, res) => {
+app.put("/api/flights/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.flights.findIndex(f => f.id === id);
   if (idx === -1) return res.status(404).json({ error: "Flight not found" });
   db.flights[idx] = { ...db.flights[idx], ...req.body };
-  saveToFirestore('flights', db.flights[idx].id, db.flights[idx]);
+  await saveToFirestore('flights', db.flights[idx].id, db.flights[idx]);
   res.json(db.flights[idx]);
 });
 
-app.delete("/api/flights/:id", (req, res) => {
+app.delete("/api/flights/:id", async (req, res) => {
   const { id } = req.params;
   db.flights = db.flights.filter(f => f.id !== id);
-  deleteFromFirestore('flights', id);
+  await deleteFromFirestore('flights', id);
   res.json({ success: true });
 });
 
 // Suppliers
-app.get("/api/suppliers", (req, res) => {
+app.get("/api/suppliers", async (req, res) => {
   res.json(db.suppliers);
 });
 
-app.post("/api/suppliers", (req, res) => {
+app.post("/api/suppliers", async (req, res) => {
   const sup = {
     id: "SUP-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     outstanding_balance: 0,
     ...req.body
   };
   db.suppliers.push(sup);
-  saveToFirestore('suppliers', sup.id, sup);
+  await saveToFirestore('suppliers', sup.id, sup);
   res.json(sup);
 });
 
-app.put("/api/suppliers/:id", (req, res) => {
+app.put("/api/suppliers/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.suppliers.findIndex(s => s.id === id);
   if (idx === -1) return res.status(404).json({ error: "Supplier not found" });
   db.suppliers[idx] = { ...db.suppliers[idx], ...req.body };
-  saveToFirestore('suppliers', db.suppliers[idx].id, db.suppliers[idx]);
+  await saveToFirestore('suppliers', db.suppliers[idx].id, db.suppliers[idx]);
   res.json(db.suppliers[idx]);
 });
 
-app.delete("/api/suppliers/:id", (req, res) => {
+app.delete("/api/suppliers/:id", async (req, res) => {
   const { id } = req.params;
   db.suppliers = db.suppliers.filter(s => s.id !== id);
-  deleteFromFirestore('suppliers', id);
+  await deleteFromFirestore('suppliers', id);
   res.json({ success: true });
 });
 
 // Financials: Customer Payments
-app.get("/api/customer-payments", (req, res) => {
+app.get("/api/customer-payments", async (req, res) => {
   res.json(db.customer_payments);
 });
 
-app.post("/api/customer-payments", (req, res) => {
+app.post("/api/customer-payments", async (req, res) => {
   const pay = {
     id: "PAY-C-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     payment_id: "CP-" + Math.floor(5000 + Math.random() * 9000),
@@ -408,17 +410,17 @@ app.post("/api/customer-payments", (req, res) => {
     resv.payment_status = resv.remaining_amount === 0 ? "Paid" : "Partially Paid";
   }
 
-  logActivity("Tarek Lotfy", `Recorded customer payment of $${pay.amount}`, "Finance", pay.payment_id);
-  saveToFirestore('customer_payments', pay.id, pay);
+  await logActivity("Tarek Lotfy", `Recorded customer payment of $${pay.amount}`, "Finance", pay.payment_id);
+  await saveToFirestore('customer_payments', pay.id, pay);
   res.json(pay);
 });
 
 // Supplier Payments
-app.get("/api/supplier-payments", (req, res) => {
+app.get("/api/supplier-payments", async (req, res) => {
   res.json(db.supplier_payments);
 });
 
-app.post("/api/supplier-payments", (req, res) => {
+app.post("/api/supplier-payments", async (req, res) => {
   const pay = {
     id: "PAY-S-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     payment_id: "SP-" + Math.floor(7000 + Math.random() * 9000),
@@ -432,17 +434,17 @@ app.post("/api/supplier-payments", (req, res) => {
     sup.outstanding_balance = Math.max(0, sup.outstanding_balance - Number(pay.amount));
   }
 
-  logActivity("Tarek Lotfy", `Recorded supplier payment of $${pay.amount}`, "Finance", pay.payment_id || pay.id);
-  saveToFirestore('supplier_payments', pay.id, pay);
+  await logActivity("Tarek Lotfy", `Recorded supplier payment of $${pay.amount}`, "Finance", pay.payment_id || pay.id);
+  await saveToFirestore('supplier_payments', pay.id, pay);
   res.json(pay);
 });
 
 // Expenses
-app.get("/api/expenses", (req, res) => {
+app.get("/api/expenses", async (req, res) => {
   res.json(db.expenses);
 });
 
-app.post("/api/expenses", (req, res) => {
+app.post("/api/expenses", async (req, res) => {
   const exp = {
     id: "EXP-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     expense_id: "EX-" + Math.floor(300 + Math.random() * 900),
@@ -450,20 +452,22 @@ app.post("/api/expenses", (req, res) => {
     ...req.body
   };
   db.expenses.push(exp);
-  logActivity("Tarek Lotfy", `Recorded expense ${exp.category} ($${exp.amount})`, "Finance", exp.expense_id);
-  saveToFirestore('expenses', exp.id, exp);
+  await logActivity("Tarek Lotfy", `Recorded expense ${exp.category} ($${exp.amount})`, "Finance", exp.expense_id);
+  await saveToFirestore('expenses', exp.id, exp);
   res.json(exp);
 });
 
-app.delete("/api/expenses/:id", (req, res) => {
+app.delete("/api/expenses/:id", async (req, res) => {
   const { id } = req.params;
   db.expenses = db.expenses.filter(e => e.id !== id);
-  deleteFromFirestore('expenses', id);
+  await deleteFromFirestore('expenses', id);
   res.json({ success: true });
 });
 
 // Employees
-app.get("/api/employees", (req, res) => {
+app.get("/api/employees", async (req, res) => {
+  try {
+
   // Calculate performance metrics for each employee
   const employeesWithStats = db.employees.map(emp => {
     const empRes = db.reservations.filter(r => r.employee_id === emp.id);
@@ -479,10 +483,14 @@ app.get("/api/employees", (req, res) => {
       customer_count: customerSet.size
     };
   });
-  res.json(employeesWithStats);
+      res.json(employeesWithStats);
+  } catch (err) {
+    console.error("Employees Error:", err);
+    res.json(db.employees || []);
+  }
 });
 
-app.post("/api/employees", (req, res) => {
+app.post("/api/employees", async (req, res) => {
   const emp = {
     id: "EMP-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     employee_id: "E-" + Math.floor(200 + Math.random() * 800),
@@ -490,63 +498,63 @@ app.post("/api/employees", (req, res) => {
     ...req.body
   };
   db.employees.push(emp);
-  saveToFirestore('employees', emp.id, emp);
+  await saveToFirestore('employees', emp.id, emp);
   res.json(emp);
 });
 
-app.put("/api/employees/:id", (req, res) => {
+app.put("/api/employees/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.employees.findIndex(e => e.id === id);
   if (idx === -1) return res.status(404).json({ error: "Employee not found" });
   db.employees[idx] = { ...db.employees[idx], ...req.body };
-  saveToFirestore('employees', db.employees[idx].id, db.employees[idx]);
+  await saveToFirestore('employees', db.employees[idx].id, db.employees[idx]);
   res.json(db.employees[idx]);
 });
 
-app.delete("/api/employees/:id", (req, res) => {
+app.delete("/api/employees/:id", async (req, res) => {
   const { id } = req.params;
   db.employees = db.employees.filter(e => e.id !== id);
-  deleteFromFirestore('employees', id);
+  await deleteFromFirestore('employees', id);
   res.json({ success: true });
 });
 
 // Tasks
-app.get("/api/tasks", (req, res) => {
+app.get("/api/tasks", async (req, res) => {
   res.json(db.tasks);
 });
 
-app.post("/api/tasks", (req, res) => {
+app.post("/api/tasks", async (req, res) => {
   const task = {
     id: "TSK-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     ...req.body
   };
   db.tasks.push(task);
-  saveToFirestore('tasks', task.id, task);
+  await saveToFirestore('tasks', task.id, task);
   res.json(task);
 });
 
-app.put("/api/tasks/:id", (req, res) => {
+app.put("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.tasks.findIndex(t => t.id === id);
   if (idx === -1) return res.status(404).json({ error: "Task not found" });
   db.tasks[idx] = { ...db.tasks[idx], ...req.body };
-  saveToFirestore('tasks', db.tasks[idx].id, db.tasks[idx]);
+  await saveToFirestore('tasks', db.tasks[idx].id, db.tasks[idx]);
   res.json(db.tasks[idx]);
 });
 
-app.delete("/api/tasks/:id", (req, res) => {
+app.delete("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   db.tasks = db.tasks.filter(t => t.id !== id);
-  deleteFromFirestore('tasks', id);
+  await deleteFromFirestore('tasks', id);
   res.json({ success: true });
 });
 
 // Documents
-app.get("/api/documents", (req, res) => {
+app.get("/api/documents", async (req, res) => {
   res.json(db.documents);
 });
 
-app.post("/api/documents", (req, res) => {
+app.post("/api/documents", async (req, res) => {
   const doc = {
     id: "DOC-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     upload_date: new Date().toISOString().split('T')[0],
@@ -555,23 +563,23 @@ app.post("/api/documents", (req, res) => {
     ...req.body
   };
   db.documents.push(doc);
-  saveToFirestore('documents', doc.id, doc);
+  await saveToFirestore('documents', doc.id, doc);
   res.json(doc);
 });
 
-app.delete("/api/documents/:id", (req, res) => {
+app.delete("/api/documents/:id", async (req, res) => {
   const { id } = req.params;
   db.documents = db.documents.filter(d => d.id !== id);
-  deleteFromFirestore('documents', id);
+  await deleteFromFirestore('documents', id);
   res.json({ success: true });
 });
 
 // Invoices
-app.get("/api/invoices", (req, res) => {
+app.get("/api/invoices", async (req, res) => {
   res.json(db.invoices || []);
 });
 
-app.post("/api/invoices", (req, res) => {
+app.post("/api/invoices", async (req, res) => {
   const invCount = (db.invoices?.length || 0) + 1001;
   const newInvoice = {
     id: "INV-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
@@ -613,7 +621,7 @@ app.post("/api/invoices", (req, res) => {
 
   const actorName = newInvoice.created_by_employee || "Ahmed Hassan";
   const recipientName = newInvoice.recipient_type === 'Supplier' ? newInvoice.supplier_name : newInvoice.customer_name;
-  logActivity(actorName, `Issued ${newInvoice.recipient_type || 'Customer'} invoice ${newInvoice.invoice_number} to ${recipientName}`, "Invoicing", newInvoice.invoice_number);
+  await logActivity(actorName, `Issued ${newInvoice.recipient_type || 'Customer'} invoice ${newInvoice.invoice_number} to ${recipientName}`, "Invoicing", newInvoice.invoice_number);
   
   // Add a real-time notification with employee attribution
   db.notifications.unshift({
@@ -626,35 +634,35 @@ app.post("/api/invoices", (req, res) => {
     link_id: newInvoice.id
   });
 
-  saveToFirestore('invoices', newInvoice.id, newInvoice);
+  await saveToFirestore('invoices', newInvoice.id, newInvoice);
   res.json(newInvoice);
 });
 
-app.put("/api/invoices/:id", (req, res) => {
+app.put("/api/invoices/:id", async (req, res) => {
   const { id } = req.params;
   const index = (db.invoices || []).findIndex(inv => inv.id === id);
   if (index === -1) return res.status(404).json({ error: "Invoice not found" });
 
   db.invoices[index] = { ...db.invoices[index], ...req.body };
-  logActivity("Employee", `Updated invoice ${db.invoices[index].invoice_number}`, "Invoicing", db.invoices[index].invoice_number);
-  saveToFirestore('invoices', db.invoices[index].id, db.invoices[index]);
+  await logActivity("Employee", `Updated invoice ${db.invoices[index].invoice_number}`, "Invoicing", db.invoices[index].invoice_number);
+  await saveToFirestore('invoices', db.invoices[index].id, db.invoices[index]);
   res.json(db.invoices[index]);
 });
 
-app.delete("/api/invoices/:id", (req, res) => {
+app.delete("/api/invoices/:id", async (req, res) => {
   const { id } = req.params;
   db.invoices = (db.invoices || []).filter(inv => inv.id !== id);
-  logActivity("Employee", `Deleted invoice ${id}`, "Invoicing", id);
-  deleteFromFirestore('invoices', id);
+  await logActivity("Employee", `Deleted invoice ${id}`, "Invoicing", id);
+  await deleteFromFirestore('invoices', id);
   res.json({ success: true });
 });
 
 // Notifications
-app.get("/api/notifications", (req, res) => {
+app.get("/api/notifications", async (req, res) => {
   res.json(db.notifications);
 });
 
-app.put("/api/notifications/:id/read", (req, res) => {
+app.put("/api/notifications/:id/read", async (req, res) => {
   const { id } = req.params;
   const notif = db.notifications.find(n => n.id === id);
   if (notif) notif.read = true;
@@ -662,12 +670,14 @@ app.put("/api/notifications/:id/read", (req, res) => {
 });
 
 // Activity Logs
-app.get("/api/activity-logs", (req, res) => {
+app.get("/api/activity-logs", async (req, res) => {
   res.json(db.activity_logs);
 });
 
 // Dashboard Statistics & Analytics
-app.get("/api/dashboard-stats", (req, res) => {
+app.get("/api/dashboard-stats", async (req, res) => {
+  try {
+
   const total_customers = db.customers.length;
   const active_reservations = db.reservations.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending').length;
   const todayStr = new Date().toISOString().split('T')[0];
@@ -747,7 +757,7 @@ app.get("/api/dashboard-stats", (req, res) => {
     }
   }
 
-  res.json({
+      res.json({
     total_customers,
     active_reservations,
     todays_reservations,
@@ -765,6 +775,27 @@ app.get("/api/dashboard-stats", (req, res) => {
     destinationPopularity,
     topAgent
   });
+  } catch (err) {
+    console.error("Dashboard Stats Error:", err);
+    res.json({
+      total_customers: 0,
+      active_reservations: 0,
+      todays_reservations: 0,
+      upcoming_trips: 0,
+      total_sales: 0,
+      total_expenses: 0,
+      net_profit: 0,
+      outstanding_customer_payments: 0,
+      outstanding_supplier_payments: 0,
+      today_tasks: 0,
+      recent_reservations: [],
+      recent_payments: [],
+      recent_activities: [],
+      monthlyData: [],
+      destinationPopularity: [],
+      topAgent: { name: 'No data', sales: 0 }
+    });
+  }
 });
 
 // Gemini AI Assistant Integration
@@ -801,7 +832,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('*all', async (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
