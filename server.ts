@@ -58,6 +58,21 @@ let db = {
   permission_requests: []
 };
 
+async function getCollectionDocs(collectionName: string): Promise<any[]> {
+  try {
+    const snap = await getDocs(collection(firestoreDb, collectionName));
+    const docs = snap.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    }));
+    db[collectionName] = docs;
+    return docs;
+  } catch (err) {
+    console.error(`Error loading collection ${collectionName} from Firestore:`, err);
+    return db[collectionName] || [];
+  }
+}
+
 async function loadFromFirestore() {
   const collections = ['employees', 'customers', 'suppliers', 'hotels', 'flights', 'tour_packages', 'reservations', 'customer_payments', 'supplier_payments', 'expenses', 'tasks', 'documents', 'notifications', 'invoices', 'activity_logs', 'permission_requests'];
   try {
@@ -72,10 +87,7 @@ async function loadFromFirestore() {
     }
 
     for (const c of collections) {
-       const snap = await getDocs(collection(firestoreDb, c));
-       if (!snap.empty) {
-          db[c] = snap.docs.map(d => d.data());
-       }
+       await getCollectionDocs(c);
     }
     console.log("Firestore data loaded successfully.");
   } catch (err) {
@@ -92,6 +104,7 @@ async function saveToFirestore(collectionName: string, id: string, data: any) {
     throw err;
   }
 }
+
 async function deleteFromFirestore(collectionName: string, id: string) {
   try {
     await deleteDoc(doc(firestoreDb, collectionName, id));
@@ -151,7 +164,8 @@ async function addNotification(title: string, message: string, type: string = 'a
 
 // Permission Requests API
 app.get("/api/permission-requests", async (req, res) => {
-  res.json(db.permission_requests || []);
+  const requests = await getCollectionDocs('permission_requests');
+  res.json(requests);
 });
 
 app.post("/api/permission-requests", async (req, res) => {
@@ -284,6 +298,14 @@ app.post("/api/permission-requests/:id/reject", async (req, res) => {
 
 // Settings
 app.get("/api/settings", async (req, res) => {
+  try {
+    const setSnap = await getDocs(collection(firestoreDb, 'settings'));
+    if (!setSnap.empty) {
+      db.settings = { ...db.settings, ...setSnap.docs[0].data() };
+    }
+  } catch (err) {
+    console.error("Error reading settings from Firestore:", err);
+  }
   res.json(db.settings);
 });
 
@@ -296,7 +318,8 @@ app.put("/api/settings", async (req, res) => {
 
 // Customers
 app.get("/api/customers", async (req, res) => {
-  res.json(db.customers);
+  const customers = await getCollectionDocs('customers');
+  res.json(customers);
 });
 
 app.post("/api/customers", async (req, res) => {
@@ -334,7 +357,8 @@ app.delete("/api/customers/:id", async (req, res) => {
 
 // Reservations
 app.get("/api/reservations", async (req, res) => {
-  res.json(db.reservations);
+  const reservations = await getCollectionDocs('reservations');
+  res.json(reservations);
 });
 
 app.post("/api/reservations", async (req, res) => {
@@ -408,7 +432,8 @@ app.delete("/api/reservations/:id", async (req, res) => {
 
 // Tour Packages
 app.get("/api/tour-packages", async (req, res) => {
-  res.json(db.tour_packages);
+  const pkgs = await getCollectionDocs('tour_packages');
+  res.json(pkgs);
 });
 
 app.post("/api/tour-packages", async (req, res) => {
@@ -440,7 +465,8 @@ app.delete("/api/tour-packages/:id", async (req, res) => {
 
 // Hotels
 app.get("/api/hotels", async (req, res) => {
-  res.json(db.hotels);
+  const hotels = await getCollectionDocs('hotels');
+  res.json(hotels);
 });
 
 app.post("/api/hotels", async (req, res) => {
@@ -471,7 +497,8 @@ app.delete("/api/hotels/:id", async (req, res) => {
 
 // Flights
 app.get("/api/flights", async (req, res) => {
-  res.json(db.flights);
+  const flights = await getCollectionDocs('flights');
+  res.json(flights);
 });
 
 app.post("/api/flights", async (req, res) => {
@@ -502,7 +529,8 @@ app.delete("/api/flights/:id", async (req, res) => {
 
 // Suppliers
 app.get("/api/suppliers", async (req, res) => {
-  res.json(db.suppliers);
+  const suppliers = await getCollectionDocs('suppliers');
+  res.json(suppliers);
 });
 
 app.post("/api/suppliers", async (req, res) => {
@@ -534,7 +562,8 @@ app.delete("/api/suppliers/:id", async (req, res) => {
 
 // Financials: Customer Payments
 app.get("/api/customer-payments", async (req, res) => {
-  res.json(db.customer_payments);
+  const pays = await getCollectionDocs('customer_payments');
+  res.json(pays);
 });
 
 app.post("/api/customer-payments", async (req, res) => {
@@ -566,7 +595,8 @@ app.post("/api/customer-payments", async (req, res) => {
 
 // Supplier Payments
 app.get("/api/supplier-payments", async (req, res) => {
-  res.json(db.supplier_payments);
+  const pays = await getCollectionDocs('supplier_payments');
+  res.json(pays);
 });
 
 app.post("/api/supplier-payments", async (req, res) => {
@@ -590,7 +620,8 @@ app.post("/api/supplier-payments", async (req, res) => {
 
 // Expenses
 app.get("/api/expenses", async (req, res) => {
-  res.json(db.expenses);
+  const expenses = await getCollectionDocs('expenses');
+  res.json(expenses);
 });
 
 app.post("/api/expenses", async (req, res) => {
@@ -616,23 +647,24 @@ app.delete("/api/expenses/:id", async (req, res) => {
 // Employees
 app.get("/api/employees", async (req, res) => {
   try {
+    const employees = await getCollectionDocs('employees');
+    const reservations = await getCollectionDocs('reservations');
 
-  // Calculate performance metrics for each employee
-  const employeesWithStats = db.employees.map(emp => {
-    const empRes = db.reservations.filter(r => r.employee_id === emp.id);
-    const reservations_count = empRes.length;
-    const total_sales = empRes.reduce((acc, r) => acc + r.selling_price, 0);
-    const total_profit = empRes.reduce((acc, r) => acc + r.profit, 0);
-    const customerSet = new Set(empRes.map(r => r.customer_id));
-    return {
-      ...emp,
-      reservations_count,
-      total_sales,
-      total_profit,
-      customer_count: customerSet.size
-    };
-  });
-      res.json(employeesWithStats);
+    const employeesWithStats = employees.map(emp => {
+      const empRes = reservations.filter(r => r.employee_id === emp.id || r.employee_id === emp.employee_id || r.employee_name === emp.full_name);
+      const reservations_count = empRes.length;
+      const total_sales = empRes.reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
+      const total_profit = empRes.reduce((acc, r) => acc + (Number(r.profit) || 0), 0);
+      const customerSet = new Set(empRes.map(r => r.customer_id));
+      return {
+        ...emp,
+        reservations_count,
+        total_sales,
+        total_profit,
+        customer_count: customerSet.size
+      };
+    });
+    res.json(employeesWithStats);
   } catch (err) {
     console.error("Employees Error:", err);
     res.json(db.employees || []);
@@ -669,7 +701,8 @@ app.delete("/api/employees/:id", async (req, res) => {
 
 // Tasks
 app.get("/api/tasks", async (req, res) => {
-  res.json(db.tasks);
+  const tasks = await getCollectionDocs('tasks');
+  res.json(tasks);
 });
 
 app.post("/api/tasks", async (req, res) => {
@@ -700,7 +733,8 @@ app.delete("/api/tasks/:id", async (req, res) => {
 
 // Documents
 app.get("/api/documents", async (req, res) => {
-  res.json(db.documents);
+  const docs = await getCollectionDocs('documents');
+  res.json(docs);
 });
 
 app.post("/api/documents", async (req, res) => {
@@ -725,7 +759,8 @@ app.delete("/api/documents/:id", async (req, res) => {
 
 // Invoices
 app.get("/api/invoices", async (req, res) => {
-  res.json(db.invoices || []);
+  const invoices = await getCollectionDocs('invoices');
+  res.json(invoices);
 });
 
 app.post("/api/invoices", async (req, res) => {
@@ -808,39 +843,54 @@ app.delete("/api/invoices/:id", async (req, res) => {
 
 // Notifications
 app.get("/api/notifications", async (req, res) => {
-  res.json(db.notifications);
+  const notifs = await getCollectionDocs('notifications');
+  res.json(notifs);
 });
 
 app.put("/api/notifications/:id/read", async (req, res) => {
   const { id } = req.params;
   const notif = db.notifications.find(n => n.id === id);
-  if (notif) notif.read = true;
+  if (notif) {
+    notif.read = true;
+    await saveToFirestore('notifications', notif.id, notif);
+  }
   res.json({ success: true });
 });
 
 // Activity Logs
 app.get("/api/activity-logs", async (req, res) => {
-  res.json(db.activity_logs);
+  const logs = await getCollectionDocs('activity_logs');
+  res.json(logs);
 });
 
 // Dashboard Statistics & Analytics
 app.get("/api/dashboard-stats", async (req, res) => {
   try {
+    await Promise.all([
+      getCollectionDocs('customers'),
+      getCollectionDocs('reservations'),
+      getCollectionDocs('expenses'),
+      getCollectionDocs('customer_payments'),
+      getCollectionDocs('supplier_payments'),
+      getCollectionDocs('suppliers'),
+      getCollectionDocs('tasks'),
+      getCollectionDocs('activity_logs')
+    ]);
 
-  const total_customers = db.customers.length;
-  const active_reservations = db.reservations.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending').length;
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todays_reservations = db.reservations.filter(r => r.booking_date === todayStr).length;
-  const upcoming_trips = db.reservations.filter(r => r.travel_date >= todayStr).length;
-  
-  const total_sales = db.reservations.reduce((acc, r) => acc + (r.selling_price || 0), 0);
-  const total_supplier_costs = db.reservations.reduce((acc, r) => acc + (r.cost_price || 0), 0);
-  const total_expenses = db.expenses.reduce((acc, e) => acc + (e.amount || 0), 0);
-  const net_profit = total_sales - total_supplier_costs - total_expenses;
+    const total_customers = db.customers.length;
+    const active_reservations = db.reservations.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending').length;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todays_reservations = db.reservations.filter(r => r.booking_date === todayStr).length;
+    const upcoming_trips = db.reservations.filter(r => r.travel_date >= todayStr).length;
+    
+    const total_sales = db.reservations.reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
+    const total_supplier_costs = db.reservations.reduce((acc, r) => acc + (Number(r.cost_price) || 0), 0);
+    const total_expenses = db.expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+    const net_profit = total_sales - total_supplier_costs - total_expenses;
 
-  const outstanding_customer_payments = db.customers.reduce((acc, c) => acc + (c.outstanding_balance || 0), 0);
-  const outstanding_supplier_payments = db.suppliers.reduce((acc, s) => acc + (s.outstanding_balance || 0), 0);
-  const today_tasks = db.tasks.filter(t => t.status !== 'Completed').length;
+    const outstanding_customer_payments = db.customers.reduce((acc, c) => acc + (Number(c.outstanding_balance) || 0), 0);
+    const outstanding_supplier_payments = db.suppliers.reduce((acc, s) => acc + (Number(s.outstanding_balance) || 0), 0);
+    const today_tasks = db.tasks.filter(t => t.status !== 'Completed').length;
 
   // Compute monthly data
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
