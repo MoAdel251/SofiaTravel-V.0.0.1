@@ -126,9 +126,9 @@ export function DocumentsView({
 
   // Filter documents
   const filteredDocs = aggregatedDocs.filter(d => {
-    const matchesSearch = d.document_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (d.linked_name && d.linked_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                          d.document_type.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = ( d.document_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          (d.linked_name && ( d.linked_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase())) ||
+                          ( d.document_type || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase());
 
     const matchesCategory = categoryFilter === 'All' || 
       (categoryFilter === 'Passport' && (d.document_type === 'Passport' || d.document_type === 'Visa')) ||

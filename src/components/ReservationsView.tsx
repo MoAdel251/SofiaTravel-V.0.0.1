@@ -82,9 +82,9 @@ export function ReservationsView({
 
     // Look for matching supplier if available
     const matchedSupplier = suppliers.find(s => 
-      s.supplier_name.toLowerCase().includes('nile') || 
-      s.supplier_name.toLowerCase().includes('safari') ||
-      s.supplier_name.toLowerCase().includes('pyramid')
+      ( s.supplier_name || "" ).toLowerCase().includes('nile') || 
+      ( s.supplier_name || "" ).toLowerCase().includes('safari') ||
+      ( s.supplier_name || "" ).toLowerCase().includes('pyramid')
     ) || suppliers[0];
 
     setFormData(prev => ({
@@ -114,9 +114,9 @@ export function ReservationsView({
   };
 
   const filteredReservations = reservations.filter(r => {
-    const matchesSearch = r.reservation_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          r.destination.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (r.customer_name && r.customer_name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesSearch = ( r.reservation_id || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          ( r.destination || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          (r.customer_name && ( r.customer_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()));
     const matchesStatus = statusFilter === 'All' || r.reservation_status === statusFilter;
     return matchesSearch && matchesStatus;
   });

@@ -55,9 +55,9 @@ export function SuppliersView({
   });
 
   const filteredSuppliers = suppliers.filter(s => {
-    const matchesSearch = s.supplier_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          s.contact_person.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          s.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const matchesSearch = ( s.supplier_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          ( s.contact_person || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          ( s.email || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
                           s.phone.includes(searchTerm);
     const matchesType = typeFilter === 'All' || s.type === typeFilter;
     return matchesSearch && matchesType;
@@ -85,7 +85,7 @@ export function SuppliersView({
   const getSupplierFinancials = (sup: Supplier) => {
     const supInvoices = invoices.filter(inv => 
       inv.supplier_id === sup.id || 
-      (inv.supplier_name && inv.supplier_name.toLowerCase() === sup.supplier_name.toLowerCase())
+      (inv.supplier_name && ( inv.supplier_name || "" ).toLowerCase() === ( sup.supplier_name || "" ).toLowerCase())
     );
 
     let totalDueUSD = 0;
@@ -278,7 +278,7 @@ export function SuppliersView({
         const fin = getSupplierFinancials(statementSupplier);
         const supInvoices = invoices.filter(inv => 
           inv.supplier_id === statementSupplier.id || 
-          (inv.supplier_name && inv.supplier_name.toLowerCase() === statementSupplier.supplier_name.toLowerCase())
+          (inv.supplier_name && ( inv.supplier_name || "" ).toLowerCase() === ( statementSupplier.supplier_name || "" ).toLowerCase())
         );
 
         return (

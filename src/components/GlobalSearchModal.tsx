@@ -16,11 +16,11 @@ export function GlobalSearchModal({ isOpen, onClose, customers, reservations, ho
 
   if (!isOpen) return null;
 
-  const q = query.toLowerCase();
-  const matchedCustomers = q ? customers.filter(c => c.full_name.toLowerCase().includes(q) || c.passport_number.toLowerCase().includes(q) || c.phone.includes(q)) : [];
-  const matchedReservations = q ? reservations.filter(r => r.reservation_id.toLowerCase().includes(q) || r.destination.toLowerCase().includes(q)) : [];
-  const matchedHotels = q ? hotels.filter(h => h.hotel_name.toLowerCase().includes(q) || h.city.toLowerCase().includes(q)) : [];
-  const matchedFlights = q ? flights.filter(f => f.airline.toLowerCase().includes(q) || f.booking_reference.toLowerCase().includes(q) || f.passenger.toLowerCase().includes(q)) : [];
+  const q = ( query || "" ).toLowerCase();
+  const matchedCustomers = q ? customers.filter(c => (c.full_name || "").toLowerCase().includes(q) || (c.passport_number || "").toLowerCase().includes(q) || (c.phone || "").includes(q)) : [];
+  const matchedReservations = q ? reservations.filter(r => (r.reservation_id || "").toLowerCase().includes(q) || (r.destination || "").toLowerCase().includes(q)) : [];
+  const matchedHotels = q ? hotels.filter(h => (h.hotel_name || "").toLowerCase().includes(q) || (h.city || "").toLowerCase().includes(q)) : [];
+  const matchedFlights = q ? flights.filter(f => (f.airline || "").toLowerCase().includes(q) || (f.booking_reference || "").toLowerCase().includes(q) || (f.passenger || "").toLowerCase().includes(q)) : [];
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-start justify-center pt-20 p-4 z-50">

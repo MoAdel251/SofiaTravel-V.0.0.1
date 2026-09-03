@@ -54,13 +54,12 @@ let db = {
   documents: [],
   notifications: [],
   invoices: [],
-  activity_logs: []
+  activity_logs: [],
+  permission_requests: []
 };
 
-
-
 async function loadFromFirestore() {
-  const collections = ['employees', 'customers', 'suppliers', 'hotels', 'flights', 'tour_packages', 'reservations', 'customer_payments', 'supplier_payments', 'expenses', 'tasks', 'documents', 'notifications', 'invoices', 'activity_logs'];
+  const collections = ['employees', 'customers', 'suppliers', 'hotels', 'flights', 'tour_packages', 'reservations', 'customer_payments', 'supplier_payments', 'expenses', 'tasks', 'documents', 'notifications', 'invoices', 'activity_logs', 'permission_requests'];
   try {
     console.log("Loading data from Firestore...");
     // Load Settings
@@ -131,7 +130,157 @@ async function logActivity(userName: string, action: string, module: string, rec
   await saveToFirestore('activity_logs', newLog.id, newLog);
 }
 
+// Helper function to add notifications
+async function addNotification(title: string, message: string, type: string = 'action', link_id?: string) {
+  const notif = {
+    id: 'NOTIF-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+    title,
+    message,
+    type: type as any,
+    date: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    read: false,
+    link_id
+  };
+  if (!db.notifications) db.notifications = [];
+  db.notifications.unshift(notif);
+  await saveToFirestore('notifications', notif.id, notif);
+  return notif;
+}
+
 // REST API Endpoints
+
+// Permission Requests API
+app.get("/api/permission-requests", async (req, res) => {
+  res.json(db.permission_requests || []);
+});
+
+app.post("/api/permission-requests", async (req, res) => {
+  const data = req.body;
+  const newReq = {
+    id: "REQ-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
+    request_id: "PR-" + Math.floor(1000 + Math.random() * 9000),
+    employee_id: data.employee_id || "EMP-001",
+    employee_name: data.employee_name || "Employee",
+    employee_role: data.employee_role || "Sales",
+    module: data.module,
+    item_id: data.item_id,
+    item_name: data.item_name,
+    action_type: data.action_type, // 'Edit' | 'Delete'
+    reason: data.reason || "No reason provided",
+    proposed_changes: data.proposed_changes || null,
+    status: "Pending", // 'Pending' | 'Approved' | 'Rejected'
+    created_at: new Date().toISOString().replace('T', ' ').substring(0, 16),
+  };
+
+  if (!db.permission_requests) db.permission_requests = [];
+  db.permission_requests.unshift(newReq);
+
+  await addNotification(
+    `Permission Request: ${newReq.action_type} ${newReq.module}`,
+    `Employee ${newReq.employee_name} (${newReq.employee_role}) requested permission to ${newReq.action_type.toLowerCase()} "${newReq.item_name}" in ${newReq.module}. Reason: "${newReq.reason}"`,
+    'permission',
+    newReq.id
+  );
+
+  await logActivity(
+    newReq.employee_name,
+    `Submitted ${newReq.action_type} permission request for ${newReq.module}`,
+    newReq.module,
+    newReq.item_name
+  );
+
+  await saveToFirestore('permission_requests', newReq.id, newReq);
+  res.json(newReq);
+});
+
+app.post("/api/permission-requests/:id/approve", async (req, res) => {
+  const { id } = req.params;
+  const { reviewer_name } = req.body;
+
+  const request = (db.permission_requests || []).find(r => r.id === id);
+  if (!request) return res.status(404).json({ error: "Request not found" });
+
+  request.status = "Approved";
+  request.reviewed_by = reviewer_name || "Manager";
+  request.reviewed_at = new Date().toISOString().replace('T', ' ').substring(0, 16);
+
+  const colMap: Record<string, string> = {
+    'Customers': 'customers',
+    'Reservations': 'reservations',
+    'Invoices': 'invoices',
+    'Suppliers': 'suppliers',
+    'Employees': 'employees',
+    'Tour Packages': 'tour_packages',
+    'Hotels': 'hotels',
+    'Flights': 'flights',
+    'Tasks': 'tasks',
+    'Documents': 'documents',
+    'Expenses': 'expenses',
+    'Customer Payments': 'customer_payments',
+    'Supplier Payments': 'supplier_payments'
+  };
+
+  const targetCol = colMap[request.module];
+  if (targetCol && db[targetCol]) {
+    if (request.action_type === 'Delete') {
+      db[targetCol] = db[targetCol].filter((i: any) => i.id !== request.item_id);
+      await deleteFromFirestore(targetCol, request.item_id);
+    } else if (request.action_type === 'Edit' && request.proposed_changes) {
+      const idx = db[targetCol].findIndex((i: any) => i.id === request.item_id);
+      if (idx !== -1) {
+        db[targetCol][idx] = { ...db[targetCol][idx], ...request.proposed_changes };
+        await saveToFirestore(targetCol, request.item_id, db[targetCol][idx]);
+      }
+    }
+  }
+
+  await addNotification(
+    `Permission Request Approved`,
+    `The request by ${request.employee_name} to ${request.action_type.toLowerCase()} "${request.item_name}" (${request.module}) was APPROVED by ${request.reviewed_by}.`,
+    'permission',
+    request.id
+  );
+
+  await logActivity(
+    request.reviewed_by,
+    `Approved ${request.action_type} request for ${request.item_name}`,
+    request.module,
+    request.item_id
+  );
+
+  await saveToFirestore('permission_requests', request.id, request);
+  res.json(request);
+});
+
+app.post("/api/permission-requests/:id/reject", async (req, res) => {
+  const { id } = req.params;
+  const { reviewer_name, rejection_reason } = req.body;
+
+  const request = (db.permission_requests || []).find(r => r.id === id);
+  if (!request) return res.status(404).json({ error: "Request not found" });
+
+  request.status = "Rejected";
+  request.reviewed_by = reviewer_name || "Manager";
+  request.reviewed_at = new Date().toISOString().replace('T', ' ').substring(0, 16);
+  request.rejection_reason = rejection_reason || "Not approved";
+
+  await addNotification(
+    `Permission Request Rejected`,
+    `The request by ${request.employee_name} to ${request.action_type.toLowerCase()} "${request.item_name}" (${request.module}) was REJECTED by ${request.reviewed_by}. Reason: ${request.rejection_reason}`,
+    'permission',
+    request.id
+  );
+
+  await logActivity(
+    request.reviewed_by,
+    `Rejected ${request.action_type} request for ${request.item_name}`,
+    request.module,
+    request.item_id
+  );
+
+  await saveToFirestore('permission_requests', request.id, request);
+  res.json(request);
+});
 
 // Settings
 app.get("/api/settings", async (req, res) => {

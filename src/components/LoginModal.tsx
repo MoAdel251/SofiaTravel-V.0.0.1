@@ -2,17 +2,27 @@ import React, { useState } from 'react';
 import { Shield, Lock, User, Plane, CheckCircle2, AlertCircle } from 'lucide-react';
 import { UserRole } from '../types';
 
+import { Employee } from '../types';
 interface LoginModalProps {
+  employees?: Employee[];
   onLogin: (username: string, role: UserRole) => void;
   companyName: string;
 }
 
-export function LoginModal({ onLogin, companyName }: LoginModalProps) {
+export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
+  const employeeAccounts = employees.map(emp => ({
+    name: emp.username || emp.name,
+    pass: emp.password || '',
+    role: (emp.position as UserRole) || 'Sales',
+    label: emp.position || 'Employee'
+  }));
+
   const accounts = [
+    ...employeeAccounts,
     { name: 'IT', pass: '1282', role: 'Administrator' as UserRole, label: 'IT Administrator' },
     { name: 'Ahmed Ali', pass: 'AA01', role: 'Administrator' as UserRole, label: 'Administrator' },
     { name: 'Mahmoud Makhlouf', pass: 'MM02', role: 'Administrator' as UserRole, label: 'Administrator' },
@@ -25,12 +35,12 @@ export function LoginModal({ onLogin, companyName }: LoginModalProps) {
     setError('');
 
     const matched = accounts.find(
-      acc => acc.name.toLowerCase() === username.trim().toLowerCase()
+      acc => ( acc.name || "" ).toLowerCase() === username.trim().toLowerCase()
     );
 
     // Also support exact match on name and password
     const validAcc = accounts.find(
-      acc => acc.name.toLowerCase() === username.trim().toLowerCase() && acc.pass === password
+      acc => ( acc.name || "" ).toLowerCase() === username.trim().toLowerCase() && acc.pass === password
     );
 
     if (validAcc) {

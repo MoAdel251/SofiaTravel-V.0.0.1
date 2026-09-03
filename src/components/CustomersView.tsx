@@ -66,11 +66,11 @@ export function CustomersView({
   });
 
   const filteredCustomers = customers.filter(c => {
-    const matchesSearch = c.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          c.passport_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          c.phone.includes(searchTerm) ||
-                          c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          c.customer_id.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = (c.full_name || "").toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          (c.passport_number || "").toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          (c.phone || "").includes(searchTerm) ||
+                          (c.email || "").toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          (c.customer_id || "").toLowerCase().includes(( searchTerm || "" ).toLowerCase());
     const matchesType = typeFilter === 'All' || c.customer_type === typeFilter;
     return matchesSearch && matchesType;
   });

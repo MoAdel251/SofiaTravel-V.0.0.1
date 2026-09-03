@@ -270,9 +270,9 @@ export function InvoicesView({
   const filteredInvoices = invoices.filter(inv => {
     const recipient = inv.recipient_type === 'Supplier' ? (inv.supplier_name || '') : (inv.customer_name || '');
     const matchesSearch = 
-      inv.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      recipient.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (inv.customer_passport && inv.customer_passport.toLowerCase().includes(searchTerm.toLowerCase()));
+      ( inv.invoice_number || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+      ( recipient || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+      (inv.customer_passport && ( inv.customer_passport || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()));
 
     const matchesStatus = statusFilter === 'All' || inv.payment_status === statusFilter;
     const matchesRecipient = recipientFilter === 'All' || 

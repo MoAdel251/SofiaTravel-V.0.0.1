@@ -1,0 +1,67 @@
+import puppeteer from 'puppeteer';
+
+(async () => {
+  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const page = await browser.newPage();
+  
+  page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+  page.on('pageerror', error => console.log('PAGE ERROR STACK:', error.stack));
+  
+  await page.goto('http://localhost:3000', { waitUntil: 'networkidle2' });
+  
+  // Login
+  try {
+    const inputs = await page.$$('input');
+    if (inputs.length >= 2) {
+      await inputs[0].type('IT');
+      await inputs[1].type('1282');
+      await page.click('button[type="submit"]');
+    }
+  } catch(e) {}
+  await new Promise(r => setTimeout(r, 2000));
+  
+  // click customers tab
+  const tabs = await page.$$('nav button');
+  for (const t of tabs) {
+    const text = await page.evaluate(el => el.innerText, t);
+    if (text.includes('Customers')) {
+      await t.click();
+      break;
+    }
+  }
+  await new Promise(r => setTimeout(r, 1000));
+  
+  // click add customer
+  const btns = await page.$$('button');
+  for (const b of btns) {
+    const text = await page.evaluate(el => el.innerText, b);
+    if (text.includes('Add Customer')) {
+      await b.click();
+      break;
+    }
+  }
+  await new Promise(r => setTimeout(r, 1000));
+  
+  // fill form
+  try {
+    // The inputs are: Search, Full Name, Passport, Nationality, Phone, Email, Address
+    const inputs = await page.$$('input');
+    await inputs[1].type('Super New Customer 99'); // Full Name
+    await inputs[2].type('A1234567'); // Passport
+    await inputs[4].type('01012345678'); // Phone
+    
+    const modalBtns = await page.$$('form button');
+    for (const b of modalBtns) {
+      const text = await page.evaluate(el => el.innerText, b);
+      if (text.includes('Save Customer')) {
+        await b.click();
+        break;
+      }
+    }
+  } catch(e) { console.log("Form error", e); }
+  
+  await new Promise(r => setTimeout(r, 3000));
+  const html = await page.evaluate(() => document.body.innerText);
+  console.log("PAGE TEXT CONTAINS CUSTOMER:", html.includes('Super New Customer 99'));
+  await browser.close();
+})();

@@ -35,8 +35,8 @@ export function TasksView({
   const isManagerOrAdmin = userRole === 'Manager' || userRole === 'Administrator';
 
   const filteredTasks = tasks.filter(t => {
-    const matchesSearch = t.task_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (t.assigned_employee_name && t.assigned_employee_name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesSearch = ( t.task_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                          (t.assigned_employee_name && ( t.assigned_employee_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()));
     const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
     const matchesPriority = priorityFilter === 'All' || t.priority === priorityFilter;
     return matchesSearch && matchesStatus && matchesPriority;

@@ -286,11 +286,33 @@ export interface Task {
   notes: string;
 }
 
+export type RequestAction = 'Edit' | 'Delete';
+export type RequestStatus = 'Pending' | 'Approved' | 'Rejected';
+
+export interface PermissionRequest {
+  id: string;
+  request_id: string;
+  employee_id: string;
+  employee_name: string;
+  employee_role: UserRole;
+  module: string;
+  item_id: string;
+  item_name: string;
+  action_type: RequestAction;
+  reason: string;
+  proposed_changes?: any;
+  status: RequestStatus;
+  created_at: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  rejection_reason?: string;
+}
+
 export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'trip' | 'flight' | 'hotel' | 'payment' | 'supplier' | 'task' | 'reservation' | 'cancellation';
+  type: 'trip' | 'flight' | 'hotel' | 'payment' | 'supplier' | 'task' | 'reservation' | 'cancellation' | 'action' | 'permission';
   date: string;
   read: boolean;
   link_id?: string;

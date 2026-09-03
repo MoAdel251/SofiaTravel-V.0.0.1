@@ -79,8 +79,8 @@ export function convertCurrency(
 ): number {
   if (!amount || fromCurrency === toCurrency) return amount;
 
-  const fromRate = rates.find(r => r.currency.toUpperCase() === fromCurrency.toUpperCase())?.rate_to_usd || 1.0;
-  const toRate = rates.find(r => r.currency.toUpperCase() === toCurrency.toUpperCase())?.rate_to_usd || 1.0;
+  const fromRate = rates.find(r => (r.currency || "").toUpperCase() === (fromCurrency || "").toUpperCase())?.rate_to_usd || 1.0;
+  const toRate = rates.find(r => (r.currency || "").toUpperCase() === (toCurrency || "").toUpperCase())?.rate_to_usd || 1.0;
 
   // Amount in USD = amount / fromRate
   // Amount in toCurrency = (amount / fromRate) * toRate
