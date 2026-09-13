@@ -1,17 +1,40 @@
 
+import fs from 'fs';
+import path from 'path';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDbv4GKEAs7x38VU0fX9W9ERrnR5b_G4cQ",
-  authDomain: "sofiatravel-c86ec.firebaseapp.com",
-  projectId: "sofiatravel-c86ec",
-  storageBucket: "sofiatravel-c86ec.firebasestorage.app",
-  messagingSenderId: "818590455835",
-  appId: "1:818590455835:web:fbc8af8acb3bbe54fc80be"
+let firebaseConfig: any = {
+  apiKey: "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
+  authDomain: "tidal-dynamics-s54g5.firebaseapp.com",
+  projectId: "tidal-dynamics-s54g5",
+  storageBucket: "tidal-dynamics-s54g5.firebasestorage.app",
+  messagingSenderId: "879700596249",
+  appId: "1:879700596249:web:09aba9e86995c144cf3c88"
 };
+let firestoreDatabaseId: string | undefined = undefined;
+
+try {
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    firebaseConfig = {
+      apiKey: parsed.apiKey,
+      authDomain: parsed.authDomain,
+      projectId: parsed.projectId,
+      storageBucket: parsed.storageBucket,
+      messagingSenderId: parsed.messagingSenderId,
+      appId: parsed.appId
+    };
+    firestoreDatabaseId = parsed.firestoreDatabaseId || undefined;
+  }
+} catch (e) {
+  console.error("Failed to parse firebase-applet-config.json:", e);
+}
+
 const firebaseApp = initializeApp(firebaseConfig);
-const firestoreDb = getFirestore(firebaseApp);
+const firestoreDb = firestoreDatabaseId ? getFirestore(firebaseApp, firestoreDatabaseId) : getFirestore(firebaseApp);
+
 
 let db = {
   settings: {
@@ -115,7 +138,6 @@ async function deleteFromFirestore(collectionName: string, id: string) {
 }
 
 import express from "express";
-import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 

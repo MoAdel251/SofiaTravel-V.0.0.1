@@ -1,8 +1,12 @@
 {
-  "apiKey": "AIzaSyDbv4GKEAs7x38VU0fX9W9ERrnR5b_G4cQ",
-  "authDomain": "sofiatravel-c86ec.firebaseapp.com",
-  "projectId": "sofiatravel-c86ec",
-  "storageBucket": "sofiatravel-c86ec.firebasestorage.app",
-  "messagingSenderId": "818590455835",
-  "appId": "1:818590455835:web:fbc8af8acb3bbe54fc80be"
+  "projectId": "tidal-dynamics-s54g5",
+  "appId": "1:879700596249:web:09aba9e86995c144cf3c88",
+  "apiKey": "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
+  "authDomain": "tidal-dynamics-s54g5.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-sofiatravelmanag-d5250360-2f13-4e61-9f65-9d2693ac8c37",
+  "storageBucket": "tidal-dynamics-s54g5.firebasestorage.app",
+  "messagingSenderId": "879700596249",
+  "measurementId": "",
+  "oAuthClientId": "879700596249-4flju9sd29p5ldd02l0jhunmlj560j2p.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }
