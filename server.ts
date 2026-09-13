@@ -96,6 +96,418 @@ async function getCollectionDocs(collectionName: string): Promise<any[]> {
   }
 }
 
+const initialSeedData: Record<string, any[]> = {
+  employees: [
+    {
+      id: "EMP-001",
+      employee_id: "EMP-001",
+      full_name: "Ahmed Hassan",
+      job_title: "General Manager",
+      department: "Management",
+      email: "ahmed.hassan@sofiatravel.com",
+      phone: "+20 100 111 2222",
+      role: "Administrator",
+      status: "Active",
+      salary: 4500,
+      currency: "USD",
+      joining_date: "2024-01-15",
+      reservations_count: 12,
+      total_sales: 24500,
+      total_profit: 6800,
+      customer_count: 8
+    },
+    {
+      id: "EMP-002",
+      employee_id: "EMP-002",
+      full_name: "Mona Zaki",
+      job_title: "Chief Accountant",
+      department: "Finance",
+      email: "mona.zaki@sofiatravel.com",
+      phone: "+20 100 333 4444",
+      role: "Accountant",
+      status: "Active",
+      salary: 3200,
+      currency: "USD",
+      joining_date: "2024-03-01",
+      reservations_count: 0,
+      total_sales: 0,
+      total_profit: 0,
+      customer_count: 0
+    },
+    {
+      id: "EMP-003",
+      employee_id: "EMP-003",
+      full_name: "Karim Nabil",
+      job_title: "Senior Travel Consultant",
+      department: "Sales & Operations",
+      email: "karim.nabil@sofiatravel.com",
+      phone: "+20 100 555 6666",
+      role: "Manager",
+      status: "Active",
+      salary: 2800,
+      currency: "USD",
+      joining_date: "2024-05-10",
+      reservations_count: 28,
+      total_sales: 58900,
+      total_profit: 14200,
+      customer_count: 19
+    },
+    {
+      id: "EMP-004",
+      employee_id: "EMP-004",
+      full_name: "Youssef Mahmoud",
+      job_title: "Tour Coordinator",
+      department: "Logistics",
+      email: "youssef.m@sofiatravel.com",
+      phone: "+20 100 777 8888",
+      role: "Employee",
+      status: "Active",
+      salary: 2100,
+      currency: "USD",
+      joining_date: "2024-08-01",
+      reservations_count: 14,
+      total_sales: 21800,
+      total_profit: 4900,
+      customer_count: 11
+    }
+  ],
+  customers: [
+    {
+      id: "CUST-001",
+      customer_id: "C-1001",
+      full_name: "Dr. Omar Al-Fayed",
+      email: "omar.fayed@gmail.com",
+      phone: "+20 101 234 5678",
+      whatsapp: "+20 101 234 5678",
+      nationality: "Egypt",
+      passport_number: "A12345678",
+      passport_expiry: "2030-05-15",
+      notes: "VIP guest, prefers 5-star Nile view rooms.",
+      registration_date: "2026-08-01",
+      outstanding_balance: 0,
+      currency: "USD"
+    },
+    {
+      id: "CUST-002",
+      customer_id: "C-1002",
+      full_name: "Sarah Jenkins",
+      email: "s.jenkins@outlook.com",
+      phone: "+44 7911 123456",
+      whatsapp: "+44 7911 123456",
+      nationality: "United Kingdom",
+      passport_number: "P98765432",
+      passport_expiry: "2029-11-20",
+      notes: "Vegetarian meals requested for all flights.",
+      registration_date: "2026-08-10",
+      outstanding_balance: 900,
+      currency: "USD"
+    },
+    {
+      id: "CUST-003",
+      customer_id: "C-1003",
+      full_name: "Mohammed Al-Qasimi",
+      email: "m.qasimi@yahoo.com",
+      phone: "+966 50 123 4567",
+      whatsapp: "+966 50 123 4567",
+      nationality: "Saudi Arabia",
+      passport_number: "K55443322",
+      passport_expiry: "2028-09-10",
+      notes: "Requires private luxury SUV transportation.",
+      registration_date: "2026-08-15",
+      outstanding_balance: 0,
+      currency: "USD"
+    }
+  ],
+  tour_packages: [
+    {
+      id: "PKG-001",
+      package_code: "PKG-CAI-01",
+      package_name: "Classic Cairo & Pyramids Discovery",
+      destination: "Cairo",
+      duration_days: 4,
+      duration_nights: 3,
+      price: 650,
+      cost_price: 420,
+      currency: "USD",
+      status: "Active",
+      description: "Includes Giza Pyramids, Egyptian Museum, Citadel, Khan El-Khalili Bazaar & Dinner Nile Cruise.",
+      included_services: ["5-Star Hotel", "Airport Transfers", "Private Egyptologist Guide", "Nile Dinner Cruise"],
+      excluded_services: ["International Flights", "Personal Expenses", "Entry Visa"]
+    },
+    {
+      id: "PKG-002",
+      package_code: "PKG-SSH-02",
+      package_name: "Red Sea Riviera & Sharm El Sheikh Retreat",
+      destination: "Sharm El Sheikh",
+      duration_days: 6,
+      duration_nights: 5,
+      price: 950,
+      cost_price: 680,
+      currency: "USD",
+      status: "Active",
+      description: "Luxury all-inclusive resort stay with Ras Mohammed snorkeling excursion, quad safari & Bedouin dinner.",
+      included_services: ["All-Inclusive Resort", "Airport Transfers", "Snorkeling Boat Trip", "Desert Safari"],
+      excluded_services: ["Diving Equipment Hire", "Tips"]
+    },
+    {
+      id: "PKG-003",
+      package_code: "PKG-NIL-03",
+      package_name: "Nile Cruise Explorer: Luxor to Aswan",
+      destination: "Luxor & Aswan",
+      duration_days: 5,
+      duration_nights: 4,
+      price: 1100,
+      cost_price: 790,
+      currency: "USD",
+      status: "Active",
+      description: "5-Star Deluxe Nile Cruise covering Karnak, Valley of the Kings, Edfu, Kom Ombo, and Philae Temple.",
+      included_services: ["5-Star Nile Cruise Full Board", "All Temple Entrance Fees", "Licensed Tour Guide"],
+      excluded_services: ["Abu Simbel Excursion Add-on", "Beverages on Cruise"]
+    }
+  ],
+  hotels: [
+    {
+      id: "HOT-001",
+      hotel_name: "Marriott Mena House Cairo",
+      city: "Cairo - Giza",
+      stars: 5,
+      room_type: "Deluxe Pyramid View Room",
+      nightly_rate: 220,
+      currency: "USD",
+      contact_phone: "+20 2 33773222",
+      email: "reservations@marriottmenahouse.com",
+      status: "Active"
+    },
+    {
+      id: "HOT-002",
+      hotel_name: "Four Seasons Resort Sharm El Sheikh",
+      city: "Sharm El Sheikh",
+      stars: 5,
+      room_type: "Premier Sea View Suite",
+      nightly_rate: 450,
+      currency: "USD",
+      contact_phone: "+20 69 3603555",
+      email: "res.sharm@fourseasons.com",
+      status: "Active"
+    },
+    {
+      id: "HOT-003",
+      hotel_name: "Sofitel Winter Palace Luxor",
+      city: "Luxor",
+      stars: 5,
+      room_type: "Luxury Nile View Room",
+      nightly_rate: 310,
+      currency: "USD",
+      contact_phone: "+20 95 2380422",
+      email: "h1661@accor.com",
+      status: "Active"
+    }
+  ],
+  flights: [
+    {
+      id: "FL-001",
+      flight_number: "MS-789",
+      airline: "EgyptAir",
+      origin: "Cairo (CAI)",
+      destination: "Sharm El Sheikh (SSH)",
+      departure_time: "2026-09-20 08:30",
+      arrival_time: "2026-09-20 09:30",
+      price: 120,
+      cost_price: 90,
+      currency: "USD",
+      status: "Confirmed"
+    },
+    {
+      id: "FL-002",
+      flight_number: "MS-985",
+      airline: "EgyptAir",
+      origin: "Cairo (CAI)",
+      destination: "Luxor (LXR)",
+      departure_time: "2026-09-22 07:15",
+      arrival_time: "2026-09-22 08:15",
+      price: 140,
+      cost_price: 105,
+      currency: "USD",
+      status: "Confirmed"
+    }
+  ],
+  suppliers: [
+    {
+      id: "SUP-001",
+      supplier_name: "EgyptAir Travel Services",
+      category: "Airline & Flights",
+      contact_person: "Hesham Al-Sayed",
+      phone: "+20 2 26966666",
+      email: "b2b@egyptair.com",
+      address: "Cairo International Airport Complex",
+      outstanding_balance: 1950,
+      currency: "USD"
+    },
+    {
+      id: "SUP-002",
+      supplier_name: "Karnak Nile Cruises & Transport",
+      category: "Nile Cruises & Coaches",
+      contact_person: "Tarek Mansour",
+      phone: "+20 95 2372000",
+      email: "ops@karnakcruises.com",
+      address: "Corniche El Nile, Luxor",
+      outstanding_balance: 2400,
+      currency: "USD"
+    }
+  ],
+  reservations: [
+    {
+      id: "RES-001",
+      reservation_id: "RES-1001",
+      customer_id: "CUST-001",
+      customer_name: "Dr. Omar Al-Fayed",
+      package_id: "PKG-001",
+      package_name: "Classic Cairo & Pyramids Discovery",
+      hotel_name: "Marriott Mena House Cairo",
+      booking_date: "2026-09-01",
+      travel_date: "2026-09-20",
+      return_date: "2026-09-24",
+      adults_count: 2,
+      children_count: 0,
+      selling_price: 1300,
+      cost_price: 840,
+      profit: 460,
+      paid_amount: 1300,
+      remaining_amount: 0,
+      payment_status: "Paid",
+      reservation_status: "Confirmed",
+      employee_id: "EMP-003",
+      employee_name: "Karim Nabil"
+    },
+    {
+      id: "RES-002",
+      reservation_id: "RES-1002",
+      customer_id: "CUST-002",
+      customer_name: "Sarah Jenkins",
+      package_id: "PKG-002",
+      package_name: "Red Sea Riviera & Sharm El Sheikh Retreat",
+      hotel_name: "Four Seasons Resort Sharm El Sheikh",
+      booking_date: "2026-09-05",
+      travel_date: "2026-09-25",
+      return_date: "2026-10-01",
+      adults_count: 2,
+      children_count: 1,
+      selling_price: 2850,
+      cost_price: 1950,
+      profit: 900,
+      paid_amount: 1950,
+      remaining_amount: 900,
+      payment_status: "Partially Paid",
+      reservation_status: "Confirmed",
+      employee_id: "EMP-003",
+      employee_name: "Karim Nabil"
+    }
+  ],
+  expenses: [
+    {
+      id: "EXP-001",
+      expense_number: "EXP-2026-01",
+      title: "HQ Office Rent - Tahrir Square",
+      category: "Rent & Utilities",
+      amount: 2500,
+      currency: "USD",
+      date: "2026-09-01",
+      payment_method: "Bank Transfer",
+      vendor: "Cairo Real Estate Management",
+      status: "Paid",
+      notes: "September 2026 monthly rent payment."
+    },
+    {
+      id: "EXP-002",
+      expense_number: "EXP-2026-02",
+      title: "Digital Marketing & Google Ads Campaign",
+      category: "Marketing",
+      amount: 850,
+      currency: "USD",
+      date: "2026-09-05",
+      payment_method: "Credit Card",
+      vendor: "Google Ireland Ltd",
+      status: "Paid",
+      notes: "Autumn promo targeting UK & Gulf markets."
+    }
+  ],
+  tasks: [
+    {
+      id: "TSK-001",
+      title: "Issue Nile Cruise vouchers for Sarah Jenkins",
+      description: "Confirm cabin assignment with Karnak Nile Cruises.",
+      priority: "High",
+      status: "Pending",
+      due_date: "2026-09-18",
+      assigned_to: "Karim Nabil",
+      module: "Reservations"
+    },
+    {
+      id: "TSK-002",
+      title: "Issue EgyptAir flight tickets for Dr. Omar Al-Fayed",
+      description: "Send e-tickets to customer via WhatsApp and Email.",
+      priority: "Medium",
+      status: "Completed",
+      due_date: "2026-09-15",
+      assigned_to: "Youssef Mahmoud",
+      module: "Flights"
+    }
+  ],
+  documents: [
+    {
+      id: "DOC-001",
+      title: "Sarah Jenkins - Passport Copy & Flight Voucher",
+      category: "Passports",
+      customer_id: "CUST-002",
+      customer_name: "Sarah Jenkins",
+      upload_date: "2026-09-05",
+      file_size: "2.4 MB",
+      file_url: "#"
+    }
+  ],
+  invoices: [
+    {
+      id: "INV-001",
+      invoice_number: "INV-2026-1001",
+      customer_id: "CUST-001",
+      customer_name: "Dr. Omar Al-Fayed",
+      issue_date: "2026-09-02",
+      due_date: "2026-09-16",
+      recipient_type: "Customer",
+      total_amount: 1300,
+      paid_amount: 1300,
+      balance_due: 0,
+      payment_status: "Paid",
+      currency: "USD",
+      manager_name: "Ahmed Hassan",
+      items: [
+        { description: "Classic Cairo & Pyramids Tour Package (2 Adults)", quantity: 1, unit_price: 1300, total: 1300 }
+      ]
+    }
+  ],
+  notifications: [
+    {
+      id: "NOTIF-001",
+      title: "System Initialization",
+      message: "Sofia Travel Cloud Firestore database successfully synced and active.",
+      type: "system",
+      date: "2026-09-13 03:00",
+      read: false
+    }
+  ],
+  activity_logs: [
+    {
+      id: "LOG-001",
+      user_name: "Administrator",
+      action: "Initialized Sofia Travel Cloud Firestore database",
+      module: "System",
+      record: "Firestore Database",
+      date: "2026-09-13",
+      time: "03:00 AM"
+    }
+  ]
+};
+
 async function loadFromFirestore() {
   const collections = ['employees', 'customers', 'suppliers', 'hotels', 'flights', 'tour_packages', 'reservations', 'customer_payments', 'supplier_payments', 'expenses', 'tasks', 'documents', 'notifications', 'invoices', 'activity_logs', 'permission_requests'];
   try {
@@ -109,9 +521,25 @@ async function loadFromFirestore() {
        await setDoc(doc(firestoreDb, 'settings', 'main'), db.settings);
     }
 
+    let hasAnyData = false;
     for (const c of collections) {
-       await getCollectionDocs(c);
+       const docs = await getCollectionDocs(c);
+       if (docs && docs.length > 0) {
+         hasAnyData = true;
+       }
     }
+
+    if (!hasAnyData) {
+      console.log("No data found in Firestore collections. Seeding sample data...");
+      for (const [colName, items] of Object.entries(initialSeedData)) {
+        db[colName] = items;
+        for (const item of items) {
+          await saveToFirestore(colName, item.id, item);
+        }
+      }
+      console.log("Sample data successfully seeded to Firestore.");
+    }
+
     console.log("Firestore data loaded successfully.");
   } catch (err) {
     console.error("Error loading from Firestore:", err);
