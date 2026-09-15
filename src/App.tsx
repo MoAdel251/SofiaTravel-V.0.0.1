@@ -488,6 +488,44 @@ export default function App() {
     fetchAllData();
   };
 
+  const handleUpdatePackage = async (id: string, data: Partial<TourPackage>) => {
+    const pkg = packages.find(p => p.id === id);
+    const itemName = pkg ? pkg.package_name : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Tour Packages',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...pkg, ...data, id };
+    setPackages(prev => prev.map(p => (p.id === id ? (updated as TourPackage) : p)));
+    await dataService.saveDocument('tour_packages', id, updated, `/api/tour-packages/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeletePackage = async (id: string) => {
+    const pkg = packages.find(p => p.id === id);
+    const itemName = pkg ? pkg.package_name : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Tour Packages',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setPackages(prev => prev.filter(p => p.id !== id));
+    await dataService.deleteDocument('tour_packages', id, `/api/tour-packages/${id}`);
+    fetchAllData();
+  };
+
   const handleAddHotel = async (data: Partial<Hotel>) => {
     const newId = "HTL-" + Math.random().toString(36).substring(2, 7).toUpperCase();
     const newHtl: Hotel = {
@@ -510,6 +548,44 @@ export default function App() {
     };
     setHotels(prev => [newHtl, ...prev]);
     await dataService.saveDocument('hotels', newId, newHtl, '/api/hotels', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateHotel = async (id: string, data: Partial<Hotel>) => {
+    const htl = hotels.find(h => h.id === id);
+    const itemName = htl ? htl.hotel_name : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Hotels',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...htl, ...data, id };
+    setHotels(prev => prev.map(h => (h.id === id ? (updated as Hotel) : h)));
+    await dataService.saveDocument('hotels', id, updated, `/api/hotels/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteHotel = async (id: string) => {
+    const htl = hotels.find(h => h.id === id);
+    const itemName = htl ? htl.hotel_name : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Hotels',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setHotels(prev => prev.filter(h => h.id !== id));
+    await dataService.deleteDocument('hotels', id, `/api/hotels/${id}`);
     fetchAllData();
   };
 
@@ -536,6 +612,44 @@ export default function App() {
     };
     setFlights(prev => [newFlt, ...prev]);
     await dataService.saveDocument('flights', newId, newFlt, '/api/flights', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateFlight = async (id: string, data: Partial<Flight>) => {
+    const flt = flights.find(f => f.id === id);
+    const itemName = flt ? `${flt.airline} ${flt.flight_number} (${flt.passenger})` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Flights',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...flt, ...data, id };
+    setFlights(prev => prev.map(f => (f.id === id ? (updated as Flight) : f)));
+    await dataService.saveDocument('flights', id, updated, `/api/flights/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteFlight = async (id: string) => {
+    const flt = flights.find(f => f.id === id);
+    const itemName = flt ? `${flt.airline} ${flt.flight_number} (${flt.passenger})` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Flights',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setFlights(prev => prev.filter(f => f.id !== id));
+    await dataService.deleteDocument('flights', id, `/api/flights/${id}`);
     fetchAllData();
   };
 
@@ -778,7 +892,9 @@ export default function App() {
           {currentTab === 'packages' && (
             <TourPackagesView 
               packages={packages} 
-              onAddPackage={handleAddPackage} 
+              onAddPackage={handleAddPackage}
+              onUpdatePackage={handleUpdatePackage}
+              onDeletePackage={handleDeletePackage}
               onBookPackage={(pkg) => {
                 setSelectedBookingPackage(pkg);
                 setCurrentTab('reservations');
@@ -786,10 +902,20 @@ export default function App() {
             />
           )}
           {currentTab === 'hotels' && (
-            <HotelsView hotels={hotels} onAddHotel={handleAddHotel} />
+            <HotelsView 
+              hotels={hotels} 
+              onAddHotel={handleAddHotel} 
+              onUpdateHotel={handleUpdateHotel}
+              onDeleteHotel={handleDeleteHotel}
+            />
           )}
           {currentTab === 'flights' && (
-            <FlightsView flights={flights} onAddFlight={handleAddFlight} />
+            <FlightsView 
+              flights={flights} 
+              onAddFlight={handleAddFlight} 
+              onUpdateFlight={handleUpdateFlight}
+              onDeleteFlight={handleDeleteFlight}
+            />
           )}
           {currentTab === 'suppliers' && (
             <SuppliersView 
