@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check } from 'lucide-react';
 import { CompanySettings } from '../types';
 
 interface SettingsViewProps {
@@ -7,38 +7,224 @@ interface SettingsViewProps {
   onUpdateSettings: (settings: CompanySettings) => void;
 }
 
+const SETTINGS_DRAFT_KEY = 'sofia_travel_settings_draft';
+const AUTO_SAVE_PREF_KEY = 'sofia_travel_settings_autosave';
+
 export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) {
   const [formData, setFormData] = useState<CompanySettings>(settings);
   const [saved, setSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
+    return localStorage.getItem(AUTO_SAVE_PREF_KEY) !== 'false';
+  });
 
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialMount = useRef(true);
+
+  // Check for unsaved draft on initial load
   useEffect(() => {
-    setFormData(settings);
+    try {
+      const savedDraft = localStorage.getItem(SETTINGS_DRAFT_KEY);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        // Compare with incoming settings
+        const isDifferent = JSON.stringify(parsed) !== JSON.stringify(settings);
+        if (isDifferent) {
+          setHasUnsavedDraft(true);
+        }
+      }
+    } catch (e) {
+      console.error("Draft read error:", e);
+    }
   }, [settings]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Keep formData in sync when external settings change (if not dirty)
+  useEffect(() => {
+    if (!isDirty && !hasUnsavedDraft) {
+      setFormData(settings);
+    }
+  }, [settings, isDirty, hasUnsavedDraft]);
+
+  // Handle auto-save and local draft persistence when formData changes
+  const handleFieldChange = (updates: Partial<CompanySettings>) => {
+    const updated = { ...formData, ...updates };
+    setFormData(updated);
+    setIsDirty(true);
+
+    // Save to local draft immediately
+    try {
+      localStorage.setItem(SETTINGS_DRAFT_KEY, JSON.stringify(updated));
+    } catch (err) {
+      console.warn("Could not write settings draft:", err);
+    }
+
+    // If auto-save is enabled, debounce commit to cloud
+    if (autoSaveEnabled) {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(async () => {
+        setIsSaving(true);
+        try {
+          await onUpdateSettings(updated);
+          setIsDirty(false);
+          setSaved(true);
+          localStorage.removeItem(SETTINGS_DRAFT_KEY);
+          setHasUnsavedDraft(false);
+          setTimeout(() => setSaved(false), 3000);
+        } catch (err) {
+          console.error("Auto-save failed:", err);
+        } finally {
+          setIsSaving(false);
+        }
+      }, 1200);
+    }
+  };
+
+  const handleManualSave = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    setIsSaving(true);
     onUpdateSettings(formData);
+    setIsDirty(false);
     setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    setHasUnsavedDraft(false);
+    localStorage.removeItem(SETTINGS_DRAFT_KEY);
+    setIsSaving(false);
+    setTimeout(() => setSaved(false), 3500);
+  };
+
+  const handleRestoreDraft = () => {
+    try {
+      const savedDraft = localStorage.getItem(SETTINGS_DRAFT_KEY);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        setFormData(parsed);
+        setIsDirty(true);
+        setHasUnsavedDraft(false);
+      }
+    } catch (e) {
+      console.error("Failed to restore draft:", e);
+    }
+  };
+
+  const handleDiscardDraft = () => {
+    localStorage.removeItem(SETTINGS_DRAFT_KEY);
+    setHasUnsavedDraft(false);
+    setFormData(settings);
+    setIsDirty(false);
+  };
+
+  const toggleAutoSave = () => {
+    const next = !autoSaveEnabled;
+    setAutoSaveEnabled(next);
+    localStorage.setItem(AUTO_SAVE_PREF_KEY, String(next));
   };
 
   return (
     <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      {/* Top Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Company Settings & Configuration</h1>
-          <p className="text-sm text-slate-500">Configure company branding, official bank account numbers, currency abbreviations, and tax credentials.</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900">Company Settings & Configuration</h1>
+            <span className="px-2.5 py-0.5 bg-cyan-100 text-cyan-800 rounded-full text-xs font-bold">Cloud Sync</span>
+          </div>
+          <p className="text-sm text-slate-500 mt-1">Configure company branding, official bank account numbers, currency abbreviations, and tax credentials.</p>
+        </div>
+
+        {/* Action Controls & Auto-save Status */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Auto-Save Toggle */}
+          <button
+            type="button"
+            onClick={toggleAutoSave}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              autoSaveEnabled 
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800' 
+                : 'bg-slate-100 border-slate-200 text-slate-600'
+            }`}
+            title="When active, changes automatically persist to cloud as you type"
+          >
+            <Zap className={`w-3.5 h-3.5 ${autoSaveEnabled ? 'text-emerald-600 fill-emerald-600' : 'text-slate-400'}`} />
+            <span>Auto-Save: {autoSaveEnabled ? 'ON' : 'OFF'}</span>
+          </button>
+
+          {/* Sync Status Pill */}
+          {isSaving ? (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-medium text-blue-700">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Saving to Cloud...</span>
+            </div>
+          ) : saved ? (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-semibold text-emerald-800">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>All Changes Saved</span>
+            </div>
+          ) : isDirty ? (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl text-xs font-semibold text-amber-800">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+              <span>Unsaved changes in draft</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs font-medium text-slate-600">
+              <Check className="w-3.5 h-3.5 text-slate-500" />
+              <span>Synced with Firestore</span>
+            </div>
+          )}
+
+          {/* Top Save Button */}
+          <button
+            type="button"
+            onClick={() => handleManualSave()}
+            disabled={isSaving}
+            className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
+          >
+            <Save className="w-4 h-4" />
+            <span>Save Configuration</span>
+          </button>
         </div>
       </div>
+
+      {/* Draft Recovery Alert */}
+      {hasUnsavedDraft && (
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <div>
+              <p className="text-sm font-bold">Unsaved Company Settings Draft Found</p>
+              <p className="text-xs text-amber-700">We restored changes you entered previously that were not yet committed to the database.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleRestoreDraft}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+            >
+              Restore Draft
+            </button>
+            <button
+              type="button"
+              onClick={handleDiscardDraft}
+              className="px-3.5 py-1.5 bg-white border border-amber-300 text-amber-800 hover:bg-amber-100 text-xs font-medium rounded-lg cursor-pointer"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
 
       {saved && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-sm font-semibold flex items-center gap-2">
           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-          <span>Settings and Bank Account details updated successfully!</span>
+          <span>Settings and Bank Account details updated & saved to Firestore cloud successfully!</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl">
+      <form onSubmit={handleManualSave} className="space-y-6 max-w-4xl">
         {/* Company Profile & Contact Info */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-5 shadow-xs">
           <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
@@ -55,7 +241,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.company_name}
-                onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                onChange={(e) => handleFieldChange({ company_name: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
             </div>
@@ -64,7 +250,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.tax_number || ''}
-                onChange={(e) => setFormData({ ...formData, tax_number: e.target.value })}
+                onChange={(e) => handleFieldChange({ tax_number: e.target.value })}
                 placeholder="e.g. TR-987654321-001"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
@@ -74,7 +260,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => handleFieldChange({ email: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
             </div>
@@ -83,7 +269,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.website || ''}
-                onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                onChange={(e) => handleFieldChange({ website: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
             </div>
@@ -92,7 +278,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => handleFieldChange({ phone: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
             </div>
@@ -101,7 +287,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.whatsapp}
-                onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
+                onChange={(e) => handleFieldChange({ whatsapp: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
             </div>
@@ -110,7 +296,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                onChange={(e) => handleFieldChange({ address: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
             </div>
@@ -129,23 +315,21 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Bank Name & Branch *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Bank Name & Branch</label>
               <input
                 type="text"
-                required
                 value={formData.bank_name || ''}
-                onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                onChange={(e) => handleFieldChange({ bank_name: e.target.value })}
                 placeholder="e.g. National Bank of Egypt (NBE) - Tahrir Branch"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white font-medium"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Bank Account Number *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Bank Account Number</label>
               <input
                 type="text"
-                required
                 value={formData.bank_account_number || ''}
-                onChange={(e) => setFormData({ ...formData, bank_account_number: e.target.value })}
+                onChange={(e) => handleFieldChange({ bank_account_number: e.target.value })}
                 placeholder="e.g. EG540003001500000010987654321"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white font-mono"
               />
@@ -155,7 +339,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.bank_beneficiary_name || ''}
-                onChange={(e) => setFormData({ ...formData, bank_beneficiary_name: e.target.value })}
+                onChange={(e) => handleFieldChange({ bank_beneficiary_name: e.target.value })}
                 placeholder="e.g. Sofia Travel S.A.E."
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
@@ -165,7 +349,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.bank_iban_swift || ''}
-                onChange={(e) => setFormData({ ...formData, bank_iban_swift: e.target.value })}
+                onChange={(e) => handleFieldChange({ bank_iban_swift: e.target.value })}
                 placeholder="e.g. SWIFT: NBEGEGCX054"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white font-mono"
               />
@@ -179,7 +363,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
             <DollarSign className="w-5 h-5 text-emerald-600" />
             <div>
               <h2 className="text-base font-bold text-slate-900">Supported Currencies & System Formats</h2>
-              <p className="text-xs text-slate-500">Supports Egyptian Pound (EGP), U.S. Dollar ($), and Euro (€).</p>
+              <p className="text-xs text-slate-500">Supports Egyptian Pound (EGP), U.S. Dollar ($), Euro (€), and others.</p>
             </div>
           </div>
 
@@ -188,7 +372,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <label className="block text-xs font-semibold text-slate-700 mb-1">Default Base Currency</label>
               <select
                 value={formData.default_currency}
-                onChange={(e) => setFormData({ ...formData, default_currency: e.target.value })}
+                onChange={(e) => handleFieldChange({ default_currency: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               >
                 <option value="USD">U.S. Dollar ($)</option>
@@ -204,7 +388,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.invoice_prefix || 'INV-2026-'}
-                onChange={(e) => setFormData({ ...formData, invoice_prefix: e.target.value })}
+                onChange={(e) => handleFieldChange({ invoice_prefix: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono"
               />
             </div>
@@ -213,16 +397,21 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <input
                 type="text"
                 value={formData.reservation_prefix || 'RES-'}
-                onChange={(e) => setFormData({ ...formData, reservation_prefix: e.target.value })}
+                onChange={(e) => handleFieldChange({ reservation_prefix: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono"
               />
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end pt-2">
+        {/* Bottom Save Bar */}
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-xs text-slate-500">
+            {autoSaveEnabled ? '⚡ Auto-Save is active: Changes save automatically' : 'Click save to commit changes to cloud'}
+          </span>
           <button
             type="submit"
+            disabled={isSaving}
             className="flex items-center space-x-2 bg-cyan-600 hover:bg-cyan-700 text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
           >
             <Save className="w-4 h-4" />

@@ -1163,13 +1163,25 @@ app.get("/api/employees", async (req, res) => {
     const reservations = await getCollectionDocs('reservations');
 
     const employeesWithStats = employees.map(emp => {
-      const empRes = reservations.filter(r => r.employee_id === emp.id || r.employee_id === emp.employee_id || r.employee_name === emp.full_name);
+      const name = emp.name || emp.full_name || 'Staff Member';
+      const position = emp.position || emp.job_title || emp.role || 'Sales Executive';
+      const empRes = reservations.filter(r => 
+        r.employee_id === emp.id || 
+        r.employee_id === emp.employee_id || 
+        r.employee_name === emp.full_name || 
+        r.employee_name === emp.name ||
+        r.employee_name === name
+      );
       const reservations_count = empRes.length;
       const total_sales = empRes.reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
       const total_profit = empRes.reduce((acc, r) => acc + (Number(r.profit) || 0), 0);
       const customerSet = new Set(empRes.map(r => r.customer_id));
       return {
         ...emp,
+        name,
+        full_name: emp.full_name || name,
+        position,
+        job_title: emp.job_title || position,
         reservations_count,
         total_sales,
         total_profit,
@@ -1184,11 +1196,21 @@ app.get("/api/employees", async (req, res) => {
 });
 
 app.post("/api/employees", async (req, res) => {
+  const data = req.body;
+  const name = data.name || data.full_name || 'New Employee';
+  const position = data.position || data.job_title || data.role || 'Sales Executive';
   const emp = {
     id: "EMP-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     employee_id: "E-" + Math.floor(200 + Math.random() * 800),
     joining_date: new Date().toISOString().split('T')[0],
-    ...req.body
+    ...data,
+    name,
+    full_name: data.full_name || name,
+    position,
+    job_title: data.job_title || position,
+    role: data.role || position,
+    status: data.status || 'Active',
+    salary: Number(data.salary) || 0
   };
   db.employees.push(emp);
   await saveToFirestore('employees', emp.id, emp);
