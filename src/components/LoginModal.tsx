@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Lock, User, Plane, CheckCircle2, AlertCircle, ArrowRight, KeyRound } from 'lucide-react';
+import { Lock, User, Plane, AlertCircle, ArrowRight } from 'lucide-react';
 import { UserRole, Employee } from '../types';
 
 interface LoginModalProps {
@@ -56,12 +56,6 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
     }
   };
 
-  const handleQuickLogin = (acc: typeof defaultAccounts[0]) => {
-    setUsername(acc.name);
-    setPassword(acc.pass);
-    onLogin(acc.name, acc.role);
-  };
-
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-300">
@@ -84,68 +78,41 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
             </div>
           )}
 
-          {/* Quick 1-Click Access */}
-          <div className="mb-5">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase mb-2">
-              <KeyRound className="w-3.5 h-3.5 text-blue-600" />
-              <span>Quick Direct Sign In (One-Click)</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {defaultAccounts.slice(0, 4).map((acc) => (
-                <button
-                  key={acc.name}
-                  type="button"
-                  onClick={() => handleQuickLogin(acc)}
-                  className="flex flex-col items-start p-2.5 rounded-xl border border-slate-200 hover:border-blue-500 bg-slate-50 hover:bg-blue-50/50 text-left transition-all cursor-pointer group"
-                >
-                  <span className="text-xs font-bold text-slate-900 group-hover:text-blue-700">{acc.name}</span>
-                  <span className="text-[10px] text-slate-500 line-clamp-1">{acc.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="relative flex py-2 items-center mb-4">
-            <div className="grow border-t border-slate-200"></div>
-            <span className="shrink mx-3 text-[11px] text-slate-400 font-medium">Or enter credentials</span>
-            <div className="grow border-t border-slate-200"></div>
-          </div>
-
-          <form onSubmit={handleLoginSubmit} className="space-y-3">
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Username / Full Name</label>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">Username / Full Name</label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Admin or Ahmed Hassan"
+                  placeholder="Enter username (e.g. Admin or Ahmed Hassan)"
                   value={username}
                   onChange={e => setUsername(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-10 pr-4 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Password</label>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">Password</label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="password"
-                  placeholder="•••• (optional for admin)"
+                  placeholder="••••••••"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-10 pr-4 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl shadow-md shadow-blue-600/20 transition-all text-xs mt-2 cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md shadow-blue-600/20 transition-all text-xs mt-2 cursor-pointer flex items-center justify-center gap-2"
             >
-              <span>Enter Sofia Travel Portal</span>
+              <span>Sign In to Sofia Travel Portal</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </form>
