@@ -7,6 +7,22 @@ import {
 import { UserRole, NotificationItem } from '../types';
 import { getCurrencySymbol } from '../utils/currency';
 
+function LiveClock() {
+  const [time, setTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 rounded-xl text-[11px] font-bold text-slate-200 border border-slate-700 tabular-nums shadow-inner">
+      <Clock className="w-3.5 h-3.5 text-blue-400" />
+      <span>{time.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+    </div>
+  );
+}
+
 interface NavbarProps {
   userRole: UserRole;
   userPermissions?: string[];
@@ -133,6 +149,9 @@ export function Navbar({
 
         {/* Right Controls */}
         <div className="flex items-center gap-2 sm:gap-4 shrink-0 justify-end">
+          {/* Live System Clock */}
+          <LiveClock />
+          
           {/* Cloud Sync Status Badge */}
           <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/60 border border-emerald-500/30 rounded-full text-[11px] text-emerald-400 font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>

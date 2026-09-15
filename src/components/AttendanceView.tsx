@@ -89,6 +89,10 @@ export function AttendanceView({
   const [activeRecordForOut, setActiveRecordForOut] = useState<AttendanceRecord | null>(null);
   const [checkOutTime, setCheckOutTime] = useState(new Date().toTimeString().slice(0, 5));
 
+  // Edit Record Modal State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editRecord, setEditRecord] = useState<AttendanceRecord | null>(null);
+
   // Settings form state
   const [settingsForm, setSettingsForm] = useState<AttendanceSettings>(settings);
 
@@ -131,6 +135,61 @@ export function AttendanceView({
 
     setShowCheckInModal(false);
     setCheckInEmpId('');
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editRecord) return;
+    
+    // We update via onUpdateAttendance
+    // First calculate working hours if both times exist
+    let workingHoursStr = '--';
+    if (editRecord.check_in_time && editRecord.check_out_time) {
+      const [inH, inM] = editRecord.check_in_time.split(':').map(Number);
+      const [outH, outM] = editRecord.check_out_time.split(':').map(Number);
+      const diffMins = (outH * 60 + outM) - (inH * 60 + inM);
+      if (diffMins > 0) {
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        workingHoursStr = `${hours}h ${mins}m`;
+      }
+    }
+    
+    const [offHour, offMin] = settings.official_check_in.split(':').map(Number);
+    const [inHour, inMin] = (editRecord.check_in_time || '00:00').split(':').map(Number);
+    const officialTotalMins = offHour * 60 + offMin + settings.grace_period_minutes;
+    const actualTotalMins = inHour * 60 + inMin;
+    const lateMins = Math.max(0, actualTotalMins - (offHour * 60 + offMin));
+    
+    // Determine status
+    let status = editRecord.status;
+    if (editRecord.check_in_time) {
+      status = lateMins > 0 ? 'Late' : 'Present';
+    }
+
+    const updated = {
+      ...editRecord,
+      late_minutes: lateMins,
+      status: status,
+      total_working_hours: workingHoursStr,
+      updated_at: new Date().toISOString()
+    };
+
+    onUpdateAttendance(updated);
+    
+    onAddAuditLog({
+      id: 'LOG-' + Date.now(),
+      user_name: currentUsername,
+      user_role: userRole,
+      action: 'Attendance Edited',
+      record_type: 'Attendance',
+      record_id: editRecord.attendance_id,
+      new_value: `Check-in: ${editRecord.check_in_time}, Check-out: ${editRecord.check_out_time}`,
+      date_time: new Date().toLocaleString()
+    });
+    
+    setShowEditModal(false);
+    setEditRecord(null);
   };
 
   const handleCheckOutSubmit = (e: React.FormEvent) => {
@@ -362,11 +421,14 @@ export function AttendanceView({
                           {!record ? (
                             <button
                               onClick={() => {
-                                onCheckIn(emp.id, selectedDate, '09:00');
+                                setCheckInEmpId(emp.id);
+                                setCheckInDate(selectedDate);
+                                setCheckInTime(new Date().toTimeString().slice(0, 5));
+                                setShowCheckInModal(true);
                               }}
                               className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] shadow-xs cursor-pointer"
                             >
-                              Check-In Now
+                              Check-In
                             </button>
                           ) : !record.check_out_time ? (
                             <button
@@ -385,13 +447,25 @@ export function AttendanceView({
                             </span>
                           )}
                           {record && (
-                            <button
-                              onClick={() => onDeleteAttendance(record.id)}
-                              className="p-1 text-rose-600 hover:bg-rose-50 rounded-lg inline-block"
-                              title="Delete Record"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => {
+                                  setEditRecord(record);
+                                  setShowEditModal(true);
+                                }}
+                                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-block"
+                                title="Edit Record"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => onDeleteAttendance(record.id)}
+                                className="p-1 text-rose-600 hover:bg-rose-50 rounded-lg inline-block"
+                                title="Delete Record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
                           )}
                         </td>
                       </tr>
@@ -643,6 +717,59 @@ export function AttendanceView({
                   className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold shadow-xs"
                 >
                   Confirm Check-Out
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT MODAL */}
+      {showEditModal && editRecord && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Edit Attendance Record</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Employee: <strong>{editRecord.employee_name}</strong> - {editRecord.date}
+            </p>
+            <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Check-In Time</label>
+                  <input
+                    type="time"
+                    required
+                    value={editRecord.check_in_time}
+                    onChange={(e) => setEditRecord({ ...editRecord, check_in_time: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Check-Out Time</label>
+                  <input
+                    type="time"
+                    value={editRecord.check_out_time || ''}
+                    onChange={(e) => setEditRecord({ ...editRecord, check_out_time: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditRecord(null);
+                  }}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-xs cursor-pointer"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>

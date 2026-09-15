@@ -155,12 +155,22 @@ export default function App() {
     }
   };
 
-  const handleAddAttendance = (record: AttendanceRecord) => {
+  const handleAddAttendance = async (record: AttendanceRecord) => {
     setAttendanceRecords(prev => [record, ...prev]);
+    try {
+      await dataService.saveDocument('attendance', record.id, record);
+    } catch (e) {
+      console.error('Failed to add attendance:', e);
+    }
   };
 
-  const handleUpdateAttendance = (record: AttendanceRecord) => {
+  const handleUpdateAttendance = async (record: AttendanceRecord) => {
     setAttendanceRecords(prev => prev.map(r => r.id === record.id ? record : r));
+    try {
+      await dataService.saveDocument('attendance', record.id, record);
+    } catch (e) {
+      console.error('Failed to update attendance:', e);
+    }
   };
 
   const handleDeleteAttendance = (id: string) => {
@@ -1060,8 +1070,27 @@ export default function App() {
     setCommissions(prev => prev.filter(c => c.id !== id));
   };
 
-  const handleAddAuditLog = (log: FinanceAuditLog) => {
+  const handleAddAuditLog = async (log: FinanceAuditLog) => {
     setFinanceAuditLogs(prev => [log, ...prev]);
+    try {
+      await dataService.saveDocument('finance_audit_logs', log.id, log);
+    } catch (e) {}
+
+    // Also map to global activity log
+    const now = new Date();
+    const activityLog: ActivityLog = {
+      id: 'ACT-' + log.id,
+      user_name: log.user_name,
+      action: log.action,
+      module: log.record_type,
+      record: log.record_id,
+      date: now.toISOString().split('T')[0],
+      time: now.toLocaleTimeString()
+    };
+    setActivityLogs(prev => [activityLog, ...prev]);
+    try {
+      await dataService.saveDocument('activity_logs', activityLog.id, activityLog);
+    } catch (e) {}
   };
 
   const handleAddTask = async (data: Partial<Task>) => {
