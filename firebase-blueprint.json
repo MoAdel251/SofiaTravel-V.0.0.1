@@ -1,0 +1,324 @@
+{
+  "entities": {
+    "Customer": {
+      "title": "Customer",
+      "description": "Travel agency customer profile and passport details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customer_id": { "type": "string" },
+        "full_name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "nationality": { "type": "string" },
+        "passport_number": { "type": "string" },
+        "passport_expiry": { "type": "string" },
+        "notes": { "type": "string" },
+        "registration_date": { "type": "string" },
+        "outstanding_balance": { "type": "number" },
+        "currency": { "type": "string" }
+      },
+      "required": ["id", "full_name"]
+    },
+    "Reservation": {
+      "title": "Reservation",
+      "description": "Booking and reservation record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reservation_id": { "type": "string" },
+        "customer_id": { "type": "string" },
+        "customer_name": { "type": "string" },
+        "package_id": { "type": "string" },
+        "package_name": { "type": "string" },
+        "hotel_name": { "type": "string" },
+        "booking_date": { "type": "string" },
+        "travel_date": { "type": "string" },
+        "return_date": { "type": "string" },
+        "adults_count": { "type": "number" },
+        "children_count": { "type": "number" },
+        "selling_price": { "type": "number" },
+        "cost_price": { "type": "number" },
+        "profit": { "type": "number" },
+        "paid_amount": { "type": "number" },
+        "remaining_amount": { "type": "number" },
+        "payment_status": { "type": "string" },
+        "reservation_status": { "type": "string" },
+        "employee_id": { "type": "string" },
+        "employee_name": { "type": "string" }
+      },
+      "required": ["id", "customer_name", "selling_price"]
+    },
+    "TourPackage": {
+      "title": "TourPackage",
+      "description": "Pre-configured travel tour package",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "package_code": { "type": "string" },
+        "package_name": { "type": "string" },
+        "destination": { "type": "string" },
+        "duration_days": { "type": "number" },
+        "duration_nights": { "type": "number" },
+        "price": { "type": "number" },
+        "cost_price": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "package_name", "price"]
+    },
+    "Hotel": {
+      "title": "Hotel",
+      "description": "Hotel accommodation supplier and rates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "hotel_name": { "type": "string" },
+        "city": { "type": "string" },
+        "stars": { "type": "number" },
+        "room_type": { "type": "string" },
+        "nightly_rate": { "type": "number" },
+        "currency": { "type": "string" },
+        "contact_phone": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "hotel_name"]
+    },
+    "Flight": {
+      "title": "Flight",
+      "description": "Airline ticket route and fare",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "flight_number": { "type": "string" },
+        "airline": { "type": "string" },
+        "origin": { "type": "string" },
+        "destination": { "type": "string" },
+        "departure_time": { "type": "string" },
+        "arrival_time": { "type": "string" },
+        "price": { "type": "number" },
+        "cost_price": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "flight_number", "airline"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Tourism vendor, transport provider, or partner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "supplier_name": { "type": "string" },
+        "category": { "type": "string" },
+        "contact_person": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "outstanding_balance": { "type": "number" },
+        "currency": { "type": "string" }
+      },
+      "required": ["id", "supplier_name"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Staff member with roles and access permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employee_id": { "type": "string" },
+        "full_name": { "type": "string" },
+        "job_title": { "type": "string" },
+        "department": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "salary": { "type": "number" },
+        "currency": { "type": "string" },
+        "joining_date": { "type": "string" }
+      },
+      "required": ["id", "full_name", "role"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Official billing invoice for customers or suppliers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoice_number": { "type": "string" },
+        "issue_date": { "type": "string" },
+        "due_date": { "type": "string" },
+        "recipient_type": { "type": "string" },
+        "customer_id": { "type": "string" },
+        "customer_name": { "type": "string" },
+        "total_amount": { "type": "number" },
+        "paid_amount": { "type": "number" },
+        "balance_due": { "type": "number" },
+        "payment_status": { "type": "string" },
+        "currency": { "type": "string" },
+        "manager_name": { "type": "string" }
+      },
+      "required": ["id", "invoice_number", "total_amount"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Agency operational expense entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "expense_number": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "date": { "type": "string" },
+        "payment_method": { "type": "string" },
+        "vendor": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "title", "amount"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Operational task for team members",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "due_date": { "type": "string" },
+        "assigned_to": { "type": "string" }
+      },
+      "required": ["id", "title", "status"]
+    },
+    "TravelDocument": {
+      "title": "TravelDocument",
+      "description": "Attached passport, visa, or voucher file",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "customer_id": { "type": "string" },
+        "upload_date": { "type": "string" },
+        "file_size": { "type": "string" },
+        "file_url": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "System or user activity alert",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "date": { "type": "string" },
+        "read": { "type": "boolean" },
+        "link_id": { "type": "string" }
+      },
+      "required": ["id", "title", "message"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit trail log of actions in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "action": { "type": "string" },
+        "module": { "type": "string" },
+        "record": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" }
+      },
+      "required": ["id", "user_name", "action"]
+    },
+    "PermissionRequest": {
+      "title": "PermissionRequest",
+      "description": "Role-based action authorization request from employee",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "request_id": { "type": "string" },
+        "employee_id": { "type": "string" },
+        "employee_name": { "type": "string" },
+        "employee_role": { "type": "string" },
+        "module": { "type": "string" },
+        "item_id": { "type": "string" },
+        "item_name": { "type": "string" },
+        "action_type": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "employee_name", "action_type", "status"]
+    }
+  },
+  "firestore": {
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customers collection"
+    },
+    "/reservations/{reservationId}": {
+      "schema": "Reservation",
+      "description": "Reservations collection"
+    },
+    "/tour_packages/{packageId}": {
+      "schema": "TourPackage",
+      "description": "Tour packages collection"
+    },
+    "/hotels/{hotelId}": {
+      "schema": "Hotel",
+      "description": "Hotels collection"
+    },
+    "/flights/{flightId}": {
+      "schema": "Flight",
+      "description": "Flights collection"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": "Supplier",
+      "description": "Suppliers collection"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Employees collection"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Invoices collection"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Expenses collection"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Tasks collection"
+    },
+    "/documents/{documentId}": {
+      "schema": "TravelDocument",
+      "description": "Travel documents collection"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "NotificationItem",
+      "description": "Notifications collection"
+    },
+    "/activity_logs/{logId}": {
+      "schema": "ActivityLog",
+      "description": "Activity logs collection"
+    },
+    "/permission_requests/{requestId}": {
+      "schema": "PermissionRequest",
+      "description": "Permission requests collection"
+    }
+  }
+}

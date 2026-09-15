@@ -26,9 +26,15 @@ import { UserRole, Customer, Reservation, TourPackage, Hotel, Flight, Supplier, 
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
-  const [userRole, setUserRole] = useState<UserRole>('Administrator');
-  const [currentUsername, setCurrentUsername] = useState<string>('Admin');
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [userRole, setUserRole] = useState<UserRole>(() => {
+    return (localStorage.getItem('sofia_travel_role') as UserRole) || 'Administrator';
+  });
+  const [currentUsername, setCurrentUsername] = useState<string>(() => {
+    return localStorage.getItem('sofia_travel_user') || 'Admin';
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('sofia_travel_auth') !== 'false';
+  });
   const [currentCurrency, setCurrentCurrency] = useState<string>('USD');
 
   // Selected package for booking flow auto-population
@@ -500,10 +506,18 @@ export default function App() {
     setCurrentUsername(name);
     setUserRole(role);
     setIsAuthenticated(true);
+    try {
+      localStorage.setItem('sofia_travel_auth', 'true');
+      localStorage.setItem('sofia_travel_user', name);
+      localStorage.setItem('sofia_travel_role', role);
+    } catch {}
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    try {
+      localStorage.setItem('sofia_travel_auth', 'false');
+    } catch {}
   };
 
   return (
@@ -642,8 +656,18 @@ export default function App() {
               hotels={hotels}
               flights={flights}
               invoices={invoices}
-              onUploadDocument={(newDoc) => {
-                setDocuments(prev => [newDoc as any, ...prev]);
+              onUploadDocument={async (newDoc) => {
+                try {
+                  await fetch('/api/documents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newDoc)
+                  });
+                  fetchAllData();
+                } catch (err) {
+                  console.error("Failed to persist document:", err);
+                  setDocuments(prev => [newDoc as any, ...prev]);
+                }
               }}
             />
           )}

@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
+import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer } from "firebase/firestore";
 
 let firebaseConfig: any = {
   apiKey: "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
@@ -508,6 +508,19 @@ const initialSeedData: Record<string, any[]> = {
   ]
 };
 
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(firestoreDb, 'settings', 'main'));
+    console.log("Firestore connection verified successfully.");
+  } catch (error: any) {
+    if (error?.message?.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration: client is offline");
+    } else {
+      console.log("Firestore connection initialized:", error?.message || error);
+    }
+  }
+}
+
 async function loadFromFirestore() {
   const collections = ['employees', 'customers', 'suppliers', 'hotels', 'flights', 'tour_packages', 'reservations', 'customer_payments', 'supplier_payments', 'expenses', 'tasks', 'documents', 'notifications', 'invoices', 'activity_logs', 'permission_requests'];
   try {
@@ -517,27 +530,18 @@ async function loadFromFirestore() {
     if (!setSnap.empty) {
        db.settings = { ...db.settings, ...setSnap.docs[0].data() };
     } else {
-       // Save default settings if empty
        await setDoc(doc(firestoreDb, 'settings', 'main'), db.settings);
     }
 
-    let hasAnyData = false;
     for (const c of collections) {
        const docs = await getCollectionDocs(c);
-       if (docs && docs.length > 0) {
-         hasAnyData = true;
+       if ((!docs || docs.length === 0) && (initialSeedData as any)[c] && (initialSeedData as any)[c].length > 0) {
+         console.log(`Seeding empty collection [${c}] with initial data...`);
+         (db as any)[c] = (initialSeedData as any)[c];
+         for (const item of (initialSeedData as any)[c]) {
+           await saveToFirestore(c, item.id, item);
+         }
        }
-    }
-
-    if (!hasAnyData) {
-      console.log("No data found in Firestore collections. Seeding sample data...");
-      for (const [colName, items] of Object.entries(initialSeedData)) {
-        db[colName] = items;
-        for (const item of items) {
-          await saveToFirestore(colName, item.id, item);
-        }
-      }
-      console.log("Sample data successfully seeded to Firestore.");
     }
 
     console.log("Firestore data loaded successfully.");
@@ -549,18 +553,20 @@ async function loadFromFirestore() {
 async function saveToFirestore(collectionName: string, id: string, data: any) {
   try {
     const cleanData = JSON.parse(JSON.stringify(data));
-    await setDoc(doc(firestoreDb, collectionName, id), cleanData);
+    delete cleanData._actingUser;
+    delete cleanData._actingRole;
+    await setDoc(doc(firestoreDb, collectionName, String(id)), cleanData, { merge: true });
   } catch (err) {
-    console.error("Firestore sync error (save):", err);
+    console.error(`Firestore sync error (save to ${collectionName}/${id}):`, err);
     throw err;
   }
 }
 
 async function deleteFromFirestore(collectionName: string, id: string) {
   try {
-    await deleteDoc(doc(firestoreDb, collectionName, id));
+    await deleteDoc(doc(firestoreDb, collectionName, String(id)));
   } catch (err) {
-    console.error("Firestore sync error (delete):", err);
+    console.error(`Firestore sync error (delete from ${collectionName}/${id}):`, err);
     throw err;
   }
 }
@@ -789,12 +795,21 @@ app.post("/api/customers", async (req, res) => {
 
 app.put("/api/customers/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.customers.findIndex(c => c.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Customer not found" });
-  db.customers[idx] = { ...db.customers[idx], ...req.body };
-  await logActivity("Manager", `Updated customer ${db.customers[idx].full_name}`, "Customers", db.customers[idx].customer_id);
-  await saveToFirestore('customers', db.customers[idx].id, db.customers[idx]);
-  res.json(db.customers[idx]);
+  let idx = db.customers.findIndex(c => c.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('customers');
+    idx = db.customers.findIndex(c => c.id === id);
+  }
+  const current = idx !== -1 ? db.customers[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.customers[idx] = updated;
+  } else {
+    db.customers.push(updated);
+  }
+  await logActivity("Manager", `Updated customer ${updated.full_name || id}`, "Customers", updated.customer_id || id);
+  await saveToFirestore('customers', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/customers/:id", async (req, res) => {
@@ -846,19 +861,24 @@ app.post("/api/reservations", async (req, res) => {
 
 app.put("/api/reservations/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.reservations.findIndex(r => r.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Reservation not found" });
+  let idx = db.reservations.findIndex(r => r.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('reservations');
+    idx = db.reservations.findIndex(r => r.id === id);
+  }
+  const existing = idx !== -1 ? db.reservations[idx] : { id };
   
   const data = req.body;
-  const selling = data.selling_price !== undefined ? Number(data.selling_price) : db.reservations[idx].selling_price;
-  const cost = data.cost_price !== undefined ? Number(data.cost_price) : db.reservations[idx].cost_price;
-  const paid = data.paid_amount !== undefined ? Number(data.paid_amount) : db.reservations[idx].paid_amount;
+  const selling = data.selling_price !== undefined ? Number(data.selling_price) : (Number(existing.selling_price) || 0);
+  const cost = data.cost_price !== undefined ? Number(data.cost_price) : (Number(existing.cost_price) || 0);
+  const paid = data.paid_amount !== undefined ? Number(data.paid_amount) : (Number(existing.paid_amount) || 0);
   const profit = selling - cost;
   const remaining = Math.max(0, selling - paid);
 
-  db.reservations[idx] = {
-    ...db.reservations[idx],
+  const updated = {
+    ...existing,
     ...data,
+    id,
     selling_price: selling,
     cost_price: cost,
     paid_amount: paid,
@@ -867,9 +887,15 @@ app.put("/api/reservations/:id", async (req, res) => {
     payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending"
   };
 
-  await logActivity("Manager", `Updated reservation ${db.reservations[idx].reservation_id}`, "Reservations", db.reservations[idx].reservation_id);
-  await saveToFirestore('reservations', db.reservations[idx].id, db.reservations[idx]);
-  res.json(db.reservations[idx]);
+  if (idx !== -1) {
+    db.reservations[idx] = updated;
+  } else {
+    db.reservations.push(updated);
+  }
+
+  await logActivity("Manager", `Updated reservation ${updated.reservation_id || id}`, "Reservations", updated.reservation_id || id);
+  await saveToFirestore('reservations', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/reservations/:id", async (req, res) => {
@@ -899,11 +925,20 @@ app.post("/api/tour-packages", async (req, res) => {
 
 app.put("/api/tour-packages/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.tour_packages.findIndex(p => p.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Package not found" });
-  db.tour_packages[idx] = { ...db.tour_packages[idx], ...req.body };
-  await saveToFirestore('tour_packages', db.tour_packages[idx].id, db.tour_packages[idx]);
-  res.json(db.tour_packages[idx]);
+  let idx = db.tour_packages.findIndex(p => p.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('tour_packages');
+    idx = db.tour_packages.findIndex(p => p.id === id);
+  }
+  const current = idx !== -1 ? db.tour_packages[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.tour_packages[idx] = updated;
+  } else {
+    db.tour_packages.push(updated);
+  }
+  await saveToFirestore('tour_packages', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/tour-packages/:id", async (req, res) => {
@@ -931,11 +966,20 @@ app.post("/api/hotels", async (req, res) => {
 
 app.put("/api/hotels/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.hotels.findIndex(h => h.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Hotel not found" });
-  db.hotels[idx] = { ...db.hotels[idx], ...req.body };
-  await saveToFirestore('hotels', db.hotels[idx].id, db.hotels[idx]);
-  res.json(db.hotels[idx]);
+  let idx = db.hotels.findIndex(h => h.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('hotels');
+    idx = db.hotels.findIndex(h => h.id === id);
+  }
+  const current = idx !== -1 ? db.hotels[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.hotels[idx] = updated;
+  } else {
+    db.hotels.push(updated);
+  }
+  await saveToFirestore('hotels', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/hotels/:id", async (req, res) => {
@@ -963,11 +1007,20 @@ app.post("/api/flights", async (req, res) => {
 
 app.put("/api/flights/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.flights.findIndex(f => f.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Flight not found" });
-  db.flights[idx] = { ...db.flights[idx], ...req.body };
-  await saveToFirestore('flights', db.flights[idx].id, db.flights[idx]);
-  res.json(db.flights[idx]);
+  let idx = db.flights.findIndex(f => f.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('flights');
+    idx = db.flights.findIndex(f => f.id === id);
+  }
+  const current = idx !== -1 ? db.flights[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.flights[idx] = updated;
+  } else {
+    db.flights.push(updated);
+  }
+  await saveToFirestore('flights', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/flights/:id", async (req, res) => {
@@ -996,11 +1049,20 @@ app.post("/api/suppliers", async (req, res) => {
 
 app.put("/api/suppliers/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.suppliers.findIndex(s => s.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Supplier not found" });
-  db.suppliers[idx] = { ...db.suppliers[idx], ...req.body };
-  await saveToFirestore('suppliers', db.suppliers[idx].id, db.suppliers[idx]);
-  res.json(db.suppliers[idx]);
+  let idx = db.suppliers.findIndex(s => s.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('suppliers');
+    idx = db.suppliers.findIndex(s => s.id === id);
+  }
+  const current = idx !== -1 ? db.suppliers[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.suppliers[idx] = updated;
+  } else {
+    db.suppliers.push(updated);
+  }
+  await saveToFirestore('suppliers', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/suppliers/:id", async (req, res) => {
@@ -1135,11 +1197,20 @@ app.post("/api/employees", async (req, res) => {
 
 app.put("/api/employees/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.employees.findIndex(e => e.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Employee not found" });
-  db.employees[idx] = { ...db.employees[idx], ...req.body };
-  await saveToFirestore('employees', db.employees[idx].id, db.employees[idx]);
-  res.json(db.employees[idx]);
+  let idx = db.employees.findIndex(e => e.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('employees');
+    idx = db.employees.findIndex(e => e.id === id);
+  }
+  const current = idx !== -1 ? db.employees[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.employees[idx] = updated;
+  } else {
+    db.employees.push(updated);
+  }
+  await saveToFirestore('employees', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/employees/:id", async (req, res) => {
@@ -1167,11 +1238,20 @@ app.post("/api/tasks", async (req, res) => {
 
 app.put("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
-  const idx = db.tasks.findIndex(t => t.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Task not found" });
-  db.tasks[idx] = { ...db.tasks[idx], ...req.body };
-  await saveToFirestore('tasks', db.tasks[idx].id, db.tasks[idx]);
-  res.json(db.tasks[idx]);
+  let idx = db.tasks.findIndex(t => t.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('tasks');
+    idx = db.tasks.findIndex(t => t.id === id);
+  }
+  const current = idx !== -1 ? db.tasks[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.tasks[idx] = updated;
+  } else {
+    db.tasks.push(updated);
+  }
+  await saveToFirestore('tasks', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/tasks/:id", async (req, res) => {
@@ -1274,13 +1354,22 @@ app.post("/api/invoices", async (req, res) => {
 
 app.put("/api/invoices/:id", async (req, res) => {
   const { id } = req.params;
-  const index = (db.invoices || []).findIndex(inv => inv.id === id);
-  if (index === -1) return res.status(404).json({ error: "Invoice not found" });
-
-  db.invoices[index] = { ...db.invoices[index], ...req.body };
-  await logActivity("Employee", `Updated invoice ${db.invoices[index].invoice_number}`, "Invoicing", db.invoices[index].invoice_number);
-  await saveToFirestore('invoices', db.invoices[index].id, db.invoices[index]);
-  res.json(db.invoices[index]);
+  let index = (db.invoices || []).findIndex(inv => inv.id === id);
+  if (index === -1) {
+    await getCollectionDocs('invoices');
+    index = (db.invoices || []).findIndex(inv => inv.id === id);
+  }
+  const current = index !== -1 ? db.invoices[index] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (index !== -1) {
+    db.invoices[index] = updated;
+  } else {
+    if (!db.invoices) db.invoices = [];
+    db.invoices.push(updated);
+  }
+  await logActivity("Employee", `Updated invoice ${updated.invoice_number || id}`, "Invoicing", updated.invoice_number || id);
+  await saveToFirestore('invoices', id, updated);
+  res.json(updated);
 });
 
 app.delete("/api/invoices/:id", async (req, res) => {
@@ -1469,6 +1558,7 @@ app.post("/api/ai-assistant", async (req, res) => {
 });
 
 async function startServer() {
+  await testConnection();
   await loadFromFirestore();
 
   // Vite middleware for development or static serving for production
