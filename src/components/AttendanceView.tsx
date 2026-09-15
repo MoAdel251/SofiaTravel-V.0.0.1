@@ -38,8 +38,8 @@ export function AttendanceView({
   onUpdateSettings,
   onAddAuditLog
 }: AttendanceViewProps) {
-  const canViewAll = userRole === 'Administrator' || userPermissions.includes('view_attendance');
-  const canSelfClockInOut = userPermissions.includes('add_check_in') || userPermissions.includes('add_check_out') || canViewAll;
+  const canViewAll = userRole === 'Administrator';
+  const canSelfClockInOut = true;
 
   // Live Clock State
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -262,7 +262,6 @@ export function AttendanceView({
             {!myRecord?.check_in_time ? (
               <button
                 onClick={handleSelfClockIn}
-                disabled={!userPermissions.includes('add_check_in')}
                 className="w-full sm:w-auto px-8 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-2xl font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
               >
                 <Clock className="w-6 h-6" /> Clock In Now
@@ -274,7 +273,6 @@ export function AttendanceView({
                 </div>
                 <button
                   onClick={handleSelfClockOut}
-                  disabled={!userPermissions.includes('add_check_out')}
                   className="w-full sm:w-auto px-8 py-4 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-2xl font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer mx-auto"
                 >
                   <Clock className="w-6 h-6" /> Clock Out Now
@@ -321,7 +319,7 @@ export function AttendanceView({
           { id: 'daily', label: 'Daily Attendance Sheet', icon: Clock },
           { id: 'monthly-report', label: 'Monthly Attendance Report', icon: Calendar },
           { id: 'settings', label: 'Attendance & Deduction Rules', icon: Shield }
-        ].map(tab => {
+        ].filter(tab => tab.id !== 'settings' || userRole === 'Administrator').map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
