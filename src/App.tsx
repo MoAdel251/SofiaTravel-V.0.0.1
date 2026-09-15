@@ -163,39 +163,114 @@ export default function App() {
       if (statsRes && statsRes.total_sales !== undefined) {
         setStats(statsRes);
       } else {
-        // Compute dashboard stats client-side so it works in any online directory
-        const activeResvs = (resvRes || []).filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Paid');
+        // Compute dashboard stats client-side based on actual database records
+        const activeResvs = (resvRes || []).filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending' || r.reservation_status === 'Paid' || r.reservation_status === 'Partially Paid');
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todaysResvCount = (resvRes || []).filter(r => r.booking_date === todayStr).length;
+        const upcomingTripsCount = (resvRes || []).filter(r => r.travel_date && r.travel_date >= todayStr).length;
+
         const sales = (resvRes || []).reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
+        const supplierCosts = (resvRes || []).reduce((acc, r) => acc + (Number(r.cost_price) || 0), 0);
         const expensesTotal = (expRes || []).reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+        const netProfit = sales - supplierCosts - expensesTotal;
+
+        const outstandingCustomer = (custRes || []).reduce((acc, c) => acc + (Number(c.outstanding_balance) || 0), 0);
+        const outstandingSupplier = (supRes || []).reduce((acc, s) => acc + (Number(s.outstanding_balance) || 0), 0);
+
+        const outstandingByCurr: Record<string, number> = {};
+        (resvRes || []).forEach(r => {
+          const rem = Number(r.remaining_amount) || (Number(r.selling_price || 0) - Number(r.paid_amount || 0));
+          if (rem > 0) {
+            const curr = r.currency || 'USD';
+            outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + rem;
+          }
+        });
+        if (Object.keys(outstandingByCurr).length === 0) {
+          (custRes || []).forEach(c => {
+            const bal = Number(c.outstanding_balance) || 0;
+            if (bal > 0) {
+              const curr = c.currency || 'USD';
+              outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + bal;
+            }
+          });
+        }
+
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const currentYear = new Date().getFullYear();
+        const monthlyData = Array.from({ length: 12 }, (_, i) => ({
+          month: monthNames[i],
+          Sales: 0,
+          Expenses: 0,
+          Profit: 0
+        }));
+
+        (resvRes || []).forEach(r => {
+          if (!r.booking_date) return;
+          const date = new Date(r.booking_date);
+          if (date.getFullYear() === currentYear) {
+            const monthIdx = date.getMonth();
+            monthlyData[monthIdx].Sales += Number(r.selling_price) || 0;
+            monthlyData[monthIdx].Expenses += Number(r.cost_price) || 0;
+          }
+        });
+        (expRes || []).forEach(e => {
+          if (!e.date) return;
+          const date = new Date(e.date);
+          if (date.getFullYear() === currentYear) {
+            const monthIdx = date.getMonth();
+            monthlyData[monthIdx].Expenses += Number(e.amount) || 0;
+          }
+        });
+        monthlyData.forEach(m => {
+          m.Profit = m.Sales - m.Expenses;
+        });
+
+        const destCounts: Record<string, number> = {};
+        (resvRes || []).forEach(r => {
+          if (r.destination) {
+            destCounts[r.destination] = (destCounts[r.destination] || 0) + 1;
+          }
+        });
+        const totalDest = Object.values(destCounts).reduce((a, b) => a + b, 0);
+        const destinationPopularity = Object.entries(destCounts)
+          .map(([name, count]) => ({
+            name,
+            percentage: totalDest > 0 ? Math.round((count / totalDest) * 100) : 0
+          }))
+          .sort((a, b) => b.percentage - a.percentage)
+          .slice(0, 3);
+
+        const agentSales: Record<string, number> = {};
+        (resvRes || []).forEach(r => {
+          if (r.employee_name) {
+            agentSales[r.employee_name] = (agentSales[r.employee_name] || 0) + (Number(r.selling_price) || 0);
+          }
+        });
+        let topAgent = { name: "No data", sales: 0 };
+        for (const [name, sales] of Object.entries(agentSales)) {
+          if (sales > topAgent.sales) {
+            topAgent = { name, sales };
+          }
+        }
+
         setStats({
           total_customers: custRes?.length || 0,
           active_reservations: activeResvs.length,
-          todays_reservations: (resvRes || []).slice(0, 3).length,
-          upcoming_trips: activeResvs.length,
+          todays_reservations: todaysResvCount,
+          upcoming_trips: upcomingTripsCount,
           total_sales: sales,
           total_expenses: expensesTotal,
-          net_profit: sales - expensesTotal,
-          outstanding_customer_payments: (invRes || []).reduce((acc, i) => acc + (Number(i.balance_due) || 0), 0),
-          outstanding_supplier_payments: (supRes || []).reduce((acc, s) => acc + (Number(s.outstanding_balance) || 0), 0),
+          net_profit: netProfit,
+          outstanding_customer_payments: outstandingCustomer,
+          outstanding_supplier_payments: outstandingSupplier,
+          outstanding_by_currency: outstandingByCurr,
           today_tasks: (taskRes || []).filter(t => t.status !== 'Completed').length,
-          recent_reservations: (resvRes || []).slice(0, 5),
-          recent_payments: (cPayRes || []).slice(0, 5),
-          recent_activities: (logRes || []).slice(0, 5),
-          monthlyData: [
-            { month: 'Jan', sales: 45000, expenses: 32000, profit: 13000 },
-            { month: 'Feb', sales: 52000, expenses: 36000, profit: 16000 },
-            { month: 'Mar', sales: 61000, expenses: 40000, profit: 21000 },
-            { month: 'Apr', sales: 58000, expenses: 39000, profit: 19000 },
-            { month: 'May', sales: 74000, expenses: 46000, profit: 28000 },
-            { month: 'Jun', sales: 89000, expenses: 54000, profit: 35000 }
-          ],
-          destinationPopularity: [
-            { name: 'Cairo & Giza', count: 42 },
-            { name: 'Sharm El Sheikh', count: 28 },
-            { name: 'Luxor & Aswan', count: 35 },
-            { name: 'Hurghada', count: 22 }
-          ],
-          topAgent: { name: 'Karim Nabil', sales: 24500 }
+          recent_reservations: (resvRes || []).slice(-5).reverse(),
+          recent_payments: (cPayRes || []).slice(-5).reverse(),
+          recent_activities: (logRes || []).slice(-6).reverse(),
+          monthlyData,
+          destinationPopularity,
+          topAgent
         });
       }
     } catch (err) {

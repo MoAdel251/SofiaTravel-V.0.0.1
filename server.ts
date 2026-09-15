@@ -1114,6 +1114,24 @@ app.get("/api/dashboard-stats", async (req, res) => {
     const outstanding_supplier_payments = db.suppliers.reduce((acc, s) => acc + (Number(s.outstanding_balance) || 0), 0);
     const today_tasks = db.tasks.filter(t => t.status !== 'Completed').length;
 
+    const outstanding_by_currency: Record<string, number> = {};
+    db.reservations.forEach(r => {
+      const rem = Number(r.remaining_amount) || (Number(r.selling_price || 0) - Number(r.paid_amount || 0));
+      if (rem > 0) {
+        const curr = r.currency || 'USD';
+        outstanding_by_currency[curr] = (outstanding_by_currency[curr] || 0) + rem;
+      }
+    });
+    if (Object.keys(outstanding_by_currency).length === 0) {
+      db.customers.forEach(c => {
+        const bal = Number(c.outstanding_balance) || 0;
+        if (bal > 0) {
+          const curr = c.currency || 'USD';
+          outstanding_by_currency[curr] = (outstanding_by_currency[curr] || 0) + bal;
+        }
+      });
+    }
+
   // Compute monthly data
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const currentYear = new Date().getFullYear();
@@ -1188,6 +1206,7 @@ app.get("/api/dashboard-stats", async (req, res) => {
     net_profit,
     outstanding_customer_payments,
     outstanding_supplier_payments,
+    outstanding_by_currency,
     today_tasks,
     recent_reservations: db.reservations.slice(-5).reverse(),
     recent_payments: db.customer_payments.slice(-5).reverse(),
@@ -1208,6 +1227,7 @@ app.get("/api/dashboard-stats", async (req, res) => {
       net_profit: 0,
       outstanding_customer_payments: 0,
       outstanding_supplier_payments: 0,
+      outstanding_by_currency: {},
       today_tasks: 0,
       recent_reservations: [],
       recent_payments: [],

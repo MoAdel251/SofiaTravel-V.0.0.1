@@ -120,17 +120,33 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
 
       {/* Financial & Alerts Summary Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-              <AlertCircle className="w-6 h-6" />
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Amounts Owed to Company</h4>
+                <p className="text-xs text-slate-400 mt-0.5">Unpaid customer accounts by currency</p>
+              </div>
             </div>
-            <div>
-              <h4 className="text-sm font-bold text-slate-900">Outstanding Customer Balances</h4>
-              <p className="text-xs text-slate-400 mt-0.5">Unpaid customer accounts awaiting settlement</p>
-            </div>
+            <span className="text-2xl font-extrabold text-amber-600">${stats.outstanding_customer_payments?.toLocaleString()}</span>
           </div>
-          <span className="text-2xl font-extrabold text-amber-600">${stats.outstanding_customer_payments?.toLocaleString()}</span>
+          {stats.outstanding_by_currency && Object.keys(stats.outstanding_by_currency).length > 0 ? (
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap gap-2">
+              {Object.entries(stats.outstanding_by_currency).map(([curr, amt]) => (
+                <div key={curr} className="bg-amber-50 border border-amber-200/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
+                  <span className="text-[10px] font-extrabold text-amber-800 uppercase">{curr}</span>
+                  <span className="text-xs font-bold text-slate-900">{Number(amt).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="pt-3 border-t border-slate-100 text-xs text-slate-400">
+              No outstanding balances owed by customers.
+            </div>
+          )}
         </div>
 
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
