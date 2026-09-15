@@ -196,14 +196,30 @@ export interface SupplierPayment {
 }
 
 export type ExpenseCategory = 
+  | 'Office Rent'
+  | 'Electricity'
+  | 'Water'
+  | 'Internet'
+  | 'Telephone'
+  | 'Advertising'
+  | 'Facebook Ads'
+  | 'Instagram Ads'
+  | 'Google Ads'
+  | 'Transportation'
+  | 'Visa Expenses'
+  | 'Hotel Expenses'
+  | 'Flight Expenses'
+  | 'Tour Guide'
+  | 'Commission'
+  | 'Office Supplies'
+  | 'Maintenance'
+  | 'Software / Subscriptions'
+  | 'Other'
   | 'Salaries' 
   | 'Office' 
   | 'Marketing' 
-  | 'Transportation' 
   | 'Bank Fees' 
-  | 'Software' 
-  | 'Commission' 
-  | 'Other';
+  | 'Software';
 
 export interface Expense {
   id: string;
@@ -212,11 +228,86 @@ export interface Expense {
   description: string;
   amount: number;
   currency: string;
+  exchange_rate?: number;
+  converted_amount?: number;
   date: string;
-  employee_id: string;
+  employee_id?: string;
   employee_name?: string;
   payment_method: PaymentMethod;
+  paid_by?: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  related_trip_id?: string;
+  invoice_receipt_number?: string;
+  attachment_url?: string;
   notes: string;
+  status?: 'Paid' | 'Pending' | 'Approved';
+}
+
+export interface PayrollRecord {
+  id: string;
+  payroll_month: string; // e.g. "2026-09"
+  employee_id: string;
+  employee_name: string;
+  job_title: string;
+  department: string;
+  basic_salary: number;
+  allowances: number;
+  commission: number;
+  bonus: number;
+  deductions: number;
+  advances: number;
+  net_salary: number;
+  currency: string;
+  status: 'Pending' | 'Partially Paid' | 'Paid';
+  payment_date?: string;
+  payment_method?: string;
+  paid_amount?: number;
+  transaction_reference?: string;
+  notes?: string;
+}
+
+export interface EmployeeAdvance {
+  id: string;
+  advance_id: string;
+  employee_id: string;
+  employee_name: string;
+  date: string;
+  amount: number;
+  currency: string;
+  reason: string;
+  repayment_method: string;
+  outstanding_amount: number;
+  status: 'Outstanding' | 'Partially Repaid' | 'Fully Repaid';
+}
+
+export interface CommissionRecord {
+  id: string;
+  commission_id: string;
+  employee_id: string;
+  employee_name: string;
+  customer_id?: string;
+  customer_name?: string;
+  reservation_id?: string;
+  trip_name?: string;
+  sale_amount: number;
+  commission_percentage: number;
+  commission_amount: number;
+  currency: string;
+  date: string;
+  status: 'Pending' | 'Paid' | 'Added to Payroll';
+}
+
+export interface FinanceAuditLog {
+  id: string;
+  user_name: string;
+  user_role: string;
+  action: 'Created' | 'Updated' | 'Deleted' | 'Paid' | 'Generated Payroll' | 'Exported Report';
+  record_type: string;
+  record_id: string;
+  previous_value?: string;
+  new_value?: string;
+  date_time: string;
 }
 
 export type EmployeePosition = 

@@ -17,12 +17,13 @@ import { ReportsView } from './components/ReportsView';
 import { NotificationsView } from './components/NotificationsView';
 import { SettingsView } from './components/SettingsView';
 import { ActivityLogView } from './components/ActivityLogView';
+import { FinancePayrollView } from './components/FinancePayrollView';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { LoginModal } from './components/LoginModal';
 import { PermissionRequestsView } from './components/PermissionRequestsView';
 import { PermissionModal } from './components/PermissionModal';
-import { UserRole, Customer, Reservation, TourPackage, Hotel, Flight, Supplier, CustomerPayment, SupplierPayment, Expense, Employee, EmployeePosition, Task, TravelDocument, NotificationItem, CompanySettings, ActivityLog, Invoice, PermissionRequest } from './types';
+import { UserRole, Customer, Reservation, TourPackage, Hotel, Flight, Supplier, CustomerPayment, SupplierPayment, Expense, Employee, EmployeePosition, Task, TravelDocument, NotificationItem, CompanySettings, ActivityLog, Invoice, PermissionRequest, PayrollRecord, EmployeeAdvance, CommissionRecord, FinanceAuditLog } from './types';
 import { dataService } from './services/dataService';
 
 export default function App() {
@@ -58,6 +59,10 @@ export default function App() {
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
+  const [advances, setAdvances] = useState<EmployeeAdvance[]>([]);
+  const [commissions, setCommissions] = useState<CommissionRecord[]>([]);
+  const [financeAuditLogs, setFinanceAuditLogs] = useState<FinanceAuditLog[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [documents, setDocuments] = useState<TravelDocument[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -879,6 +884,67 @@ export default function App() {
     fetchAllData();
   };
 
+  const handleUpdateExpense = async (exp: Expense) => {
+    setExpenses(prev => prev.map(e => e.id === exp.id ? exp : e));
+    await dataService.saveDocument('expenses', exp.id, exp, `/api/expenses/${exp.id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+    await dataService.deleteDocument('expenses', id, `/api/expenses/${id}`);
+    fetchAllData();
+  };
+
+  const handleGeneratePayroll = (month: string) => {
+    const generated: PayrollRecord[] = employees.map(emp => ({
+      id: `PAY-${month}-${emp.id}`,
+      payroll_month: month,
+      employee_id: emp.id,
+      employee_name: emp.name,
+      job_title: emp.position,
+      department: emp.department || 'General',
+      basic_salary: emp.salary || 5000,
+      allowances: 500,
+      commission: 250,
+      bonus: 100,
+      deductions: 150,
+      advances: 100,
+      net_salary: (emp.salary || 5000) + 500 + 250 + 100 - 150 - 100,
+      currency: 'USD',
+      status: 'Pending'
+    }));
+    setPayrollRecords(prev => [...generated.filter(g => !prev.some(p => p.id === g.id)), ...prev]);
+  };
+
+  const handleUpdatePayrollStatus = (id: string, status: 'Pending' | 'Partially Paid' | 'Paid', details?: any) => {
+    setPayrollRecords(prev => prev.map(p => p.id === id ? { ...p, status, ...details } : p));
+  };
+
+  const handleAddAdvance = (adv: EmployeeAdvance) => {
+    setAdvances(prev => [adv, ...prev]);
+  };
+
+  const handleUpdateAdvance = (adv: EmployeeAdvance) => {
+    setAdvances(prev => prev.map(a => a.id === adv.id ? adv : a));
+  };
+
+  const handleDeleteAdvance = (id: string) => {
+    setAdvances(prev => prev.filter(a => a.id !== id));
+  };
+
+  const handleAddCommission = (comm: CommissionRecord) => {
+    setCommissions(prev => [comm, ...prev]);
+  };
+
+  const handleDeleteCommission = (id: string) => {
+    setCommissions(prev => prev.filter(c => c.id !== id));
+  };
+
+  const handleAddAuditLog = (log: FinanceAuditLog) => {
+    setFinanceAuditLogs(prev => [log, ...prev]);
+  };
+
   const handleAddTask = async (data: Partial<Task>) => {
     const newId = "TSK-" + Math.random().toString(36).substring(2, 7).toUpperCase();
     const newTask: Task = {
@@ -1079,6 +1145,32 @@ export default function App() {
               onDeleteSupplier={handleDeleteSupplier}
             />
           )}
+          {currentTab === 'finance-payroll' && (
+            <FinancePayrollView
+              userRole={userRole}
+              currentUsername={currentUsername}
+              expenses={expenses}
+              onAddExpense={handleAddExpense}
+              onUpdateExpense={handleUpdateExpense}
+              onDeleteExpense={handleDeleteExpense}
+              payrollRecords={payrollRecords}
+              onGeneratePayroll={handleGeneratePayroll}
+              onUpdatePayrollStatus={handleUpdatePayrollStatus}
+              advances={advances}
+              onAddAdvance={handleAddAdvance}
+              onUpdateAdvance={handleUpdateAdvance}
+              onDeleteAdvance={handleDeleteAdvance}
+              commissions={commissions}
+              onAddCommission={handleAddCommission}
+              onDeleteCommission={handleDeleteCommission}
+              reservations={reservations}
+              suppliers={suppliers}
+              employees={employees}
+              auditLogs={financeAuditLogs}
+              onAddAuditLog={handleAddAuditLog}
+            />
+          )}
+
           {(currentTab === 'invoices' || currentTab === 'finance' || currentTab === 'customer-payments' || currentTab === 'supplier-payments' || currentTab === 'expenses') && (
             <InvoicesView
               invoices={invoices}

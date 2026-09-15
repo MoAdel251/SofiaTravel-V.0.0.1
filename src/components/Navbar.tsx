@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Bell, Sparkles, Globe, Shield, ChevronDown, Check, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, BookmarkCheck, Compass, Plane, Hotel, Truck, FileText, 
-  Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database
+  Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign
 } from 'lucide-react';
 import { UserRole, NotificationItem } from '../types';
 import { getCurrencySymbol } from '../utils/currency';
@@ -60,6 +60,7 @@ export function Navbar({
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'] },
     { id: 'documents', label: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'] },
     { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'] },
+    { id: 'finance-payroll', label: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'] },
     { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'] },
     { id: 'settings', label: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'] },
     { id: 'activity-log', label: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'] }
