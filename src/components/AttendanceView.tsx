@@ -7,6 +7,8 @@ import { Employee, AttendanceRecord, AttendanceSettings, UserRole } from '../typ
 
 interface AttendanceViewProps {
   userRole: UserRole;
+  userPermissions?: string[];
+  currentEmployeeId: string;
   currentUsername: string;
   employees: Employee[];
   attendanceRecords: AttendanceRecord[];
@@ -22,6 +24,8 @@ interface AttendanceViewProps {
 
 export function AttendanceView({
   userRole,
+  userPermissions = [],
+  currentEmployeeId,
   currentUsername,
   employees,
   attendanceRecords,
@@ -34,8 +38,21 @@ export function AttendanceView({
   onUpdateSettings,
   onAddAuditLog
 }: AttendanceViewProps) {
-  // Security Check: Administrator only
-  if (userRole !== 'Administrator') {
+  const canViewAll = userRole === 'Administrator' || userPermissions.includes('view_attendance');
+  const canSelfClockInOut = userPermissions.includes('add_check_in') || userPermissions.includes('add_check_out') || canViewAll;
+
+  // Live Clock State
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Security Check: Must have at least some attendance permission
+  if (!canViewAll && !canSelfClockInOut) {
     return (
       <div className="p-12 min-h-[80vh] flex items-center justify-center bg-slate-50">
         <div className="bg-white rounded-3xl border border-rose-200 p-8 max-w-md w-full text-center shadow-xl space-y-4">
@@ -149,6 +166,72 @@ export function AttendanceView({
     });
     alert('Attendance and deduction settings updated successfully!');
   };
+
+  if (!canViewAll && canSelfClockInOut) {
+    const today = new Date().toISOString().split('T')[0];
+    const myRecord = attendanceRecords.find(r => r.employee_id === currentEmployeeId && r.date === today);
+
+    const handleSelfClockIn = () => {
+      const hhmm = currentTime.toTimeString().slice(0, 5);
+      onCheckIn(currentEmployeeId, today, hhmm);
+    };
+
+    const handleSelfClockOut = () => {
+      if (!myRecord) return;
+      const hhmm = currentTime.toTimeString().slice(0, 5);
+      onCheckOut(myRecord.id, hhmm);
+    };
+
+    return (
+      <div className="p-6 lg:p-8 space-y-6 bg-slate-50 min-h-screen">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto text-center space-y-8">
+          <div className="space-y-2">
+            <h1 className="text-3xl font-black text-slate-900">My Attendance</h1>
+            <p className="text-slate-500">Record your daily clock-in and clock-out times.</p>
+          </div>
+
+          <div className="p-8 bg-slate-900 text-white rounded-3xl inline-block shadow-xl shadow-slate-900/20">
+            <div className="text-5xl font-black tracking-tighter tabular-nums">
+              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </div>
+            <div className="text-sm font-bold text-slate-400 mt-2 uppercase tracking-widest">
+              {currentTime.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            {!myRecord?.check_in_time ? (
+              <button
+                onClick={handleSelfClockIn}
+                disabled={!userPermissions.includes('add_check_in')}
+                className="w-full sm:w-auto px-8 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-2xl font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer"
+              >
+                <Clock className="w-6 h-6" /> Clock In Now
+              </button>
+            ) : !myRecord?.check_out_time ? (
+              <div className="w-full space-y-4">
+                <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl font-bold">
+                  ✓ Clocked In at {myRecord.check_in_time}
+                </div>
+                <button
+                  onClick={handleSelfClockOut}
+                  disabled={!userPermissions.includes('add_check_out')}
+                  className="w-full sm:w-auto px-8 py-4 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-2xl font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer mx-auto"
+                >
+                  <Clock className="w-6 h-6" /> Clock Out Now
+                </button>
+              </div>
+            ) : (
+              <div className="w-full p-6 bg-slate-100 border border-slate-200 text-slate-700 rounded-2xl font-bold">
+                ✓ Shift completed for today. <br/> 
+                <span className="text-sm text-slate-500 font-medium">In: {myRecord.check_in_time} — Out: {myRecord.check_out_time}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 lg:p-8 space-y-6 bg-slate-50 min-h-screen">

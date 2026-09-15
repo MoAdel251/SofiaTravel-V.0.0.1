@@ -9,6 +9,7 @@ import { getCurrencySymbol } from '../utils/currency';
 
 interface NavbarProps {
   userRole: UserRole;
+  userPermissions?: string[];
   setUserRole: (role: UserRole) => void;
   currentCurrency: string;
   setCurrentCurrency: (currency: string) => void;
@@ -26,6 +27,7 @@ interface NavbarProps {
 
 export function Navbar({
   userRole,
+  userPermissions = [],
   setUserRole,
   currentCurrency,
   setCurrentCurrency,
@@ -45,29 +47,37 @@ export function Navbar({
 
   const notifRef = useRef<HTMLDivElement>(null);
 
+  const hasPerm = (perm: string | string[]) => {
+    if (userRole === 'Administrator') return true;
+    if (Array.isArray(perm)) {
+      return perm.some(p => userPermissions.includes(p));
+    }
+    return userPermissions.includes(perm);
+  };
+
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'] },
-    { id: 'permission-requests', label: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount },
-    { id: 'customers', label: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'] },
-    { id: 'suppliers', label: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'] },
-    { id: 'invoices', label: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'] },
-    { id: 'reservations', label: 'Reservations', icon: BookmarkCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'] },
-    { id: 'packages', label: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'] },
-    { id: 'flights', label: 'Flights', icon: Plane, roles: ['Administrator', 'Manager', 'Sales', 'Operations'] },
-    { id: 'hotels', label: 'Hotels', icon: Hotel, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Accountant'] },
-    { id: 'employees', label: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'] },
-    { id: 'attendance', label: 'Attendance & Departure', icon: Clock, roles: ['Administrator'] },
-    { id: 'calendar', label: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'] },
-    { id: 'tasks', label: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'] },
-    { id: 'documents', label: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'] },
-    { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'] },
-    { id: 'finance-payroll', label: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'] },
-    { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'] },
-    { id: 'settings', label: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'] },
-    { id: 'activity-log', label: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'] }
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'permission-requests', label: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
+    { id: 'customers', label: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
+    { id: 'suppliers', label: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
+    { id: 'invoices', label: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_sales' },
+    { id: 'reservations', label: 'Reservations', icon: BookmarkCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
+    { id: 'packages', label: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
+    { id: 'flights', label: 'Flights', icon: Plane, roles: ['Administrator', 'Manager', 'Sales', 'Operations'], perm: 'view_trips' },
+    { id: 'hotels', label: 'Hotels', icon: Hotel, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Accountant'], perm: 'view_trips' },
+    { id: 'employees', label: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
+    { id: 'attendance', label: 'Attendance & Departure', icon: Clock, roles: ['Administrator'], perm: ['view_attendance', 'add_check_in', 'add_check_out'] },
+    { id: 'calendar', label: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'tasks', label: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'documents', label: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: 'view_reports' },
+    { id: 'finance-payroll', label: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'], perm: ['view_finance', 'view_payroll'] },
+    { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'settings', label: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'], perm: 'view_settings' },
+    { id: 'activity-log', label: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: 'view_settings' }
   ];
 
-  const filteredItems = menuItems.filter(item => item.roles.includes(userRole));
+  const filteredItems = menuItems.filter(item => userPermissions.length > 0 ? hasPerm(item.perm) : item.roles.includes(userRole));
   const unreadCount = notifications.filter(n => !n.read).length;
 
   useEffect(() => {

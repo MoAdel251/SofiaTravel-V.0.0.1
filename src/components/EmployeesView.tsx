@@ -11,6 +11,7 @@ interface EmployeesViewProps {
   onDeleteEmployee: (id: string) => void;
   onDeactivateEmployee?: (id: string, status: 'Active' | 'Inactive' | 'Suspended') => void;
   userRole: UserRole;
+  userPermissions?: string[];
   onAddAuditLog: (log: any) => void;
   currentUsername: string;
 }
@@ -131,6 +132,7 @@ export function EmployeesView({
   onDeleteEmployee, 
   onDeactivateEmployee,
   userRole, 
+  userPermissions = [],
   onAddAuditLog,
   currentUsername 
 }: EmployeesViewProps) {
@@ -327,6 +329,7 @@ export function EmployeesView({
   };
 
   const isAdmin = userRole === 'Administrator';
+  const canManagePermissions = isAdmin || userPermissions.includes('manage_permissions');
 
   return (
     <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
@@ -499,6 +502,7 @@ export function EmployeesView({
 
             <form onSubmit={handleCreateOrUpdate} className="space-y-6 pt-4 text-xs">
               {/* Copy permissions helper */}
+              {canManagePermissions && (
               <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-200 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div>
                   <p className="font-bold text-blue-900">Quick Permission Template</p>
@@ -524,6 +528,7 @@ export function EmployeesView({
                   </button>
                 </div>
               </div>
+              )}
 
               {/* Personal & Login Details */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -629,6 +634,7 @@ export function EmployeesView({
               </div>
 
               {/* Employee Permissions Section */}
+              {canManagePermissions && (
               <div className="pt-4 border-t border-slate-200 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -709,6 +715,7 @@ export function EmployeesView({
                   })}
                 </div>
               </div>
+              )}
 
               <div className="flex items-center justify-between pt-4 border-t border-slate-200">
                 <button

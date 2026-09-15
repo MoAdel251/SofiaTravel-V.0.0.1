@@ -89,8 +89,8 @@ export default function App() {
     late_deduction_type: 'Per Minute'
   });
 
-  const handleCheckIn = (employeeId: string, date: string, checkInTime: string) => {
-    const emp = employees.find(e => e.id === employeeId);
+  const handleCheckIn = async (employeeId: string, date: string, checkInTime: string) => {
+    const emp = employees.find(e => e.id === employeeId || e.employee_id === employeeId);
     const empName = emp ? emp.name : 'Employee';
     const [offHour, offMin] = attendanceSettings.official_check_in.split(':').map(Number);
     const [inHour, inMin] = checkInTime.split(':').map(Number);
@@ -115,9 +115,15 @@ export default function App() {
     };
 
     setAttendanceRecords(prev => [newRecord, ...prev.filter(r => !(r.employee_id === employeeId && r.date === date))]);
+    try {
+      await dataService.saveDocument('attendance', newRecord.id, newRecord);
+    } catch (e) {
+      console.error('Failed to save attendance:', e);
+    }
   };
 
-  const handleCheckOut = (recordId: string, checkOutTime: string) => {
+  const handleCheckOut = async (recordId: string, checkOutTime: string) => {
+    let updatedRecord: AttendanceRecord | null = null;
     setAttendanceRecords(prev => prev.map(r => {
       if (r.id === recordId) {
         let workingHoursStr = '--';
@@ -129,15 +135,24 @@ export default function App() {
           const mins = diffMins % 60;
           workingHoursStr = `${hours}h ${mins}m`;
         }
-        return {
+        updatedRecord = {
           ...r,
           check_out_time: checkOutTime,
           total_working_hours: workingHoursStr,
           updated_at: new Date().toISOString()
         };
+        return updatedRecord;
       }
       return r;
     }));
+
+    if (updatedRecord) {
+      try {
+        await dataService.saveDocument('attendance', recordId, updatedRecord);
+      } catch (e) {
+        console.error('Failed to update check-out:', e);
+      }
+    }
   };
 
   const handleAddAttendance = (record: AttendanceRecord) => {
@@ -1127,6 +1142,12 @@ export default function App() {
 
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
 
+  const currentEmployee = employees.find(e => 
+    (e.username || e.name || '').toLowerCase() === currentUsername.toLowerCase()
+  );
+  
+  const currentUserPermissions = userRole === 'Administrator' ? [] : (currentEmployee?.permissions || []);
+
   const handleLogin = (name: string, role: UserRole) => {
     setCurrentUsername(name);
     setUserRole(role);
@@ -1156,6 +1177,7 @@ export default function App() {
 
       <Navbar
         userRole={userRole}
+        userPermissions={currentUserPermissions}
         setUserRole={setUserRole}
         currentCurrency={currentCurrency}
         setCurrentCurrency={setCurrentCurrency}
@@ -1298,7 +1320,8 @@ export default function App() {
               onEditEmployee={handleEditEmployee}
               onDeleteEmployee={handleDeleteEmployee}
               onDeactivateEmployee={handleDeactivateEmployee}
-              userRole={userRole} 
+              userRole={userRole}
+              userPermissions={currentUserPermissions}
               onAddAuditLog={handleAddAuditLog}
               currentUsername={currentUsername}
             />
@@ -1306,7 +1329,9 @@ export default function App() {
           {currentTab === 'attendance' && (
             <AttendanceView
               userRole={userRole}
+              userPermissions={currentUserPermissions}
               currentUsername={currentUsername}
+              currentEmployeeId={currentEmployee?.id || currentEmployee?.employee_id || ''}
               employees={employees}
               attendanceRecords={attendanceRecords}
               onCheckIn={handleCheckIn}
