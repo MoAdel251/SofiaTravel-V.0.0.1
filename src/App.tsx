@@ -675,6 +675,44 @@ export default function App() {
     fetchAllData();
   };
 
+  const handleUpdateSupplier = async (id: string, data: Partial<Supplier>) => {
+    const sup = suppliers.find(s => s.id === id);
+    const itemName = sup ? sup.supplier_name : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Suppliers',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...sup, ...data, id };
+    setSuppliers(prev => prev.map(s => (s.id === id ? (updated as Supplier) : s)));
+    await dataService.saveDocument('suppliers', id, updated, `/api/suppliers/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteSupplier = async (id: string) => {
+    const sup = suppliers.find(s => s.id === id);
+    const itemName = sup ? sup.supplier_name : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Suppliers',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setSuppliers(prev => prev.filter(s => s.id !== id));
+    await dataService.deleteDocument('suppliers', id, `/api/suppliers/${id}`);
+    fetchAllData();
+  };
+
   const handleAddEmployee = async (data: Partial<Employee> & { username?: string; password?: string }) => {
     const newId = `EMP-${Date.now().toString(36).toUpperCase()}`;
     const empPos = (data.position || 'Sales') as EmployeePosition;
@@ -924,6 +962,8 @@ export default function App() {
               reservations={reservations}
               settings={settings}
               onAddSupplier={handleAddSupplier} 
+              onUpdateSupplier={handleUpdateSupplier}
+              onDeleteSupplier={handleDeleteSupplier}
             />
           )}
           {(currentTab === 'invoices' || currentTab === 'finance' || currentTab === 'customer-payments' || currentTab === 'supplier-payments' || currentTab === 'expenses') && (

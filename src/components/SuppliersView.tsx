@@ -13,7 +13,10 @@ import {
   X, 
   Building, 
   CreditCard,
-  DollarSign
+  DollarSign,
+  Edit,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { Supplier, Invoice, Reservation, CompanySettings } from '../types';
 import { SofiaLogo } from './SofiaLogo';
@@ -26,6 +29,8 @@ interface SuppliersViewProps {
   reservations?: Reservation[];
   settings?: CompanySettings;
   onAddSupplier: (data: Partial<Supplier>) => void;
+  onUpdateSupplier?: (id: string, data: Partial<Supplier>) => void;
+  onDeleteSupplier?: (id: string) => void;
 }
 
 export function SuppliersView({ 
@@ -33,25 +38,32 @@ export function SuppliersView({
   invoices = [], 
   reservations = [], 
   settings, 
-  onAddSupplier 
+  onAddSupplier,
+  onUpdateSupplier,
+  onDeleteSupplier
 }: SuppliersViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [deletingSupplier, setDeletingSupplier] = useState<Supplier | null>(null);
   const [statementSupplier, setStatementSupplier] = useState<Supplier | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<Partial<Supplier>>({
     supplier_name: '',
-    type: 'Hotel',
+    type: 'Hotels',
     contact_person: '',
     phone: '',
     email: '',
     country: 'Egypt',
     city: 'Cairo',
     address: '',
+    tax_information: '',
     bank_account_details: '',
-    payment_terms: 'Net 30'
+    payment_terms: '30 Days Net',
+    currency: 'USD',
+    notes: ''
   });
 
   const filteredSuppliers = suppliers.filter(s => {
@@ -245,15 +257,15 @@ export function SuppliersView({
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        {/* 3-Currency Statement Button (Requirement 8) */}
+                      <div className="flex items-center justify-end space-x-1.5">
+                        {/* 3-Currency Statement Button */}
                         <button
                           onClick={() => setStatementSupplier(sup)}
-                          className="flex items-center space-x-1 bg-purple-50 hover:bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer border border-purple-200"
+                          className="flex items-center space-x-1 bg-purple-50 hover:bg-purple-100 text-purple-700 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer border border-purple-200"
                           title="View & Print Statement in 3 Currencies"
                         >
                           <FileText className="w-3.5 h-3.5" />
-                          <span>Statement</span>
+                          <span className="hidden sm:inline">Statement</span>
                         </button>
 
                         <button
@@ -262,6 +274,24 @@ export function SuppliersView({
                           title="Send Statement via WhatsApp"
                         >
                           <MessageCircle className="w-4 h-4" />
+                        </button>
+
+                        {/* Edit Supplier Button */}
+                        <button
+                          onClick={() => setEditingSupplier(sup)}
+                          className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg transition-colors cursor-pointer border border-indigo-100 hover:border-indigo-200"
+                          title="Edit Supplier Information"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+
+                        {/* Delete Supplier Button */}
+                        <button
+                          onClick={() => setDeletingSupplier(sup)}
+                          className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors cursor-pointer border border-rose-100 hover:border-rose-200"
+                          title="Delete Supplier"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -467,8 +497,8 @@ export function SuppliersView({
 
       {/* Add Supplier Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200 my-8">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <h3 className="text-lg font-bold text-slate-900">Add New Supplier</h3>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -477,10 +507,11 @@ export function SuppliersView({
             </div>
             <form onSubmit={handleCreate} className="space-y-4 mt-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier Name *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier / Partner Name *</label>
                 <input
                   type="text"
                   required
+                  placeholder="e.g. Nile Cruise Corp or Cairo Shuttle"
                   value={formData.supplier_name}
                   onChange={(e) => setFormData({ ...formData, supplier_name: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
@@ -488,17 +519,18 @@ export function SuppliersView({
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Type</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Type / Category *</label>
                   <select
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   >
-                    <option value="Hotel">Hotel</option>
-                    <option value="Airline">Airline</option>
-                    <option value="Transport">Transport</option>
-                    <option value="Tour Operator">Tour Operator</option>
-                    <option value="Visa Service">Visa Service</option>
+                    <option value="Hotels">Hotels</option>
+                    <option value="Airlines">Airlines</option>
+                    <option value="Transportation Companies">Transportation Companies</option>
+                    <option value="Tour Operators">Tour Operators</option>
+                    <option value="Visa Services">Visa Services</option>
+                    <option value="Others">Others</option>
                   </select>
                 </div>
                 <div>
@@ -506,6 +538,7 @@ export function SuppliersView({
                   <input
                     type="text"
                     required
+                    placeholder="e.g. Tarek Mansour"
                     value={formData.contact_person}
                     onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
@@ -514,10 +547,11 @@ export function SuppliersView({
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Phone *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Phone / WhatsApp *</label>
                   <input
                     type="text"
                     required
+                    placeholder="+20 100 000 0000"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
@@ -527,11 +561,69 @@ export function SuppliersView({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Email</label>
                   <input
                     type="email"
+                    placeholder="partner@supplier.com"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Address / Headquarters</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 15 Tahrir Square, Cairo, Egypt"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Payment Terms</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Net 30, Net 15, Advance"
+                    value={formData.payment_terms}
+                    onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Default Settlement Currency</label>
+                  <select
+                    value={formData.currency || 'USD'}
+                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="USD">USD ($)</option>
+                    <option value="EGP">EGP (E£)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="SAR">SAR (SR)</option>
+                    <option value="AED">AED</option>
+                    <option value="GBP">GBP (£)</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Tax / TRN Number</label>
+                <input
+                  type="text"
+                  placeholder="e.g. TRN-8849204"
+                  value={formData.tax_information}
+                  onChange={(e) => setFormData({ ...formData, tax_information: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Bank Account / Wire Settlement Details</label>
+                <textarea
+                  rows={2}
+                  placeholder="Bank Name, IBAN / Account Number, SWIFT code..."
+                  value={formData.bank_account_details}
+                  onChange={(e) => setFormData({ ...formData, bank_account_details: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500 resize-none"
+                />
               </div>
               <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200">
                 <button
@@ -549,6 +641,230 @@ export function SuppliersView({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Supplier Modal */}
+      {editingSupplier && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200 my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Edit className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Edit Supplier Details</h3>
+                  <p className="text-xs text-slate-500">ID: {editingSupplier.id}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setEditingSupplier(null)} 
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (onUpdateSupplier && editingSupplier) {
+                  onUpdateSupplier(editingSupplier.id, editingSupplier);
+                }
+                setEditingSupplier(null);
+              }} 
+              className="space-y-4 mt-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier / Partner Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingSupplier.supplier_name || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, supplier_name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Category / Type *</label>
+                  <select
+                    value={editingSupplier.type || 'Hotels'}
+                    onChange={(e) => setEditingSupplier({ ...editingSupplier, type: e.target.value as any })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Hotels">Hotels</option>
+                    <option value="Airlines">Airlines</option>
+                    <option value="Transportation Companies">Transportation Companies</option>
+                    <option value="Tour Operators">Tour Operators</option>
+                    <option value="Visa Services">Visa Services</option>
+                    <option value="Others">Others</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Contact Person *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingSupplier.contact_person || ''}
+                    onChange={(e) => setEditingSupplier({ ...editingSupplier, contact_person: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Phone / WhatsApp *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingSupplier.phone || ''}
+                    onChange={(e) => setEditingSupplier({ ...editingSupplier, phone: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={editingSupplier.email || ''}
+                    onChange={(e) => setEditingSupplier({ ...editingSupplier, email: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Address / Location</label>
+                <input
+                  type="text"
+                  value={editingSupplier.address || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, address: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Payment Terms</label>
+                  <input
+                    type="text"
+                    value={editingSupplier.payment_terms || ''}
+                    onChange={(e) => setEditingSupplier({ ...editingSupplier, payment_terms: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Currency</label>
+                  <select
+                    value={editingSupplier.currency || 'USD'}
+                    onChange={(e) => setEditingSupplier({ ...editingSupplier, currency: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="USD">USD ($)</option>
+                    <option value="EGP">EGP (E£)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="SAR">SAR (SR)</option>
+                    <option value="AED">AED</option>
+                    <option value="GBP">GBP (£)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Tax / TRN Registration</label>
+                <input
+                  type="text"
+                  value={editingSupplier.tax_information || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, tax_information: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Bank & Wire Settlement Details</label>
+                <textarea
+                  rows={2}
+                  value={editingSupplier.bank_account_details || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, bank_account_details: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Internal Notes</label>
+                <input
+                  type="text"
+                  value={editingSupplier.notes || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, notes: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingSupplier(null)}
+                  className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium shadow-sm"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Supplier Confirmation Modal */}
+      {deletingSupplier && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center gap-3 text-rose-600 mb-4">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Delete Supplier</h3>
+                <p className="text-xs text-slate-500">Confirm partner deletion</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-600 mb-6">
+              Are you sure you want to delete supplier <strong className="text-slate-900">"{deletingSupplier.supplier_name}"</strong>?
+              This action will remove the partner from your procurement database.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setDeletingSupplier(null)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteSupplier && deletingSupplier) {
+                    onDeleteSupplier(deletingSupplier.id);
+                  }
+                  setDeletingSupplier(null);
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-semibold shadow-sm"
+              >
+                Yes, Delete Supplier
+              </button>
+            </div>
           </div>
         </div>
       )}
