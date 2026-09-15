@@ -1,8 +1,19 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import express from 'express';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer } from "firebase/firestore";
+
+let appDirname = process.cwd();
+try {
+  appDirname = path.dirname(fileURLToPath(import.meta.url));
+} catch {
+  appDirname = process.cwd();
+}
 
 let firebaseConfig: any = {
   apiKey: "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
@@ -12,24 +23,34 @@ let firebaseConfig: any = {
   messagingSenderId: "879700596249",
   appId: "1:879700596249:web:09aba9e86995c144cf3c88"
 };
-let firestoreDatabaseId: string | undefined = undefined;
+let firestoreDatabaseId: string | undefined = "ai-studio-sofiatravelmanag-d5250360-2f13-4e61-9f65-9d2693ac8c37";
 
-try {
-  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-  if (fs.existsSync(configPath)) {
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    firebaseConfig = {
-      apiKey: parsed.apiKey,
-      authDomain: parsed.authDomain,
-      projectId: parsed.projectId,
-      storageBucket: parsed.storageBucket,
-      messagingSenderId: parsed.messagingSenderId,
-      appId: parsed.appId
-    };
-    firestoreDatabaseId = parsed.firestoreDatabaseId || undefined;
+const candidatePaths = [
+  path.join(process.cwd(), 'firebase-applet-config.json'),
+  path.join(appDirname, 'firebase-applet-config.json'),
+  path.join(appDirname, '..', 'firebase-applet-config.json')
+];
+
+for (const configPath of candidatePaths) {
+  try {
+    if (fs.existsSync(configPath)) {
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      firebaseConfig = {
+        apiKey: parsed.apiKey || firebaseConfig.apiKey,
+        authDomain: parsed.authDomain || firebaseConfig.authDomain,
+        projectId: parsed.projectId || firebaseConfig.projectId,
+        storageBucket: parsed.storageBucket || firebaseConfig.storageBucket,
+        messagingSenderId: parsed.messagingSenderId || firebaseConfig.messagingSenderId,
+        appId: parsed.appId || firebaseConfig.appId
+      };
+      if (parsed.firestoreDatabaseId) {
+        firestoreDatabaseId = parsed.firestoreDatabaseId;
+      }
+      break;
+    }
+  } catch (e) {
+    console.error(`Failed to parse ${configPath}:`, e);
   }
-} catch (e) {
-  console.error("Failed to parse firebase-applet-config.json:", e);
 }
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -571,14 +592,27 @@ async function deleteFromFirestore(collectionName: string, id: string) {
   }
 }
 
-import express from "express";
-import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
-
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Enable CORS for external hosting and online deployments
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-acting-user, x-acting-role");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Health check endpoint for fast container readiness
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", service: "Sofia Travel Management API", timestamp: new Date().toISOString() });
+});
 
 // In-Memory Database Store with Rich Seed Data
 // Helper function to log activity
@@ -1558,12 +1592,22 @@ app.get("/api/dashboard-stats", async (req, res) => {
   }
 });
 
-// Gemini AI Assistant Integration
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// Gemini AI Assistant Integration with lazy initialization
+let aiClient: GoogleGenAI | null = null;
+function getGenAI(): GoogleGenAI | null {
+  if (!aiClient && process.env.GEMINI_API_KEY) {
+    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return aiClient;
+}
 
 app.post("/api/ai-assistant", async (req, res) => {
   try {
     const { prompt } = req.body;
+    const ai = getGenAI();
+    if (!ai) {
+      return res.status(503).json({ error: "Gemini AI is currently not configured with an API key." });
+    }
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
@@ -1580,9 +1624,6 @@ app.post("/api/ai-assistant", async (req, res) => {
 });
 
 async function startServer() {
-  await testConnection();
-  await loadFromFirestore();
-
   // Vite middleware for development or static serving for production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -1591,16 +1632,32 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    let distPath = path.join(process.cwd(), 'dist');
+    if (!fs.existsSync(distPath) && fs.existsSync(path.join(process.cwd(), 'index.html'))) {
+      distPath = process.cwd();
+    } else if (!fs.existsSync(distPath) && fs.existsSync(path.join(appDirname, 'index.html'))) {
+      distPath = appDirname;
+    }
     app.use(express.static(distPath));
-    app.get('*all', async (req, res) => {
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
+  // Start HTTP server immediately so port 3000 is open for container health checks
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Sofia Travel Management System running on http://localhost:${PORT}`);
   });
+
+  // Hydrate from Firestore in the background without blocking server startup
+  (async () => {
+    try {
+      await testConnection();
+      await loadFromFirestore();
+    } catch (e) {
+      console.warn("Background Firestore initialization note:", e);
+    }
+  })();
 }
 
 startServer();
