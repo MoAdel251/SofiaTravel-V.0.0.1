@@ -56,6 +56,7 @@ export function Navbar({
     { id: 'flights', label: 'Flights', icon: Plane, roles: ['Administrator', 'Manager', 'Sales', 'Operations'] },
     { id: 'hotels', label: 'Hotels', icon: Hotel, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Accountant'] },
     { id: 'employees', label: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'] },
+    { id: 'attendance', label: 'Attendance & Departure', icon: Clock, roles: ['Administrator'] },
     { id: 'calendar', label: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'] },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'] },
     { id: 'documents', label: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'] },

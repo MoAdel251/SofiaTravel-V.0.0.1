@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer, initializeFirestore, memoryLocalCache } from 'firebase/firestore';
 
 export const firebaseConfig = {
   apiKey: "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
@@ -12,7 +12,22 @@ export const firebaseConfig = {
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Use initializeFirestore with memoryLocalCache to prevent browser IndexedDB BloomFilter corruption errors
+let firestoreInstance: any;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    localCache: memoryLocalCache()
+  }, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  try {
+    firestoreInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  } catch {
+    firestoreInstance = getFirestore(app);
+  }
+}
+
+export const db = firestoreInstance;
 
 export enum OperationType {
   CREATE = 'create',

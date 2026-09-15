@@ -331,6 +331,11 @@ export interface Employee {
   salary: number;
   commission_rate: number; // percentage e.g. 5%
   status: 'Active' | 'On Leave' | 'Inactive';
+  account_status?: 'Active' | 'Inactive' | 'Suspended';
+  login_access_enabled?: boolean;
+  permissions?: string[];
+  deactivated_at?: string;
+  deactivated_by?: string;
   username?: string;
   password?: string;
   reservations_count?: number;
@@ -494,3 +499,34 @@ export interface Invoice {
   manager_name?: string;
   created_by_employee?: string;
 }
+
+export type AttendanceStatus = 'Present' | 'Late' | 'Absent' | 'Leave' | 'Holiday' | 'Day Off';
+
+export interface AttendanceRecord {
+  id: string;
+  attendance_id: string;
+  employee_id: string;
+  employee_name: string;
+  date: string;
+  check_in_time?: string;
+  check_out_time?: string;
+  status: AttendanceStatus;
+  late_minutes: number;
+  early_departure_minutes: number;
+  total_working_hours: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceSettings {
+  official_check_in: string;
+  official_check_out: string;
+  grace_period_minutes: number;
+  required_working_hours: number;
+  working_days: string[];
+  weekend_days: string[];
+  absence_deduction_type: 'No Deduction' | 'Deduct Daily Rate' | 'Custom Amount';
+  late_deduction_type: 'No Deduction' | 'Per Minute' | 'Per Late Day' | 'Custom Rule';
+}
+

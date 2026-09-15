@@ -18,12 +18,13 @@ import { NotificationsView } from './components/NotificationsView';
 import { SettingsView } from './components/SettingsView';
 import { ActivityLogView } from './components/ActivityLogView';
 import { FinancePayrollView } from './components/FinancePayrollView';
+import { AttendanceView } from './components/AttendanceView';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { LoginModal } from './components/LoginModal';
 import { PermissionRequestsView } from './components/PermissionRequestsView';
 import { PermissionModal } from './components/PermissionModal';
-import { UserRole, Customer, Reservation, TourPackage, Hotel, Flight, Supplier, CustomerPayment, SupplierPayment, Expense, Employee, EmployeePosition, Task, TravelDocument, NotificationItem, CompanySettings, ActivityLog, Invoice, PermissionRequest, PayrollRecord, EmployeeAdvance, CommissionRecord, FinanceAuditLog } from './types';
+import { UserRole, Customer, Reservation, TourPackage, Hotel, Flight, Supplier, CustomerPayment, SupplierPayment, Expense, Employee, EmployeePosition, Task, TravelDocument, NotificationItem, CompanySettings, ActivityLog, Invoice, PermissionRequest, PayrollRecord, EmployeeAdvance, CommissionRecord, FinanceAuditLog, AttendanceRecord, AttendanceSettings } from './types';
 import { dataService } from './services/dataService';
 
 export default function App() {
@@ -59,6 +60,101 @@ export default function App() {
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([
+    {
+      id: 'ATT-1',
+      attendance_id: 'ATT-001',
+      employee_id: 'EMP-1',
+      employee_name: 'Ahmed Mohamed',
+      date: new Date().toISOString().split('T')[0],
+      check_in_time: '09:03',
+      check_out_time: '17:05',
+      status: 'Late',
+      late_minutes: 3,
+      early_departure_minutes: 0,
+      total_working_hours: '8h 02m',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  ]);
+
+  const [attendanceSettings, setAttendanceSettings] = useState<AttendanceSettings>({
+    official_check_in: '09:00',
+    official_check_out: '17:00',
+    grace_period_minutes: 10,
+    required_working_hours: 8,
+    working_days: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'],
+    weekend_days: ['Friday', 'Saturday'],
+    absence_deduction_type: 'Deduct Daily Rate',
+    late_deduction_type: 'Per Minute'
+  });
+
+  const handleCheckIn = (employeeId: string, date: string, checkInTime: string) => {
+    const emp = employees.find(e => e.id === employeeId);
+    const empName = emp ? emp.name : 'Employee';
+    const [offHour, offMin] = attendanceSettings.official_check_in.split(':').map(Number);
+    const [inHour, inMin] = checkInTime.split(':').map(Number);
+    const officialTotalMins = offHour * 60 + offMin + attendanceSettings.grace_period_minutes;
+    const actualTotalMins = inHour * 60 + inMin;
+    const lateMins = Math.max(0, actualTotalMins - (offHour * 60 + offMin));
+    const status = lateMins > 0 ? 'Late' : 'Present';
+
+    const newRecord: AttendanceRecord = {
+      id: 'ATT-' + Date.now(),
+      attendance_id: 'ATT-' + Math.floor(1000 + Math.random() * 9000),
+      employee_id: employeeId,
+      employee_name: empName,
+      date,
+      check_in_time: checkInTime,
+      status,
+      late_minutes: lateMins,
+      early_departure_minutes: 0,
+      total_working_hours: '--',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    setAttendanceRecords(prev => [newRecord, ...prev.filter(r => !(r.employee_id === employeeId && r.date === date))]);
+  };
+
+  const handleCheckOut = (recordId: string, checkOutTime: string) => {
+    setAttendanceRecords(prev => prev.map(r => {
+      if (r.id === recordId) {
+        let workingHoursStr = '--';
+        if (r.check_in_time) {
+          const [inH, inM] = r.check_in_time.split(':').map(Number);
+          const [outH, outM] = checkOutTime.split(':').map(Number);
+          const diffMins = (outH * 60 + outM) - (inH * 60 + inM);
+          const hours = Math.floor(diffMins / 60);
+          const mins = diffMins % 60;
+          workingHoursStr = `${hours}h ${mins}m`;
+        }
+        return {
+          ...r,
+          check_out_time: checkOutTime,
+          total_working_hours: workingHoursStr,
+          updated_at: new Date().toISOString()
+        };
+      }
+      return r;
+    }));
+  };
+
+  const handleAddAttendance = (record: AttendanceRecord) => {
+    setAttendanceRecords(prev => [record, ...prev]);
+  };
+
+  const handleUpdateAttendance = (record: AttendanceRecord) => {
+    setAttendanceRecords(prev => prev.map(r => r.id === record.id ? record : r));
+  };
+
+  const handleDeleteAttendance = (id: string) => {
+    setAttendanceRecords(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleUpdateAttendanceSettings = (settings: AttendanceSettings) => {
+    setAttendanceSettings(settings);
+  };
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [advances, setAdvances] = useState<EmployeeAdvance[]>([]);
   const [commissions, setCommissions] = useState<CommissionRecord[]>([]);
@@ -793,6 +889,14 @@ export default function App() {
     fetchAllData();
   };
 
+  const handleDeactivateEmployee = async (id: string, status: 'Active' | 'Inactive' | 'Suspended') => {
+    const updated: Partial<Employee> = { 
+      account_status: status, 
+      status: (status === 'Active' ? 'Active' : 'Inactive') as 'Active' | 'On Leave' | 'Inactive'
+    };
+    await handleEditEmployee(id, updated);
+  };
+
   const handleAddEmployee = async (data: Partial<Employee> & { username?: string; password?: string }) => {
     const newId = `EMP-${Date.now().toString(36).toUpperCase()}`;
     const empPos = (data.position || 'Sales') as EmployeePosition;
@@ -1193,7 +1297,26 @@ export default function App() {
               onAddEmployee={handleAddEmployee} 
               onEditEmployee={handleEditEmployee}
               onDeleteEmployee={handleDeleteEmployee}
+              onDeactivateEmployee={handleDeactivateEmployee}
               userRole={userRole} 
+              onAddAuditLog={handleAddAuditLog}
+              currentUsername={currentUsername}
+            />
+          )}
+          {currentTab === 'attendance' && (
+            <AttendanceView
+              userRole={userRole}
+              currentUsername={currentUsername}
+              employees={employees}
+              attendanceRecords={attendanceRecords}
+              onCheckIn={handleCheckIn}
+              onCheckOut={handleCheckOut}
+              onAddAttendance={handleAddAttendance}
+              onUpdateAttendance={handleUpdateAttendance}
+              onDeleteAttendance={handleDeleteAttendance}
+              settings={attendanceSettings}
+              onUpdateSettings={handleUpdateAttendanceSettings}
+              onAddAuditLog={handleAddAuditLog}
             />
           )}
           {currentTab === 'calendar' && (
