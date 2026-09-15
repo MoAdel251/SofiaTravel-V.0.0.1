@@ -164,10 +164,28 @@ async function loadFromFirestore() {
        await getCollectionDocs(c);
     }
 
-    console.log("Firestore data loaded successfully (no test data).");
+    console.log("Firestore data loaded successfully.");
   } catch (err) {
     console.error("Error loading from Firestore:", err);
   }
+}
+
+async function wipeAllFirestoreTestData() {
+  const collections = ["employees", "customers", "suppliers", "hotels", "flights", "tour_packages", "reservations", "customer_payments", "supplier_payments", "expenses", "tasks", "documents", "notifications", "invoices", "activity_logs", "permission_requests"];
+  console.log("Wiping all test data completely from Firestore...");
+  for (const col of collections) {
+    try {
+      const snap = await getDocs(collection(firestoreDb, col));
+      for (const d of snap.docs) {
+        await deleteDoc(doc(firestoreDb, col, d.id));
+      }
+      db[col] = [];
+    } catch (e) {
+      console.warn(`Could not wipe Firestore collection ${col}:`, e);
+      db[col] = [];
+    }
+  }
+  console.log("All collections in Firestore and memory have been wiped clean.");
 }
 
 async function saveToFirestore(collectionName: string, id: string, data: any) {
@@ -206,6 +224,16 @@ app.use((req, res, next) => {
     return res.sendStatus(200);
   }
   next();
+});
+
+// Endpoint to completely clear all data from Firestore & Memory
+app.post("/api/admin/clear-all-data", async (req, res) => {
+  try {
+    await wipeAllFirestoreTestData();
+    res.json({ success: true, message: "All test data has been permanently cleared from database and memory." });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to wipe data" });
+  }
 });
 
 // Health check endpoint for fast container readiness
@@ -1248,13 +1276,14 @@ async function startServer() {
     console.log(`Sofia Travel Management System running on http://localhost:${PORT}`);
   });
 
-  // Hydrate from Firestore in the background without blocking server startup
+  // Wipe all test data from Firestore and memory in the background
   (async () => {
     try {
       await testConnection();
-      await loadFromFirestore();
+      await wipeAllFirestoreTestData();
+      console.log("Database completely wiped clean - ready for official live operations.");
     } catch (e) {
-      console.warn("Background Firestore initialization note:", e);
+      console.warn("Background Firestore wipe initialization note:", e);
     }
   })();
 }

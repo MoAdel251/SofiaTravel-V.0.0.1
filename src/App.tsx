@@ -142,23 +142,23 @@ export default function App() {
         dataService.getCollection<PermissionRequest>('permission_requests', '/api/permission-requests', permissionRequests),
       ]);
 
-      if (custRes?.length) setCustomers(custRes);
-      if (resvRes?.length) setReservations(resvRes);
-      if (pkgRes?.length) setPackages(pkgRes);
-      if (hotelRes?.length) setHotels(hotelRes);
-      if (flightRes?.length) setFlights(flightRes);
-      if (supRes?.length) setSuppliers(supRes);
-      if (invRes?.length) setInvoices(invRes);
-      if (cPayRes?.length) setCustomerPayments(cPayRes);
-      if (sPayRes?.length) setSupplierPayments(sPayRes);
-      if (expRes?.length) setExpenses(expRes);
-      if (empRes?.length) setEmployees(empRes);
-      if (taskRes?.length) setTasks(taskRes);
-      if (docRes?.length) setDocuments(docRes);
-      if (notifRes?.length) setNotifications(notifRes);
+      setCustomers(custRes || []);
+      setReservations(resvRes || []);
+      setPackages(pkgRes || []);
+      setHotels(hotelRes || []);
+      setFlights(flightRes || []);
+      setSuppliers(supRes || []);
+      setInvoices(invRes || []);
+      setCustomerPayments(cPayRes || []);
+      setSupplierPayments(sPayRes || []);
+      setExpenses(expRes || []);
+      setEmployees(empRes || []);
+      setTasks(taskRes || []);
+      setDocuments(docRes || []);
+      setNotifications(notifRes || []);
       if (settRes) setSettings(settRes);
-      if (logRes?.length) setActivityLogs(logRes);
-      if (pReqRes?.length) setPermissionRequests(pReqRes);
+      setActivityLogs(logRes || []);
+      setPermissionRequests(pReqRes || []);
 
       if (statsRes && statsRes.total_sales !== undefined) {
         setStats(statsRes);
@@ -842,6 +842,44 @@ export default function App() {
     fetchAllData();
   };
 
+  const handleClearAllDatabase = async () => {
+    dataService.clearLocalCache();
+    setCustomers([]);
+    setReservations([]);
+    setPackages([]);
+    setHotels([]);
+    setFlights([]);
+    setSuppliers([]);
+    setInvoices([]);
+    setCustomerPayments([]);
+    setSupplierPayments([]);
+    setExpenses([]);
+    setEmployees([]);
+    setTasks([]);
+    setDocuments([]);
+    setNotifications([]);
+    setActivityLogs([]);
+    setPermissionRequests([]);
+    setStats({
+      total_customers: 0,
+      active_reservations: 0,
+      todays_reservations: 0,
+      upcoming_trips: 0,
+      total_sales: 0,
+      total_expenses: 0,
+      net_profit: 0,
+      outstanding_customer_payments: 0,
+      outstanding_supplier_payments: 0,
+      today_tasks: 0,
+      low_stock_alerts: 0,
+      unread_notifications: 0
+    });
+    try {
+      await fetch('/api/admin/clear-all-data', { method: 'POST' });
+    } catch {}
+    await fetchAllData();
+  };
+
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
 
   const handleLogin = (name: string, role: UserRole) => {
@@ -1045,7 +1083,12 @@ export default function App() {
             <NotificationsView notifications={notifications} onMarkRead={handleMarkNotificationRead} />
           )}
           {currentTab === 'settings' && (
-            <SettingsView settings={settings} onUpdateSettings={handleUpdateSettings} />
+            <SettingsView 
+              settings={settings} 
+              onUpdateSettings={handleUpdateSettings} 
+              onClearAllData={handleClearAllDatabase}
+              userRole={userRole}
+            />
           )}
           {currentTab === 'activity-log' && (
             <ActivityLogView logs={activityLogs} />

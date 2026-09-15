@@ -1,21 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check } from 'lucide-react';
-import { CompanySettings } from '../types';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2 } from 'lucide-react';
+import { CompanySettings, UserRole } from '../types';
 
 interface SettingsViewProps {
   settings: CompanySettings;
   onUpdateSettings: (settings: CompanySettings) => void;
+  onClearAllData?: () => Promise<void>;
+  userRole?: UserRole;
 }
 
 const SETTINGS_DRAFT_KEY = 'sofia_travel_settings_draft';
 const AUTO_SAVE_PREF_KEY = 'sofia_travel_settings_autosave';
 
-export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) {
+export function SettingsView({ settings, onUpdateSettings, onClearAllData, userRole }: SettingsViewProps) {
   const [formData, setFormData] = useState<CompanySettings>(settings);
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearedSuccess, setClearedSuccess] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
     return localStorage.getItem(AUTO_SAVE_PREF_KEY) !== 'false';
   });
@@ -404,6 +409,43 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
           </div>
         </div>
 
+        {/* Database Maintenance & Clear Test Data */}
+        <div className="bg-white rounded-2xl border border-rose-200 p-6 space-y-4 shadow-xs">
+          <div className="flex items-center justify-between pb-3 border-b border-rose-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Database Clean Slate & Production Preparation</h2>
+                <p className="text-xs text-slate-500">Permanently wipe all test records, mock data, and local cache to start fresh.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(true)}
+              className="flex items-center space-x-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Wipe All Test Data</span>
+            </button>
+          </div>
+          <div className="text-xs text-slate-500 space-y-1">
+            <p className="font-medium text-slate-700">What this does:</p>
+            <ul className="list-disc list-inside space-y-0.5 text-slate-600">
+              <li>Permanently clears all Firestore cloud collections (Trips, Hotels, Flights, Reservations, Suppliers, Customers, Invoices, Payments, Tasks, Logs).</li>
+              <li>Purges browser localStorage cache so deleted data never reappears.</li>
+              <li>Keeps your company branding and master settings intact.</li>
+            </ul>
+          </div>
+          {clearedSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 font-medium">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>All database collections and cache have been wiped clean! The system is ready for official work.</span>
+            </div>
+          )}
+        </div>
+
         {/* Bottom Save Bar */}
         <div className="flex items-center justify-between pt-2">
           <span className="text-xs text-slate-500">
@@ -419,6 +461,63 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
           </button>
         </div>
       </form>
+
+      {/* Confirmation Modal for Wiping Data */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center gap-3 text-rose-600 mb-4">
+              <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Clear All Database Test Data</h3>
+                <p className="text-xs text-slate-500">This action cannot be undone</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-6 leading-relaxed">
+              Are you sure you want to permanently delete all test data from the database and local cache?
+              All packages, reservations, flights, hotels, invoices, and supplier records will be removed, giving you a completely empty system ready for real operations.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                disabled={isClearing}
+                onClick={() => setShowClearConfirm(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isClearing}
+                onClick={async () => {
+                  setIsClearing(true);
+                  if (onClearAllData) {
+                    await onClearAllData();
+                  }
+                  setIsClearing(false);
+                  setShowClearConfirm(false);
+                  setClearedSuccess(true);
+                  setTimeout(() => setClearedSuccess(false), 5000);
+                }}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors flex items-center gap-2"
+              >
+                {isClearing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Wiping Database...</span>
+                  </>
+                ) : (
+                  <span>Yes, Wipe All Data</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

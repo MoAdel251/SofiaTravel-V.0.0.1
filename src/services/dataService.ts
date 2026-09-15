@@ -25,10 +25,10 @@ export const dataService = {
   // Read collection with dual-fallback: API -> Direct Firestore -> LocalStorage -> Default
   async getCollection<T>(collectionName: string, apiPath: string, fallbackDefault: T[] = []): Promise<T[]> {
     const cacheKey = `${CACHE_PREFIX}${collectionName}`;
-    let cached: T[] = [];
+    let cached: T[] | null = null;
     try {
       const local = localStorage.getItem(cacheKey);
-      if (local) {
+      if (local !== null) {
         cached = JSON.parse(local);
       }
     } catch {}
@@ -44,30 +44,47 @@ export const dataService = {
         // Check if response is real JSON and not an HTML fallback page
         if (text.trim().startsWith('[') || text.trim().startsWith('{')) {
           const data = JSON.parse(text);
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             try { localStorage.setItem(cacheKey, JSON.stringify(data)); } catch {}
             return data as T[];
           }
         }
       }
     } catch (e) {
-      // API unreachable or static hosting directory without Node.js backend
+      // API unreachable
     }
 
     // 2. Direct Firestore fallback (works anywhere online, static hosting, or direct deployment)
     try {
       const snap = await getDocs(collection(db, collectionName));
-      if (!snap.empty) {
-        const items = snap.docs.map(d => ({ id: d.id, ...d.data() })) as T[];
-        try { localStorage.setItem(cacheKey, JSON.stringify(items)); } catch {}
-        return items;
-      }
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() })) as T[];
+      try { localStorage.setItem(cacheKey, JSON.stringify(items)); } catch {}
+      return items;
     } catch (fsErr) {
       console.warn(`Firestore read fallback for ${collectionName}:`, fsErr);
     }
 
-    // 3. Return local cached items if available, or fallback
-    return cached.length > 0 ? cached : fallbackDefault;
+    // 3. Return local cached items if available, or fallbackDefault
+    if (cached !== null && Array.isArray(cached)) {
+      return cached;
+    }
+    return fallbackDefault;
+  },
+
+  // Clear all local storage cache
+  clearLocalCache() {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(CACHE_PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (e) {
+      console.error("Error clearing local cache:", e);
+    }
   },
 
   // Read single document (like settings)
