@@ -1195,6 +1195,11 @@ export default function App() {
     } catch {}
   };
 
+  const todayStr = new Date().toISOString().split('T')[0];
+  const currentEmployeeId = currentEmployee?.id || currentEmployee?.employee_id || '';
+  const myRecordToday = attendanceRecords.find(r => r.employee_id === currentEmployeeId && r.date === todayStr);
+  const hasClockedInToday = !!myRecordToday;
+
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden font-sans flex-col">
       {!isAuthenticated && (
@@ -1220,6 +1225,11 @@ export default function App() {
         username={currentUsername}
         companyName={settings.company_name}
         onLogout={handleLogout}
+        showQuickClockIn={!hasClockedInToday && userRole !== 'Administrator'}
+        onQuickClockIn={() => {
+          const hhmm = new Date().toTimeString().slice(0, 5);
+          handleCheckIn(currentEmployeeId, todayStr, hhmm);
+        }}
       />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">

@@ -435,13 +435,15 @@ export function EmployeesView({
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end space-x-2">
-                        <button
-                          onClick={() => openEditModal(emp)}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1"
-                          title="Edit Profile & Permissions"
-                        >
-                          <Edit2 className="w-3 h-3" /> Edit
-                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => openEditModal(emp)}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1"
+                            title="Edit Profile & Permissions"
+                          >
+                            <Edit2 className="w-3 h-3" /> Edit
+                          </button>
+                        )}
                         {isAdmin && (
                           <button
                             onClick={() => {
@@ -567,17 +569,14 @@ export function EmployeesView({
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Job Title / Position</label>
-                  <select
+                  <input
+                    type="text"
+                    required
                     value={formData.position}
                     onChange={(e) => handleFormFieldChange({ position: e.target.value as any })}
+                    placeholder="e.g. Sales Executive"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium"
-                  >
-                    <option value="Sales Executive">Sales Executive</option>
-                    <option value="Tour Operations Manager">Tour Operations Manager</option>
-                    <option value="Senior Accountant">Senior Accountant</option>
-                    <option value="Customer Service Agent">Customer Service Agent</option>
-                    <option value="Administrator">Administrator</option>
-                  </select>
+                  />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Department</label>
