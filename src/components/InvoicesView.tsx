@@ -235,7 +235,7 @@ export function InvoicesView({
       notes,
       terms,
       manager_name: "Ahmed Ali",
-      created_by_employee: userRole === 'Administrator' ? 'Ahmed Hassan (Admin)' : 'Sara Mahmoud (Manager)'
+      created_by_employee: userRole === 'Administrator' ? 'IT (Admin)' : 'Staff'
     };
 
     onAddInvoice(invoiceData);
@@ -1162,7 +1162,7 @@ export function InvoicesView({
                   <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Payment Status:</p>
                   <p className="font-bold text-sm text-slate-900 mt-1">{viewInvoice.payment_status}</p>
                   <p className="text-slate-600">Method: {viewInvoice.payment_method || 'Bank Transfer'}</p>
-                  <p className="text-slate-600">Created by: {viewInvoice.created_by_employee || 'Ahmed Hassan'}</p>
+                  <p className="text-slate-600">Created by: {viewInvoice.created_by_employee || 'IT (Admin)'}</p>
                 </div>
               </div>
 

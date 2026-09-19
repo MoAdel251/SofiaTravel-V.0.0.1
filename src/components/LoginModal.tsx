@@ -15,13 +15,10 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
 
   // Pre-configured system administrator and staff accounts
   const systemAccounts = [
-    { name: 'Admin', pass: 'admin', role: 'Administrator' as UserRole, id: 'SYS-ADMIN-1' },
-    { name: 'Administrator', pass: 'Admin@2026', role: 'Administrator' as UserRole, id: 'SYS-ADMIN-2' },
-    { name: 'Ahmed Hassan', pass: 'AH01', role: 'Administrator' as UserRole, id: 'EMP-1' },
+    { name: 'IT', pass: 'S2026', role: 'Administrator' as UserRole, id: 'SYS-IT-ADMIN' },
     { name: 'Karim Nabil', pass: 'KN02', role: 'Manager' as UserRole, id: 'EMP-2' },
     { name: 'Mona Zaki', pass: 'MZ03', role: 'Accountant' as UserRole, id: 'EMP-3' },
-    { name: 'Youssef Mahmoud', pass: 'YM04', role: 'Operations' as UserRole, id: 'EMP-4' },
-    { name: 'IT Support', pass: '1282', role: 'Administrator' as UserRole, id: 'SYS-IT' }
+    { name: 'Youssef Mahmoud', pass: 'YM04', role: 'Operations' as UserRole, id: 'EMP-4' }
   ];
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -109,7 +106,7 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
                 <input
                   type="text"
                   required
-                  placeholder="Enter username (e.g. Admin or Ahmed Hassan)"
+                  placeholder="Enter username (e.g. IT or Employee Name)"
                   value={username}
                   onChange={e => setUsername(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
