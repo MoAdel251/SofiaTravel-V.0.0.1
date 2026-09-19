@@ -2,9 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { 
   DollarSign, CreditCard, Receipt, Calculator, Plus, ArrowUpRight, ArrowDownRight, Printer, 
   Shield, Search, Filter, Download, Trash2, Edit, CheckCircle2, AlertTriangle, Calendar, 
-  TrendingUp, TrendingDown, Users, Briefcase, FileText, Check, X, RefreshCw, Layers, PieChart
+  TrendingUp, TrendingDown, Users, Briefcase, FileText, Check, X, RefreshCw, Layers, PieChart, Globe
 } from 'lucide-react';
-import { UserRole, Expense, PayrollRecord, EmployeeAdvance, CommissionRecord, FinanceAuditLog, Reservation, Supplier, Employee } from '../types';
+import { UserRole, Expense, PayrollRecord, EmployeeAdvance, CommissionRecord, FinanceAuditLog, Reservation, Supplier, Employee, CompanySettings } from '../types';
+import { formatCurrency } from '../utils/currency';
+import { RealTimeCurrencyConverter } from './RealTimeCurrencyConverter';
 
 interface FinancePayrollViewProps {
   userRole: UserRole;
@@ -28,6 +30,8 @@ interface FinancePayrollViewProps {
   employees: Employee[];
   auditLogs: FinanceAuditLog[];
   onAddAuditLog: (log: FinanceAuditLog) => void;
+  settings?: CompanySettings;
+  companyCurrency?: string;
 }
 
 export function FinancePayrollView({
@@ -51,7 +55,9 @@ export function FinancePayrollView({
   suppliers,
   employees,
   auditLogs,
-  onAddAuditLog
+  onAddAuditLog,
+  settings,
+  companyCurrency = 'EGP'
 }: FinancePayrollViewProps) {
   // SECURITY CHECK: Administrator only
   if (userRole !== 'Administrator') {
@@ -381,6 +387,7 @@ export function FinancePayrollView({
       <div className="flex space-x-2 border-b border-slate-200 overflow-x-auto custom-scrollbar">
         {[
           { id: 'dashboard', label: 'Finance Dashboard', icon: DollarSign },
+          { id: 'converter', label: 'Currency Converter', icon: Globe },
           { id: 'expenses', label: 'Expenses', icon: Receipt },
           { id: 'payroll', label: 'Payroll & Salaries', icon: Briefcase },
           { id: 'advances', label: 'Employee Advances', icon: CreditCard },
@@ -989,44 +996,54 @@ export function FinancePayrollView({
         </div>
       )}
 
+      {/* TAB 1.5: CURRENCY CONVERTER */}
+      {activeTab === 'converter' && (
+        <div className="space-y-6 animate-in fade-in">
+          <RealTimeCurrencyConverter rates={settings?.exchange_rates} />
+        </div>
+      )}
+
       {/* TAB 8: PROFIT & LOSS (P&L) */}
       {activeTab === 'pl' && (
         <div className="space-y-6 animate-in fade-in">
           <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xs max-w-3xl mx-auto space-y-6">
-            <div className="text-center pb-6 border-b border-slate-200">
-              <h2 className="text-xl font-black text-slate-900">Sofia Travel S.A.E. — Profit & Loss Statement</h2>
-              <p className="text-xs text-slate-500 mt-1">Official Financial Performance Summary</p>
+            <div className="text-center pb-6 border-b border-slate-200 space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-200">
+                Company Primary Currency: Egyptian Pound ({companyCurrency || 'EGP'})
+              </span>
+              <h2 className="text-xl font-black text-slate-900 pt-2">Sofia Travel S.A.E. — Profit & Loss Statement</h2>
+              <p className="text-xs text-slate-500">Official Financial Performance Summary ({companyCurrency || 'EGP'})</p>
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="flex justify-between py-2 border-b border-slate-100 font-bold text-slate-800">
+              <div className="flex justify-between py-2.5 border-b border-slate-100 font-bold text-slate-800">
                 <span>Total Gross Revenue (Bookings)</span>
-                <span className="text-emerald-600">${totalRevenue.toLocaleString()}</span>
+                <span className="text-emerald-600 font-black">{formatCurrency(totalRevenue, companyCurrency || 'EGP')}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-slate-100 text-slate-600">
+              <div className="flex justify-between py-2.5 border-b border-slate-100 text-slate-600">
                 <span>Less: Direct Trip Costs (Hotels, Flights, Suppliers)</span>
-                <span className="text-rose-600">-${totalTripCosts.toLocaleString()}</span>
+                <span className="text-rose-600 font-semibold">-{formatCurrency(totalTripCosts, companyCurrency || 'EGP')}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-slate-200 font-bold text-slate-900 bg-slate-50 px-3 rounded-xl">
+              <div className="flex justify-between py-2.5 border-b border-slate-200 font-bold text-slate-900 bg-slate-50 px-3 rounded-xl">
                 <span>Gross Profit</span>
-                <span className="text-blue-600">${grossProfit.toLocaleString()}</span>
+                <span className="text-blue-600 font-black">{formatCurrency(grossProfit, companyCurrency || 'EGP')}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-slate-100 text-slate-600">
+              <div className="flex justify-between py-2.5 border-b border-slate-100 text-slate-600">
                 <span>Less: Operating Expenses (Rent, Utilities, Marketing, Software)</span>
-                <span className="text-rose-600">-${totalExpenses.toLocaleString()}</span>
+                <span className="text-rose-600 font-semibold">-{formatCurrency(totalExpenses, companyCurrency || 'EGP')}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-slate-100 text-slate-600">
+              <div className="flex justify-between py-2.5 border-b border-slate-100 text-slate-600">
                 <span>Less: Employee Payroll & Salaries</span>
-                <span className="text-rose-600">-${totalPayroll.toLocaleString()}</span>
+                <span className="text-rose-600 font-semibold">-{formatCurrency(totalPayroll, companyCurrency || 'EGP')}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-slate-100 text-slate-600">
+              <div className="flex justify-between py-2.5 border-b border-slate-100 text-slate-600">
                 <span>Less: Sales Commissions</span>
-                <span className="text-rose-600">-${totalCommissions.toLocaleString()}</span>
+                <span className="text-rose-600 font-semibold">-{formatCurrency(totalCommissions, companyCurrency || 'EGP')}</span>
               </div>
-              <div className="flex justify-between py-3 border-t-2 border-slate-900 text-sm font-black text-slate-900 bg-blue-50/50 px-4 rounded-2xl">
-                <span>Net Operating Profit</span>
-                <span className={netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                  ${netProfit.toLocaleString()} USD
+              <div className="flex justify-between py-3.5 border-t-2 border-slate-900 text-sm font-black text-slate-900 bg-blue-50/50 px-4 rounded-2xl">
+                <span>Net Operating Profit ({companyCurrency || 'EGP'})</span>
+                <span className={netProfit >= 0 ? 'text-emerald-700 font-black' : 'text-rose-700 font-black'}>
+                  {formatCurrency(netProfit, companyCurrency || 'EGP')}
                 </span>
               </div>
             </div>
@@ -1037,7 +1054,7 @@ export function FinancePayrollView({
                 className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
-                <span>Print P&L Statement</span>
+                <span>Print P&L Statement ({companyCurrency || 'EGP'})</span>
               </button>
             </div>
           </div>

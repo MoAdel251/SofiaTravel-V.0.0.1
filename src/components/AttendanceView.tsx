@@ -241,6 +241,11 @@ export function AttendanceView({
       onCheckOut(myRecord.id, hhmm);
     };
 
+    const [offOutHour, offOutMin] = settings.official_check_out.split(':').map(Number);
+    const officialCheckOutDate = new Date(currentTime);
+    officialCheckOutDate.setHours(offOutHour, offOutMin, 0, 0);
+    const isPastCheckOutTime = currentTime >= officialCheckOutDate;
+
     return (
       <div className="p-6 lg:p-8 space-y-6 bg-slate-50 min-h-screen">
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto text-center space-y-8">
@@ -271,12 +276,18 @@ export function AttendanceView({
                 <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl font-bold">
                   ✓ Clocked In at {myRecord.check_in_time}
                 </div>
-                <button
-                  onClick={handleSelfClockOut}
-                  className="w-full sm:w-auto px-8 py-4 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-2xl font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer mx-auto"
-                >
-                  <Clock className="w-6 h-6" /> Clock Out Now
-                </button>
+                {isPastCheckOutTime ? (
+                  <button
+                    onClick={handleSelfClockOut}
+                    className="w-full sm:w-auto px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-3 cursor-pointer mx-auto"
+                  >
+                    <Clock className="w-6 h-6" /> Clock Out Now
+                  </button>
+                ) : (
+                  <div className="p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl font-bold text-sm max-w-md mx-auto">
+                    Clock-out becomes available after the official end time ({settings.official_check_out}).
+                  </div>
+                )}
               </div>
             ) : (
               <div className="w-full p-6 bg-slate-100 border border-slate-200 text-slate-700 rounded-2xl font-bold">

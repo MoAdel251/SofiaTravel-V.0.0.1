@@ -38,7 +38,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('sofia_travel_auth') !== 'false';
   });
-  const [currentCurrency, setCurrentCurrency] = useState<string>('USD');
+  const [currentCurrency, setCurrentCurrency] = useState<string>('EGP');
 
   // Selected package for booking flow auto-population
   const [selectedBookingPackage, setSelectedBookingPackage] = useState<TourPackage | null>(null);
@@ -196,7 +196,7 @@ export default function App() {
     email: "operations@sofiatravel.com",
     website: "https://www.sofiatravel.com",
     tax_number: "TR-98765",
-    default_currency: "USD",
+    default_currency: "EGP",
     invoice_prefix: "INV-",
     reservation_prefix: "RES-",
     payment_methods: ["Cash", "Bank Transfer", "Credit Card"],
@@ -1116,6 +1116,34 @@ export default function App() {
     const updated = { ...current, ...data, id };
     setTasks(prev => prev.map(t => (t.id === id ? (updated as Task) : t)));
     await dataService.saveDocument('tasks', id, updated, `/api/tasks/${id}`, 'PUT');
+    
+    // Add notification when task is completed by an employee
+    if (data.status === 'Completed' && current?.status !== 'Completed') {
+      const completionMessage = `Task "${updated.task_name}" was marked as Complete by ${currentUsername}.`;
+      const notifId = 'NOTIF-' + Date.now();
+      const newNotif: NotificationItem = {
+        id: notifId,
+        title: 'Task Completed',
+        message: completionMessage,
+        type: 'task',
+        date: new Date().toLocaleDateString(),
+        read: false
+      };
+      setNotifications(prev => [newNotif, ...prev]);
+      await dataService.saveDocument('notifications', notifId, newNotif, '/api/notifications', 'POST');
+
+      await handleAddAuditLog({
+        id: 'LOG-' + Date.now(),
+        user_name: currentUsername,
+        user_role: userRole,
+        action: 'Updated',
+        record_type: 'Tasks',
+        record_id: id,
+        new_value: `Completed task "${updated.task_name}"`,
+        date_time: new Date().toLocaleString()
+      });
+    }
+
     fetchAllData();
   };
 
@@ -1171,27 +1199,40 @@ export default function App() {
 
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
 
+  const [currentEmpId, setCurrentEmpId] = useState<string>(() => {
+    return localStorage.getItem('sofia_travel_emp_id') || '';
+  });
+
   const currentEmployee = employees.find(e => 
-    (e.username || e.name || '').toLowerCase() === currentUsername.toLowerCase()
+    (currentEmpId && (e.id === currentEmpId || e.employee_id === currentEmpId)) ||
+    (e.username === currentUsername || e.name === currentUsername)
   );
   
   const currentUserPermissions = userRole === 'Administrator' ? [] : (currentEmployee?.permissions || []);
 
-  const handleLogin = (name: string, role: UserRole) => {
+  const handleLogin = (name: string, role: UserRole, empId?: string) => {
     setCurrentUsername(name);
     setUserRole(role);
+    if (empId) {
+      setCurrentEmpId(empId);
+    }
     setIsAuthenticated(true);
     try {
       localStorage.setItem('sofia_travel_auth', 'true');
       localStorage.setItem('sofia_travel_user', name);
       localStorage.setItem('sofia_travel_role', role);
+      if (empId) {
+        localStorage.setItem('sofia_travel_emp_id', empId);
+      }
     } catch {}
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setCurrentEmpId('');
     try {
       localStorage.setItem('sofia_travel_auth', 'false');
+      localStorage.removeItem('sofia_travel_emp_id');
     } catch {}
   };
 
@@ -1333,6 +1374,8 @@ export default function App() {
               employees={employees}
               auditLogs={financeAuditLogs}
               onAddAuditLog={handleAddAuditLog}
+              settings={settings}
+              companyCurrency={settings.default_currency || 'EGP'}
             />
           )}
 
@@ -1384,7 +1427,13 @@ export default function App() {
             />
           )}
           {currentTab === 'calendar' && (
-            <CalendarView reservations={reservations} tasks={tasks} />
+            <CalendarView 
+              reservations={reservations} 
+              tasks={tasks} 
+              flights={flights} 
+              tourPackages={packages} 
+              hotels={hotels} 
+            />
           )}
           {currentTab === 'tasks' && (
             <TasksView

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Lock, User, Plane, AlertCircle, ArrowRight } from 'lucide-react';
+import { Lock, User, Plane, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 import { UserRole, Employee } from '../types';
 
 interface LoginModalProps {
   employees?: Employee[];
-  onLogin: (username: string, role: UserRole) => void;
+  onLogin: (username: string, role: UserRole, empId?: string) => void;
   companyName: string;
 }
 
@@ -13,47 +13,70 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const defaultAccounts = [
-    { name: 'Admin', pass: 'admin', role: 'Administrator' as UserRole, label: 'Administrator (Full Access)' },
-    { name: 'Ahmed Hassan', pass: 'AH01', role: 'Administrator' as UserRole, label: 'General Manager' },
-    { name: 'Karim Nabil', pass: 'KN02', role: 'Manager' as UserRole, label: 'Senior Consultant' },
-    { name: 'Mona Zaki', pass: 'MZ03', role: 'Accountant' as UserRole, label: 'Chief Accountant' },
-    { name: 'Youssef Mahmoud', pass: 'YM04', role: 'Employee' as UserRole, label: 'Tour Coordinator' },
-    { name: 'IT Support', pass: '1282', role: 'Administrator' as UserRole, label: 'IT Administrator' }
+  // Pre-configured system administrator and staff accounts
+  const systemAccounts = [
+    { name: 'Admin', pass: 'admin', role: 'Administrator' as UserRole, id: 'SYS-ADMIN-1' },
+    { name: 'Administrator', pass: 'Admin@2026', role: 'Administrator' as UserRole, id: 'SYS-ADMIN-2' },
+    { name: 'Ahmed Hassan', pass: 'AH01', role: 'Administrator' as UserRole, id: 'EMP-1' },
+    { name: 'Karim Nabil', pass: 'KN02', role: 'Manager' as UserRole, id: 'EMP-2' },
+    { name: 'Mona Zaki', pass: 'MZ03', role: 'Accountant' as UserRole, id: 'EMP-3' },
+    { name: 'Youssef Mahmoud', pass: 'YM04', role: 'Operations' as UserRole, id: 'EMP-4' },
+    { name: 'IT Support', pass: '1282', role: 'Administrator' as UserRole, id: 'SYS-IT' }
   ];
-
-  const dynamicEmpAccounts = employees.map(emp => ({
-    name: emp.name || (emp as any).full_name || emp.username || 'Staff',
-    pass: emp.password || '1234',
-    role: (emp.position as UserRole) || 'Sales',
-    label: `${emp.position || emp.department || 'Employee'}`
-  }));
-
-  const allAccounts = [...defaultAccounts, ...dynamicEmpAccounts];
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const u = username.trim().toLowerCase();
-    const p = password.trim();
+    const inputUser = username.trim();
+    const inputPass = password;
 
-    // Universal admin access
-    if (u === 'admin' || u === 'administrator' || u === 'it' || u === 'it support') {
-      onLogin(username.trim() || 'Admin', 'Administrator');
+    if (!inputUser || !inputPass) {
+      setError('Please enter both username and password.');
       return;
     }
 
-    const matched = allAccounts.find(
-      acc => acc.name.toLowerCase() === u
+    // 1. Check in active system administrators & built-in accounts (Strict Case-Sensitive Match)
+    const matchedSystemAccount = systemAccounts.find(
+      acc => (acc.name === inputUser) && (acc.pass === inputPass)
     );
 
-    if (matched) {
-      onLogin(matched.name, matched.role);
-    } else {
-      // Allow general login
-      onLogin(username.trim() || 'User', 'Administrator');
+    if (matchedSystemAccount) {
+      onLogin(matchedSystemAccount.name, matchedSystemAccount.role, matchedSystemAccount.id);
+      return;
     }
+
+    // 2. Check in database employees list (Strict Case-Sensitive Match on Username / Name / Email)
+    const matchedEmployee = employees.find(emp => {
+      const matchName = emp.name === inputUser || emp.username === inputUser || emp.email === inputUser;
+      const expectedPass = emp.password || '1234';
+      const matchPass = expectedPass === inputPass;
+      return matchName && matchPass;
+    });
+
+    if (matchedEmployee) {
+      // Check if employee account is active
+      const status = matchedEmployee.account_status || matchedEmployee.status || 'Active';
+      if (status === 'Inactive' || status === 'Suspended' || matchedEmployee.login_access_enabled === false) {
+        setError('This account has been deactivated or suspended. Please contact your system administrator.');
+        return;
+      }
+
+      let role: UserRole = 'Sales';
+      if (matchedEmployee.position === 'Administrator' || matchedEmployee.position === 'Manager' || 
+          matchedEmployee.position === 'Accountant' || matchedEmployee.position === 'Operations' || 
+          matchedEmployee.position === 'Customer Service' || matchedEmployee.position === 'Sales') {
+        role = matchedEmployee.position;
+      } else if (matchedEmployee.position === 'Reservation Agent') {
+        role = 'Sales';
+      }
+      const displayName = matchedEmployee.name || matchedEmployee.username || inputUser;
+      onLogin(displayName, role, matchedEmployee.id || matchedEmployee.employee_id);
+      return;
+    }
+
+    // 3. If no exact match found, reject securely
+    setError('Invalid username or password. Usernames and passwords are strictly case-sensitive.');
   };
 
   return (

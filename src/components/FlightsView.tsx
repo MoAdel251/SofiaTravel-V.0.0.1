@@ -323,7 +323,19 @@ export function FlightsView({
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Ticket Cost ($) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Currency *</label>
+                  <select
+                    value={formData.currency || 'USD'}
+                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="USD">U.S. Dollar (USD)</option>
+                    <option value="EGP">Egyptian Pound (EGP)</option>
+                    <option value="EUR">Euro (EUR)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Ticket Cost *</label>
                   <input
                     type="number"
                     required
@@ -334,7 +346,7 @@ export function FlightsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Selling Price ($) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Selling Price *</label>
                   <input
                     type="number"
                     required
@@ -460,7 +472,19 @@ export function FlightsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Ticket Cost ($) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Currency *</label>
+                  <select
+                    value={editingFlight.currency || 'USD'}
+                    onChange={(e) => setEditingFlight({ ...editingFlight, currency: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="USD">U.S. Dollar (USD)</option>
+                    <option value="EGP">Egyptian Pound (EGP)</option>
+                    <option value="EUR">Euro (EUR)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Ticket Cost *</label>
                   <input
                     type="number"
                     required
@@ -471,7 +495,7 @@ export function FlightsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Selling Price ($) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Selling Price *</label>
                   <input
                     type="number"
                     required

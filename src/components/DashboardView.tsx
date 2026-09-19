@@ -25,26 +25,20 @@ import {
   Cell,
   CartesianGrid
 } from 'recharts';
+import { formatCurrency } from '../utils/currency';
 
 interface DashboardViewProps {
   stats: any;
   currentCurrency: string;
 }
 
-export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
+export function DashboardView({ stats, currentCurrency = 'EGP' }: DashboardViewProps) {
   if (!stats) {
     return <div className="p-8 text-center text-slate-500">Loading dashboard analytics...</div>;
   }
 
   const monthlyData = stats.monthlyData || [];
-
-  const serviceTypeData = [
-    { name: 'Travel Package', value: 35, color: '#2563eb' },
-    { name: 'Flight', value: 25, color: '#3b82f6' },
-    { name: 'Hotel', value: 20, color: '#60a5fa' },
-    { name: 'Tour / Cruise', value: 15, color: '#f97316' },
-    { name: 'Other', value: 5, color: '#cbd5e1' },
-  ];
+  const activeCurrency = currentCurrency || 'EGP';
 
   return (
     <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
@@ -52,19 +46,19 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-sm text-slate-400">Real-time tourism operations overview and financial intelligence.</p>
+          <p className="text-sm text-slate-400">Real-time tourism operations overview and financial intelligence ({activeCurrency}).</p>
         </div>
         <div className="flex items-center space-x-3">
-          <span className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-600 border border-emerald-200">
+          <span className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
             <span className="w-2 h-2 mr-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-            System Live ({currentCurrency})
+            Primary Company Currency: Egyptian Pound ({activeCurrency})
           </span>
         </div>
       </div>
 
       {/* Bento Grid Top Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl">
               <Users className="w-6 h-6" />
@@ -77,7 +71,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="p-2.5 bg-blue-50 text-blue-600 rounded-2xl">
               <BookmarkCheck className="w-6 h-6" />
@@ -90,7 +84,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="p-2.5 bg-orange-50 text-orange-600 rounded-2xl">
               <Plane className="w-6 h-6" />
@@ -103,7 +97,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
           </div>
         </div>
 
-        <div className="bg-slate-900 p-6 rounded-3xl text-white flex flex-col justify-between overflow-hidden relative">
+        <div className="bg-slate-900 p-6 rounded-3xl text-white flex flex-col justify-between overflow-hidden relative shadow-md">
           <div className="relative z-10 flex items-center justify-between">
             <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Net Profit (MTD)</span>
             <div className="p-2 bg-blue-600/20 text-blue-400 rounded-xl">
@@ -111,8 +105,12 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
             </div>
           </div>
           <div className="relative z-10 mt-4">
-            <div className="text-3xl font-bold">${stats.net_profit?.toLocaleString()}</div>
-            <div className="text-xs text-slate-400 mt-1 font-medium">Revenue: ${stats.total_sales?.toLocaleString()}</div>
+            <div className="text-2xl font-black text-emerald-400">
+              {formatCurrency(stats.net_profit, activeCurrency)}
+            </div>
+            <div className="text-xs text-slate-300 mt-1 font-medium">
+              Sales: {formatCurrency(stats.total_sales, activeCurrency)}
+            </div>
           </div>
           <div className="absolute -right-4 -top-4 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl"></div>
         </div>
@@ -120,7 +118,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
 
       {/* Financial & Alerts Summary Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-4">
               <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
@@ -128,17 +126,19 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
               </div>
               <div>
                 <h4 className="text-sm font-bold text-slate-900">Amounts Owed to Company</h4>
-                <p className="text-xs text-slate-400 mt-0.5">Unpaid customer accounts by currency</p>
+                <p className="text-xs text-slate-400 mt-0.5">Unpaid customer accounts in primary currency</p>
               </div>
             </div>
-            <span className="text-2xl font-extrabold text-amber-600">${stats.outstanding_customer_payments?.toLocaleString()}</span>
+            <span className="text-xl font-black text-amber-600">
+              {formatCurrency(stats.outstanding_customer_payments, activeCurrency)}
+            </span>
           </div>
           {stats.outstanding_by_currency && Object.keys(stats.outstanding_by_currency).length > 0 ? (
             <div className="pt-3 border-t border-slate-100 flex flex-wrap gap-2">
               {Object.entries(stats.outstanding_by_currency).map(([curr, amt]) => (
                 <div key={curr} className="bg-amber-50 border border-amber-200/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
                   <span className="text-[10px] font-extrabold text-amber-800 uppercase">{curr}</span>
-                  <span className="text-xs font-bold text-slate-900">{Number(amt).toLocaleString()}</span>
+                  <span className="text-xs font-bold text-slate-900">{formatCurrency(Number(amt), curr)}</span>
                 </div>
               ))}
             </div>
@@ -149,7 +149,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
           )}
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
               <AlertCircle className="w-6 h-6" />
@@ -159,16 +159,18 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
               <p className="text-xs text-slate-400 mt-0.5">Amounts owed to airlines, hotels & operators</p>
             </div>
           </div>
-          <span className="text-2xl font-extrabold text-rose-600">${stats.outstanding_supplier_payments?.toLocaleString()}</span>
+          <span className="text-xl font-black text-rose-600">
+            {formatCurrency(stats.outstanding_supplier_payments, activeCurrency)}
+          </span>
         </div>
       </div>
 
       {/* Analytics Charts & Bento Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Monthly Revenue Forecast (2 cols) */}
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col">
+        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-xs p-6 flex flex-col">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="font-bold text-slate-900">Monthly Revenue & Profit Forecast</h3>
+            <h3 className="font-bold text-slate-900">Monthly Revenue & Profit Forecast ({activeCurrency})</h3>
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 bg-blue-600 rounded-full"></span>
               <span className="text-[10px] text-slate-400 font-bold uppercase">Target Met</span>
@@ -189,8 +191,8 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
           </div>
         </div>
 
-        {/* Destination / Service Popularity (1 col) */}
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+        {/* Destination Popularity & Agent (1 col) */}
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-6 flex flex-col justify-between">
           <div>
             <h3 className="font-bold text-slate-900 text-sm mb-4">Destination Popularity</h3>
             <div className="space-y-4">
@@ -212,7 +214,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
           <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
             <div className="text-xs font-bold text-slate-700">Top Performing Agent</div>
             <div className="text-sm font-extrabold text-blue-600 mt-0.5">
-              {stats.topAgent?.name || 'No data'} {stats.topAgent?.sales ? `($${stats.topAgent.sales.toLocaleString()} Sales)` : ''}
+              {stats.topAgent?.name || 'No data'} {stats.topAgent?.sales ? `(${formatCurrency(stats.topAgent.sales, activeCurrency)})` : ''}
             </div>
           </div>
         </div>
@@ -221,7 +223,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
       {/* Tables Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Reservations (2 cols) */}
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-xs p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-slate-900 text-sm">Recent Reservations</h3>
             <span className="text-xs text-blue-600 font-bold uppercase cursor-pointer">View All</span>
@@ -245,7 +247,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
                     <td className="py-3.5 font-semibold text-slate-800">{res.customer_name || 'Customer'}</td>
                     <td className="py-3.5 text-slate-500">{res.service_type}</td>
                     <td className="py-3.5 text-slate-500">{res.destination}</td>
-                    <td className="py-3.5 font-bold text-blue-600">${res.selling_price}</td>
+                    <td className="py-3.5 font-bold text-blue-600">{formatCurrency(res.selling_price, activeCurrency)}</td>
                     <td className="py-3.5">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
                         res.reservation_status === 'Confirmed' ? 'bg-emerald-50 text-emerald-600' :
@@ -263,7 +265,7 @@ export function DashboardView({ stats, currentCurrency }: DashboardViewProps) {
         </div>
 
         {/* Priority Tasks / Recent Activity (1 col) */}
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col">
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-6 flex flex-col">
           <h3 className="font-bold text-slate-900 text-sm mb-4">Recent Audit Activity</h3>
           <div className="space-y-3 flex-1 overflow-y-auto max-h-72">
             {stats.recent_activities?.map((act: any) => (

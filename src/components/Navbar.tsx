@@ -86,7 +86,6 @@ export function Navbar({
     { id: 'flights', label: 'Flights', icon: Plane, roles: ['Administrator', 'Manager', 'Sales', 'Operations'], perm: 'view_trips' },
     { id: 'hotels', label: 'Hotels', icon: Hotel, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Accountant'], perm: 'view_trips' },
     { id: 'employees', label: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
-    { id: 'attendance', label: 'Attendance & Departure', icon: Clock, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: ['view_attendance', 'add_check_in', 'add_check_out'] },
     { id: 'calendar', label: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'documents', label: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
@@ -97,7 +96,12 @@ export function Navbar({
     { id: 'activity-log', label: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: 'view_settings' }
   ];
 
-  const filteredItems = menuItems.filter(item => userPermissions.length > 0 ? hasPerm(item.perm) : item.roles.includes(userRole));
+  const filteredItems = menuItems.filter(item => {
+    if (userRole === 'Administrator') return true;
+    if (item.roles.includes(userRole)) return true;
+    if (userPermissions && userPermissions.length > 0) return hasPerm(item.perm);
+    return false;
+  });
   const unreadCount = notifications.filter(n => !n.read).length;
 
   useEffect(() => {
@@ -285,8 +289,8 @@ export function Navbar({
         </div>
       </header>
 
-      {/* Desktop Navigation Tabs Bar */}
-      <div className="hidden lg:flex bg-white border-b border-slate-200 shadow-xs overflow-x-auto custom-scrollbar items-center px-4 sm:px-6">
+      {/* Navigation Tabs Bar */}
+      <div className="flex bg-white border-b border-slate-200 shadow-xs overflow-x-auto custom-scrollbar items-center px-2 sm:px-6">
         <div className="flex space-x-1 py-2 min-w-max">
           {filteredItems.map(item => {
             const Icon = item.icon;
