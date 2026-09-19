@@ -60,7 +60,9 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
       }
 
       let role: UserRole = 'Sales';
-      if (matchedEmployee.position === 'Administrator' || matchedEmployee.position === 'Manager' || 
+      if (matchedEmployee.is_admin || matchedEmployee.position === 'Administrator') {
+        role = 'Administrator';
+      } else if (matchedEmployee.position === 'Manager' || 
           matchedEmployee.position === 'Accountant' || matchedEmployee.position === 'Operations' || 
           matchedEmployee.position === 'Customer Service' || matchedEmployee.position === 'Sales') {
         role = matchedEmployee.position;

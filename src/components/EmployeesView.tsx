@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Briefcase, Plus, Phone, Mail, X, Edit2, Trash2, AlertTriangle, Check, Save, Shield, UserX, UserCheck, Lock, Copy
 } from 'lucide-react';
@@ -30,16 +30,6 @@ export const PERMISSION_GROUPS = [
       { id: 'add_employee', label: 'Add Employee' },
       { id: 'edit_employee', label: 'Edit Employee' },
       { id: 'delete_employee', label: 'Delete / Deactivate Employee' }
-    ] 
-  },
-  { 
-    group: 'Attendance', 
-    permissions: [
-      { id: 'view_attendance', label: 'View Attendance' },
-      { id: 'add_check_in', label: 'Add Check-In' },
-      { id: 'add_check_out', label: 'Add Check-Out' },
-      { id: 'edit_attendance', label: 'Edit Attendance' },
-      { id: 'view_attendance_reports', label: 'View Attendance Reports' }
     ] 
   },
   { 
@@ -145,15 +135,20 @@ export function EmployeesView({
   const [employeeToDeactivate, setEmployeeToDeactivate] = useState<Employee | null>(null);
   const [deactivateReason, setDeactivateReason] = useState('');
   
+  const ALL_PERMISSIONS = useMemo(() => {
+    return PERMISSION_GROUPS.flatMap(g => g.permissions.map(p => p.id));
+  }, []);
+
   const initialFormState = {
     name: '',
     username: '',
     password: '',
-    position: 'Sales Executive' as const,
+    position: 'Sales Executive' as string,
     department: 'Sales',
     salary: 1200,
     email: '',
     phone: '',
+    is_admin: false,
     status: 'Active' as const,
     account_status: 'Active' as const,
     permissions: [
@@ -182,19 +177,23 @@ export function EmployeesView({
   }, []);
 
   const openEditModal = (emp: Employee) => {
+    const isEmpAdmin = emp.is_admin === true || emp.position === 'Administrator';
     setEditingEmployee(emp);
     setFormData({
       name: emp.name || '',
       username: emp.username || '',
       password: emp.password || '',
-      position: emp.position || 'Sales Executive',
-      department: emp.department || 'Sales',
+      position: emp.position || (isEmpAdmin ? 'Administrator' : 'Sales Executive'),
+      department: emp.department || (isEmpAdmin ? 'Management' : 'Sales'),
       salary: emp.salary || 0,
       email: emp.email || '',
       phone: emp.phone || '',
+      is_admin: isEmpAdmin,
       status: emp.status || 'Active',
       account_status: emp.account_status || 'Active',
-      permissions: emp.permissions || ['view_dashboard', 'view_customers', 'view_trips', 'view_bookings']
+      permissions: isEmpAdmin 
+        ? ALL_PERMISSIONS 
+        : (emp.permissions || ['view_dashboard', 'view_customers', 'view_trips', 'view_bookings'])
     });
     setShowAddModal(true);
   };
@@ -228,6 +227,22 @@ export function EmployeesView({
       } catch (err) {
         console.warn("Could not save employee draft:", err);
       }
+    }
+  };
+
+  const handleAdminToggle = (isAdminSelected: boolean) => {
+    if (isAdminSelected) {
+      handleFormFieldChange({
+        is_admin: true,
+        position: 'Administrator',
+        permissions: ALL_PERMISSIONS
+      });
+    } else {
+      handleFormFieldChange({
+        is_admin: false,
+        position: formData.position === 'Administrator' ? 'Sales Executive' : formData.position,
+        permissions: ['view_dashboard', 'view_customers', 'view_trips', 'view_bookings', 'view_sales']
+      });
     }
   };
 
@@ -406,7 +421,8 @@ export function EmployeesView({
             <tbody className="divide-y divide-slate-100">
               {employees.map(emp => {
                 const displayName = emp.name || (emp as any).full_name || 'Staff Member';
-                const displayPosition = emp.position || (emp as any).job_title || 'Sales Executive';
+                const isEmpAdmin = emp.is_admin === true || emp.position === 'Administrator';
+                const displayPosition = isEmpAdmin ? 'Administrator' : (emp.position || (emp as any).job_title || 'Sales Executive');
                 const permCount = (emp.permissions || []).length;
                 const accStatus = emp.account_status || emp.status || 'Active';
                 return (
@@ -417,13 +433,25 @@ export function EmployeesView({
                       <span className="text-[10px] text-slate-400 font-mono">@{emp.username || 'n/a'}</span>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="font-semibold text-cyan-700 block">{displayPosition}</span>
-                      <span className="text-[10px] text-slate-500">{emp.department || 'Sales'}</span>
+                      {isEmpAdmin ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg font-bold text-[11px]">
+                          <Shield className="w-3 h-3 text-blue-600" /> Administrator
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-cyan-700 block">{displayPosition}</span>
+                      )}
+                      <span className="text-[10px] text-slate-500 block">{emp.department || 'Sales'}</span>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg font-bold text-[10px]">
-                        {permCount} Permissions
-                      </span>
+                      {isEmpAdmin ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold text-[10px] shadow-xs">
+                          <Shield className="w-3 h-3" /> Full System Access (All Pages)
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg font-bold text-[10px]">
+                          {permCount} Permissions
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${
@@ -534,6 +562,47 @@ export function EmployeesView({
 
               {/* Personal & Login Details */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Administrator Designation Banner / Toggle */}
+                <div className={`sm:col-span-3 p-4 rounded-2xl border transition-all ${
+                  formData.is_admin 
+                    ? 'bg-gradient-to-r from-blue-900 to-indigo-950 text-white border-blue-600 shadow-md shadow-blue-950/20' 
+                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        formData.is_admin ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        <Shield className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-black ${formData.is_admin ? 'text-white' : 'text-slate-900'}`}>
+                            Designate as System Administrator
+                          </span>
+                          {formData.is_admin && (
+                            <span className="px-2 py-0.5 bg-blue-500/30 border border-blue-400/40 text-blue-200 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
+                              Full Privileges Granted
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-xs mt-0.5 ${formData.is_admin ? 'text-blue-200' : 'text-slate-500'}`}>
+                          Grants complete administrative control with full, unrestricted access to all pages (Finance & Payroll, Employee Management, Audit Logs, Settings, Invoices, Bookings, Reports, etc.).
+                        </p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={formData.is_admin}
+                        onChange={(e) => handleAdminToggle(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
                   <input
@@ -635,33 +704,45 @@ export function EmployeesView({
               {/* Employee Permissions Section */}
               {canManagePermissions && (
               <div className="pt-4 border-t border-slate-200 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-blue-600" /> Employee Permissions & Module Access
-                    </h4>
-                    <p className="text-[11px] text-slate-500">Check granular permissions granted to this employee account.</p>
+                {formData.is_admin ? (
+                  <div className="p-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-2xl flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Shield className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-xs">Administrator Mode Active</p>
+                      <p className="text-[11px] text-blue-700">This account has full unrestricted access to all system modules, pages, settings, and records.</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allIds = PERMISSION_GROUPS.flatMap(g => g.permissions.map(p => p.id));
-                        handleFormFieldChange({ permissions: allIds });
-                      }}
-                      className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px] cursor-pointer"
-                    >
-                      Select All Permissions
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleFormFieldChange({ permissions: [] })}
-                      className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-rose-700 font-bold rounded-lg text-[11px] cursor-pointer"
-                    >
-                      Clear All
-                    </button>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-blue-600" /> Employee Permissions & Module Access
+                      </h4>
+                      <p className="text-[11px] text-slate-500">Check granular permissions granted to this employee account.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allIds = PERMISSION_GROUPS.flatMap(g => g.permissions.map(p => p.id));
+                          handleFormFieldChange({ permissions: allIds });
+                        }}
+                        className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px] cursor-pointer"
+                      >
+                        Select All Permissions
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleFormFieldChange({ permissions: [] })}
+                        className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-rose-700 font-bold rounded-lg text-[11px] cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Grid of Permission Groups */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -752,7 +833,7 @@ export function EmployeesView({
             </p>
             <p className="text-slate-500 text-center leading-relaxed">
               {employeeToDeactivate.account_status === 'Active' 
-                ? 'Deactivating will block login access immediately. All historical attendance, payroll, and financial records will be fully preserved.'
+                ? 'Deactivating will block login access immediately. All historical records, bookings, payroll, and transactions will be fully preserved.'
                 : 'Activating will restore login access based on their assigned permissions.'}
             </p>
 

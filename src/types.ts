@@ -326,6 +326,7 @@ export interface Employee {
   phone: string;
   email: string;
   position: EmployeePosition;
+  is_admin?: boolean;
   department: string;
   joining_date: string;
   salary: number;

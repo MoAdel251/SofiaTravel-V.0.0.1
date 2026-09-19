@@ -82,7 +82,7 @@ export function FinancePayrollView({
   }
 
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'expenses' | 'payroll' | 'advances' | 'commissions' | 'trip-profit' | 'reports' | 'pl' | 'audit'
+    'dashboard' | 'converter' | 'expenses' | 'payroll' | 'advances' | 'commissions' | 'trip-profit' | 'reports' | 'pl' | 'audit'
   >('dashboard');
 
   const [periodFilter, setPeriodFilter] = useState<'today' | 'week' | 'month' | 'year' | 'custom'>('month');
