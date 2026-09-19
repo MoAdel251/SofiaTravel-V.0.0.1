@@ -16,15 +16,16 @@ export const DEFAULT_EXCHANGE_RATES: ExchangeRate[] = [
  * - Euro -> '€'
  * - Others -> standard code
  */
-export function getCurrencySymbol(currency: string = 'USD'): string {
-  const code = (currency || 'USD').toUpperCase().trim();
+export function getCurrencySymbol(currency: string = '$'): string {
+  const code = (currency || '$').toUpperCase().trim();
   switch (code) {
+    case '$':
     case 'USD':
       return '$';
     case 'EGP':
       return 'EGP';
     case 'EUR':
-      return '€';
+      return 'EUR';
     case 'GBP':
       return '£';
     case 'SAR':
@@ -39,13 +40,13 @@ export function getCurrencySymbol(currency: string = 'USD'): string {
 /**
  * Formats a monetary amount with the correct symbol / abbreviation.
  * e.g.
- * - USD: $1,250.00
- * - EGP: 1,250.00 EGP
- * - EUR: €1,250.00
+ * - $: $1,250
+ * - EGP: 1,250 EGP
+ * - EUR: 1,250 EUR
  */
 export function formatCurrency(
   amount: number | undefined | null,
-  currency: string = 'USD',
+  currency: string = '$',
   showDecimals: boolean = false
 ): string {
   const val = Number(amount) || 0;
@@ -54,13 +55,13 @@ export function formatCurrency(
     maximumFractionDigits: 2,
   });
 
-  const code = (currency || 'USD').toUpperCase().trim();
-  if (code === 'USD') {
+  const code = (currency || '$').toUpperCase().trim();
+  if (code === 'USD' || code === '$') {
     return `$${numStr}`;
   } else if (code === 'EGP') {
     return `${numStr} EGP`;
   } else if (code === 'EUR') {
-    return `€${numStr}`;
+    return `${numStr} EUR`;
   } else if (code === 'GBP') {
     return `£${numStr}`;
   } else {
@@ -73,14 +74,20 @@ export function formatCurrency(
  */
 export function convertCurrency(
   amount: number,
-  fromCurrency: string = 'USD',
-  toCurrency: string = 'USD',
+  fromCurrency: string = '$',
+  toCurrency: string = '$',
   rates: ExchangeRate[] = DEFAULT_EXCHANGE_RATES
 ): number {
-  if (!amount || fromCurrency === toCurrency) return amount;
+  const normalize = (curr: string) => {
+    const c = (curr || '$').toUpperCase().trim();
+    return c === '$' ? 'USD' : c;
+  };
+  const from = normalize(fromCurrency);
+  const to = normalize(toCurrency);
+  if (!amount || from === to) return amount;
 
-  const fromRate = rates.find(r => (r.currency || "").toUpperCase() === (fromCurrency || "").toUpperCase())?.rate_to_usd || 1.0;
-  const toRate = rates.find(r => (r.currency || "").toUpperCase() === (toCurrency || "").toUpperCase())?.rate_to_usd || 1.0;
+  const fromRate = rates.find(r => (r.currency || "").toUpperCase() === from)?.rate_to_usd || 1.0;
+  const toRate = rates.find(r => (r.currency || "").toUpperCase() === to)?.rate_to_usd || 1.0;
 
   // Amount in USD = amount / fromRate
   // Amount in toCurrency = (amount / fromRate) * toRate

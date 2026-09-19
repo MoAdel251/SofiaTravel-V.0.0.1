@@ -467,6 +467,11 @@ export default function App() {
     const sellPrice = Number(data.selling_price) || 500;
     const costPrice = Number(data.cost_price) || 350;
     const paidAmt = Number(data.paid_amount) || 0;
+    let resCurrency = data.currency || "$";
+    if (resCurrency === "USD") resCurrency = "$";
+    else if (resCurrency.toUpperCase() === "EGP") resCurrency = "EGP";
+    else if (resCurrency.toUpperCase() === "EUR") resCurrency = "EUR";
+
     const newRes: Reservation = {
       id: newId,
       reservation_id: `RES-2026-${resCount}`,
@@ -487,11 +492,11 @@ export default function App() {
       paid_amount: paidAmt,
       remaining_amount: sellPrice - paidAmt,
       profit: sellPrice - costPrice,
-      currency: data.currency || "USD",
       payment_status: data.payment_status || "Pending",
       reservation_status: data.reservation_status || "Confirmed",
       notes: data.notes || "",
-      ...data
+      ...data,
+      currency: resCurrency
     };
     setReservations(prev => [newRes, ...prev]);
     await dataService.saveDocument('reservations', newId, newRes, '/api/reservations', 'POST');
@@ -501,6 +506,16 @@ export default function App() {
   const handleUpdateReservation = async (id: string, data: Partial<Reservation>) => {
     const resv = reservations.find(r => r.id === id);
     const itemName = resv ? `Reservation ${resv.reservation_id} (${resv.customer_name})` : id;
+    let resCurrency = data.currency || resv?.currency || "$";
+    if (resCurrency === "USD") resCurrency = "$";
+    else if (resCurrency.toUpperCase() === "EGP") resCurrency = "EGP";
+    else if (resCurrency.toUpperCase() === "EUR") resCurrency = "EUR";
+
+    const sanitizedData = {
+      ...data,
+      ...(data.currency !== undefined ? { currency: resCurrency } : {})
+    };
+
     if (!isAuthorizedToDirectlyModify) {
       setPermissionModalState({
         isOpen: true,
@@ -508,11 +523,11 @@ export default function App() {
         moduleName: 'Reservations',
         itemId: id,
         itemName,
-        proposedChanges: data
+        proposedChanges: sanitizedData
       });
       return;
     }
-    const updated = { ...resv, ...data, id };
+    const updated = { ...resv, ...sanitizedData, id };
     setReservations(prev => prev.map(r => (r.id === id ? (updated as Reservation) : r)));
     await dataService.saveDocument('reservations', id, updated, `/api/reservations/${id}`, 'PUT');
     fetchAllData();

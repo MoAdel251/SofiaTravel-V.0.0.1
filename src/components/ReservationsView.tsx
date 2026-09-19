@@ -16,6 +16,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Reservation, ServiceType, ReservationStatus, Customer, Supplier, Employee, TourPackage } from '../types';
+import { formatCurrency } from '../utils/currency';
 
 interface ReservationsViewProps {
   reservations: Reservation[];
@@ -64,7 +65,7 @@ export function ReservationsView({
     selling_price: 1500,
     cost_price: 1000,
     paid_amount: 500,
-    currency: 'USD',
+    currency: '$',
     reservation_status: 'Confirmed',
     notes: ''
   });
@@ -89,6 +90,11 @@ export function ReservationsView({
       ( s.supplier_name || "" ).toLowerCase().includes('pyramid')
     ) || suppliers[0];
 
+    let pkgCurrency = pkg.currency || '$';
+    if (pkgCurrency === 'USD') pkgCurrency = '$';
+    else if (pkgCurrency.toUpperCase() === 'EGP') pkgCurrency = 'EGP';
+    else if (pkgCurrency.toUpperCase() === 'EUR') pkgCurrency = 'EUR';
+
     setFormData(prev => ({
       ...prev,
       service_type: 'Travel Package',
@@ -97,7 +103,7 @@ export function ReservationsView({
       return_date: pkg.end_date || prev.return_date,
       cost_price: pkg.cost,
       selling_price: pkg.selling_price,
-      currency: pkg.currency || 'USD',
+      currency: pkgCurrency,
       supplier_id: matchedSupplier?.id || prev.supplier_id,
       notes: `Tour Package: ${pkg.package_name}\nDuration: ${pkg.duration}\nHotel: ${pkg.hotel}\nActivities: ${pkg.activities}\nIncluded: ${pkg.included_services?.join(', ')}`
     }));
@@ -129,8 +135,14 @@ export function ReservationsView({
     const sup = suppliers.find(s => s.id === formData.supplier_id);
     const emp = employees.find(e => e.id === formData.employee_id);
 
+    let currencyCode = formData.currency || '$';
+    if (currencyCode === 'USD') currencyCode = '$';
+    else if (currencyCode.toUpperCase() === 'EGP') currencyCode = 'EGP';
+    else if (currencyCode.toUpperCase() === 'EUR') currencyCode = 'EUR';
+
     onAddReservation({
       ...formData,
+      currency: currencyCode,
       customer_name: cust?.full_name,
       supplier_name: sup?.supplier_name,
       employee_name: emp?.name
@@ -219,8 +231,8 @@ export function ReservationsView({
                   <td className="py-3.5 px-4 text-slate-600">{res.destination}</td>
                   <td className="py-3.5 px-4 text-slate-600">{res.travel_date}</td>
                   <td className="py-3.5 px-4">
-                    <div className="font-bold text-slate-900">${res.selling_price}</div>
-                    <div className="text-[10px] text-emerald-600 font-medium">Profit: ${res.profit}</div>
+                    <div className="font-bold text-slate-900">{formatCurrency(res.selling_price, res.currency || '$')}</div>
+                    <div className="text-[10px] text-emerald-600 font-medium">Profit: {formatCurrency(res.profit, res.currency || '$')}</div>
                   </td>
                   <td className="py-3.5 px-4">
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
@@ -256,7 +268,7 @@ export function ReservationsView({
                         <FileText className="w-4 h-4" />
                       </button>
                       <a
-                        href={`https://wa.me/?text=Booking%20Confirmation%20%23${res.reservation_id}%0ADestination:%20${encodeURIComponent(res.destination)}%0ATravel%20Date:%20${res.travel_date}%0ATotal:%20$${res.selling_price}`}
+                        href={`https://wa.me/?text=Booking%20Confirmation%20%23${res.reservation_id}%0ADestination:%20${encodeURIComponent(res.destination)}%0ATravel%20Date:%20${res.travel_date}%0ATotal:%20${encodeURIComponent(formatCurrency(res.selling_price, res.currency || '$'))}`}
                         target="_blank"
                         rel="noreferrer"
                         className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors cursor-pointer"
@@ -414,16 +426,20 @@ export function ReservationsView({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Selling Price ($)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Selling Price ({formData.currency || '$'}) *
+                  </label>
                   <input
                     type="number"
                     value={formData.selling_price}
                     onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500 font-semibold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cost Price ($)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Cost Price ({formData.currency || '$'}) *
+                  </label>
                   <input
                     type="number"
                     value={formData.cost_price}
@@ -432,7 +448,9 @@ export function ReservationsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Paid Amount ($)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Paid Amount ({formData.currency || '$'})
+                  </label>
                   <input
                     type="number"
                     value={formData.paid_amount}
@@ -441,16 +459,53 @@ export function ReservationsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Transaction Currency</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Transaction Currency Code *
+                  </label>
                   <select
-                    value={formData.currency || 'USD'}
+                    value={formData.currency || '$'}
                     onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-cyan-500"
                   >
-                    <option value="USD">U.S. Dollar (USD)</option>
-                    <option value="EGP">Egyptian Pound (EGP)</option>
-                    <option value="EUR">Euro (EUR)</option>
+                    <option value="EGP">EGP (Egyptian Pound)</option>
+                    <option value="$">$ (U.S. Dollar)</option>
+                    <option value="EUR">EUR (Euro)</option>
                   </select>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, currency: 'EGP' })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                        formData.currency === 'EGP'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      EGP
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, currency: '$' })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                        formData.currency === '$' || formData.currency === 'USD'
+                          ? 'bg-cyan-100 text-cyan-800 border-cyan-300'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      $
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, currency: 'EUR' })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                        formData.currency === 'EUR'
+                          ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      EUR
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
@@ -537,8 +592,8 @@ export function ReservationsView({
 
               <div className="bg-cyan-50 p-4 rounded-xl border border-cyan-100 flex justify-between items-center">
                 <div>
-                  <p className="font-semibold text-cyan-900">Total Price: ${confirmationModalRes.selling_price}</p>
-                  <p className="text-[11px] text-cyan-700">Paid: ${confirmationModalRes.paid_amount} • Remaining: ${confirmationModalRes.remaining_amount}</p>
+                  <p className="font-semibold text-cyan-900">Total Price: {formatCurrency(confirmationModalRes.selling_price, confirmationModalRes.currency || '$')}</p>
+                  <p className="text-[11px] text-cyan-700">Paid: {formatCurrency(confirmationModalRes.paid_amount, confirmationModalRes.currency || '$')} • Remaining: {formatCurrency(confirmationModalRes.remaining_amount, confirmationModalRes.currency || '$')}</p>
                 </div>
                 <span className="px-3 py-1 bg-cyan-600 text-white font-bold rounded-lg text-xs">{confirmationModalRes.reservation_status}</span>
               </div>
@@ -595,7 +650,7 @@ export function ReservationsView({
                   <tr className="border-b border-slate-100">
                     <td className="py-2 font-medium">{invoiceModalRes.service_type} - {invoiceModalRes.destination}</td>
                     <td className="py-2 text-right">{invoiceModalRes.number_of_travelers}</td>
-                    <td className="py-2 text-right font-bold">${invoiceModalRes.selling_price}</td>
+                    <td className="py-2 text-right font-bold">{formatCurrency(invoiceModalRes.selling_price, invoiceModalRes.currency || '$')}</td>
                   </tr>
                 </tbody>
               </table>
@@ -603,15 +658,15 @@ export function ReservationsView({
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                 <div className="flex justify-between font-bold text-slate-900">
                   <span>Total Due:</span>
-                  <span>${invoiceModalRes.selling_price}</span>
+                  <span>{formatCurrency(invoiceModalRes.selling_price, invoiceModalRes.currency || '$')}</span>
                 </div>
                 <div className="flex justify-between text-emerald-600">
                   <span>Paid Amount:</span>
-                  <span>${invoiceModalRes.paid_amount}</span>
+                  <span>{formatCurrency(invoiceModalRes.paid_amount, invoiceModalRes.currency || '$')}</span>
                 </div>
                 <div className="flex justify-between text-amber-600 font-bold">
                   <span>Remaining Balance:</span>
-                  <span>${invoiceModalRes.remaining_amount}</span>
+                  <span>{formatCurrency(invoiceModalRes.remaining_amount, invoiceModalRes.currency || '$')}</span>
                 </div>
               </div>
             </div>
@@ -728,7 +783,56 @@ export function ReservationsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Selling Price ($) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Currency Code *
+                  </label>
+                  <select
+                    value={editingReservation.currency || '$'}
+                    onChange={(e) => setEditingReservation({ ...editingReservation, currency: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="EGP">EGP (Egyptian Pound)</option>
+                    <option value="$">$ (U.S. Dollar)</option>
+                    <option value="EUR">EUR (Euro)</option>
+                  </select>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditingReservation({ ...editingReservation, currency: 'EGP' })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                        editingReservation.currency === 'EGP'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      EGP
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingReservation({ ...editingReservation, currency: '$' })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                        editingReservation.currency === '$' || editingReservation.currency === 'USD'
+                          ? 'bg-cyan-100 text-cyan-800 border-cyan-300'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      $
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingReservation({ ...editingReservation, currency: 'EUR' })}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                        editingReservation.currency === 'EUR'
+                          ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                      }`}
+                    >
+                      EUR
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Selling Price ({editingReservation.currency || '$'}) *</label>
                   <input
                     type="number"
                     required
@@ -747,7 +851,7 @@ export function ReservationsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cost Price ($) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cost Price ({editingReservation.currency || '$'}) *</label>
                   <input
                     type="number"
                     required
@@ -758,7 +862,7 @@ export function ReservationsView({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Paid Amount ($)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Paid Amount ({editingReservation.currency || '$'})</label>
                   <input
                     type="number"
                     min={0}

@@ -495,6 +495,11 @@ app.post("/api/reservations", async (req, res) => {
   const profit = selling - cost;
   const remaining = Math.max(0, selling - paid);
 
+  let currency = data.currency || "$";
+  if (currency === "USD") currency = "$";
+  else if (currency.toUpperCase() === "EGP") currency = "EGP";
+  else if (currency.toUpperCase() === "EUR") currency = "EUR";
+
   const newRes = {
     id: "RES-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     reservation_id: "RES-" + Math.floor(1000 + Math.random() * 9000),
@@ -503,6 +508,7 @@ app.post("/api/reservations", async (req, res) => {
     remaining_amount: remaining,
     payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending",
     ...data,
+    currency,
     selling_price: selling,
     cost_price: cost,
     paid_amount: paid
@@ -536,10 +542,16 @@ app.put("/api/reservations/:id", async (req, res) => {
   const profit = selling - cost;
   const remaining = Math.max(0, selling - paid);
 
+  let currency = data.currency !== undefined ? data.currency : existing.currency || "$";
+  if (currency === "USD") currency = "$";
+  else if (currency.toUpperCase() === "EGP") currency = "EGP";
+  else if (currency.toUpperCase() === "EUR") currency = "EUR";
+
   const updated = {
     ...existing,
     ...data,
     id,
+    currency,
     selling_price: selling,
     cost_price: cost,
     paid_amount: paid,
