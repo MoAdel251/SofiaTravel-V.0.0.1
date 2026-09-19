@@ -13,10 +13,13 @@ import {
   CheckCircle,
   DollarSign,
   Compass,
-  Sparkles
+  Sparkles,
+  Receipt,
+  ArrowDown
 } from 'lucide-react';
 import { Reservation, ServiceType, ReservationStatus, Customer, Supplier, Employee, TourPackage } from '../types';
 import { formatCurrency } from '../utils/currency';
+import { SofiaLogo } from './SofiaLogo';
 
 interface ReservationsViewProps {
   reservations: Reservation[];
@@ -29,6 +32,7 @@ interface ReservationsViewProps {
   onAddReservation: (data: Partial<Reservation>) => void;
   onUpdateReservation: (id: string, data: Partial<Reservation>) => void;
   onDeleteReservation: (id: string) => void;
+  onTransferToInvoice?: (reservation: Reservation) => void;
 }
 
 export function ReservationsView({
@@ -41,7 +45,8 @@ export function ReservationsView({
   onClearInitialPackage,
   onAddReservation,
   onUpdateReservation,
-  onDeleteReservation
+  onDeleteReservation,
+  onTransferToInvoice
 }: ReservationsViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -121,13 +126,23 @@ export function ReservationsView({
     }
   };
 
-  const filteredReservations = reservations.filter(r => {
-    const matchesSearch = ( r.reservation_id || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
-                          ( r.destination || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
-                          (r.customer_name && ( r.customer_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()));
-    const matchesStatus = statusFilter === 'All' || r.reservation_status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredReservations = reservations
+    .filter(r => {
+      const matchesSearch = ( r.reservation_id || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                            ( r.destination || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+                            (r.customer_name && ( r.customer_name || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()));
+      const matchesStatus = statusFilter === 'All' || r.reservation_status === statusFilter;
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      // Sort descending: newest booking date first, then highest reservation ID
+      const dateA = a.booking_date || '';
+      const dateB = b.booking_date || '';
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA);
+      }
+      return (b.reservation_id || b.id || '').localeCompare(a.reservation_id || a.id || '', undefined, { numeric: true, sensitivity: 'base' });
+    });
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,6 +200,10 @@ export function ReservationsView({
         </div>
 
         <div className="flex items-center space-x-3 w-full md:w-auto">
+          <span className="text-xs font-medium px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-xl flex items-center gap-1 border border-slate-200">
+            <ArrowDown className="w-3.5 h-3.5 text-cyan-600" />
+            <span>Sorted: <strong className="text-slate-800 font-bold">Descending</strong></span>
+          </span>
           <Filter className="w-4 h-4 text-slate-400" />
           <select
             value={statusFilter}
@@ -246,6 +265,14 @@ export function ReservationsView({
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <div className="flex items-center justify-end space-x-1.5">
+                      <button
+                        onClick={() => onTransferToInvoice && onTransferToInvoice(res)}
+                        className="flex items-center space-x-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                        title="Add reservation and transfer data to Invoices page to add line items and confirm invoice"
+                      >
+                        <Receipt className="w-3.5 h-3.5" />
+                        <span>To Invoice</span>
+                      </button>
                       <button
                         onClick={() => setEditingReservation({ ...res })}
                         className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 rounded-lg transition-colors cursor-pointer"
@@ -556,9 +583,12 @@ export function ReservationsView({
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-xl w-full p-8 shadow-2xl border border-slate-200 space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-              <div>
-                <h2 className="text-xl font-black text-slate-900">GLOBALWINGS TRAVEL</h2>
-                <p className="text-xs text-slate-500">Official Booking Confirmation Voucher</p>
+              <div className="flex items-center gap-3">
+                <SofiaLogo size="sm" />
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Sofia Travel</h2>
+                  <p className="text-xs text-slate-500">Official Booking Confirmation Voucher</p>
+                </div>
               </div>
               <button onClick={() => setConfirmationModalRes(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -617,9 +647,12 @@ export function ReservationsView({
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-xl w-full p-8 shadow-2xl border border-slate-200 space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-              <div>
-                <h2 className="text-xl font-black text-slate-900">GLOBALWINGS INVOICE</h2>
-                <p className="text-xs text-slate-500">Tax Invoice #INV-2026-{invoiceModalRes.reservation_id}</p>
+              <div className="flex items-center gap-3">
+                <SofiaLogo size="sm" />
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Sofia Travel</h2>
+                  <p className="text-xs text-slate-500">Tax Invoice #INV-2026-{invoiceModalRes.reservation_id}</p>
+                </div>
               </div>
               <button onClick={() => setInvoiceModalRes(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />

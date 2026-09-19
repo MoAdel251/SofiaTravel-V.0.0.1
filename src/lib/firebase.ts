@@ -4,6 +4,20 @@ import { getFirestore, doc, getDocFromServer, setLogLevel } from 'firebase/fires
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Silence non-critical SDK internal bloom filter / network warnings
+const suppressBloomFilter = (fn: (...args: any[]) => void) => {
+  return (...args: any[]) => {
+    const combined = args.map(a => (typeof a === 'object' && a !== null ? (a.message || a.stack || JSON.stringify(a)) : String(a))).join(' ');
+    if (combined.includes('BloomFilter') || combined.includes('Invalid hash count')) {
+      return;
+    }
+    fn(...args);
+  };
+};
+if (typeof console !== 'undefined') {
+  console.warn = suppressBloomFilter(console.warn);
+  console.error = suppressBloomFilter(console.error);
+}
+
 try {
   setLogLevel('silent');
 } catch {}

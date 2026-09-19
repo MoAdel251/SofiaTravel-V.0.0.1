@@ -42,6 +42,14 @@ export default function App() {
   // Selected package for booking flow auto-population
   const [selectedBookingPackage, setSelectedBookingPackage] = useState<TourPackage | null>(null);
 
+  // Selected reservation for invoice flow auto-population
+  const [selectedReservationForInvoice, setSelectedReservationForInvoice] = useState<Reservation | null>(null);
+
+  const handleTransferReservationToInvoice = (reservation: Reservation) => {
+    setSelectedReservationForInvoice(reservation);
+    setCurrentTab('invoices');
+  };
+
   // Modals state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
@@ -1195,6 +1203,7 @@ export default function App() {
               onAddReservation={handleAddReservation}
               onUpdateReservation={handleUpdateReservation}
               onDeleteReservation={handleDeleteReservation}
+              onTransferToInvoice={handleTransferReservationToInvoice}
             />
           )}
           {currentTab === 'packages' && (
@@ -1272,6 +1281,9 @@ export default function App() {
               packages={packages}
               hotels={hotels}
               flights={flights}
+              reservations={reservations}
+              initialReservation={selectedReservationForInvoice}
+              onClearInitialReservation={() => setSelectedReservationForInvoice(null)}
               settings={settings}
               onAddInvoice={handleAddInvoice}
               onUpdateInvoice={handleUpdateInvoice}

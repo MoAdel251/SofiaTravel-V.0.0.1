@@ -6,7 +6,24 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer } from "firebase/firestore";
+import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
+
+// Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
+const suppressBloomFilter = (fn: (...args: any[]) => void) => {
+  return (...args: any[]) => {
+    const combined = args.map(a => (typeof a === 'object' && a !== null ? (a.message || a.stack || JSON.stringify(a)) : String(a))).join(' ');
+    if (combined.includes('BloomFilter') || combined.includes('Invalid hash count')) {
+      return;
+    }
+    fn(...args);
+  };
+};
+console.warn = suppressBloomFilter(console.warn);
+console.error = suppressBloomFilter(console.error);
+
+try {
+  setLogLevel('silent');
+} catch {}
 
 let appDirname = process.cwd();
 try {

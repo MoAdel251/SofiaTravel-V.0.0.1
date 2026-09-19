@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileText, 
   Plus, 
@@ -36,6 +36,7 @@ import {
   TourPackage, 
   Hotel, 
   Flight, 
+  Reservation,
   UserRole, 
   CompanySettings 
 } from '../types';
@@ -50,6 +51,9 @@ interface InvoicesViewProps {
   packages: TourPackage[];
   hotels: Hotel[];
   flights: Flight[];
+  reservations?: Reservation[];
+  initialReservation?: Reservation | null;
+  onClearInitialReservation?: () => void;
   settings: CompanySettings;
   onAddInvoice: (invoiceData: Partial<Invoice>) => void;
   onUpdateInvoice: (id: string, invoiceData: Partial<Invoice>) => void;
@@ -65,6 +69,9 @@ export function InvoicesView({
   packages,
   hotels,
   flights,
+  reservations = [],
+  initialReservation = null,
+  onClearInitialReservation,
   settings,
   onAddInvoice,
   onUpdateInvoice,
@@ -103,6 +110,53 @@ export function InvoicesView({
   const [selectedPackageId, setSelectedPackageId] = useState<string>('');
   const [selectedHotelId, setSelectedHotelId] = useState<string>('');
   const [selectedFlightId, setSelectedFlightId] = useState<string>('');
+  const [selectedReservationId, setSelectedReservationId] = useState<string>('');
+  const [transferredFromRes, setTransferredFromRes] = useState<Reservation | null>(null);
+
+  // Auto-fill and transfer data when initialReservation is passed
+  useEffect(() => {
+    if (initialReservation) {
+      setTransferredFromRes(initialReservation);
+      setRecipientType('Customer');
+
+      // Match customer if exists
+      if (initialReservation.customer_id) {
+        setSelectedCustomerId(initialReservation.customer_id);
+      } else if (initialReservation.customer_name) {
+        const found = customers.find(c => c.full_name?.toLowerCase() === initialReservation.customer_name.toLowerCase());
+        if (found) setSelectedCustomerId(found.id);
+      }
+
+      // Currency
+      let resCurrency = initialReservation.currency || '$';
+      if (resCurrency === 'USD') resCurrency = '$';
+      setInvoiceCurrency(resCurrency);
+
+      const qty = Number(initialReservation.number_of_travelers) || 1;
+      const sellPrice = Number(initialReservation.selling_price) || 0;
+      const unitPrice = qty > 0 ? sellPrice / qty : sellPrice;
+
+      const newItem: InvoiceItem = {
+        id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+        item_type: 'Custom',
+        item_reference_id: initialReservation.reservation_id || initialReservation.id,
+        title: `${initialReservation.service_type} - ${initialReservation.destination}`,
+        description: `Reservation #${initialReservation.reservation_id} • Customer: ${initialReservation.customer_name || 'Client'} • Travelers: ${qty} • Travel Date: ${initialReservation.travel_date} to ${initialReservation.return_date}`,
+        quantity: qty,
+        unit_price: Math.round(unitPrice * 100) / 100,
+        total_price: sellPrice
+      };
+
+      setItems([newItem]);
+      setPaidAmount(Number(initialReservation.paid_amount) || 0);
+      setNotes(`Invoice created for Reservation #${initialReservation.reservation_id} (${initialReservation.destination}). Thank you for booking with Sofia Travel!`);
+      setShowCreateModal(true);
+
+      if (onClearInitialReservation) {
+        onClearInitialReservation();
+      }
+    }
+  }, [initialReservation]);
 
   // Calculations for form
   const subtotal = items.reduce((acc, item) => acc + (item.quantity * item.unit_price), 0);
@@ -162,6 +216,33 @@ export function InvoicesView({
     };
     setItems(prev => [...prev, newItem]);
     setSelectedFlightId('');
+  };
+
+  // Quick Add Item from Reservation
+  const handleAddReservationItem = (resId: string) => {
+    const res = reservations.find(r => r.id === resId || r.reservation_id === resId);
+    if (!res) return;
+    const qty = Number(res.number_of_travelers) || 1;
+    const sellPrice = Number(res.selling_price) || 0;
+    const unitPrice = qty > 0 ? sellPrice / qty : sellPrice;
+
+    let resCurrency = res.currency || '$';
+    if (resCurrency === 'USD') resCurrency = '$';
+    setInvoiceCurrency(resCurrency);
+
+    const newItem: InvoiceItem = {
+      id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+      item_type: 'Custom',
+      item_reference_id: res.reservation_id || res.id,
+      title: `${res.service_type} - ${res.destination}`,
+      description: `Reservation #${res.reservation_id} • Customer: ${res.customer_name || 'Client'} • Travelers: ${qty} • Travel: ${res.travel_date} to ${res.return_date}`,
+      quantity: qty,
+      unit_price: Math.round(unitPrice * 100) / 100,
+      total_price: sellPrice
+    };
+
+    setItems(prev => [...prev, newItem]);
+    setSelectedReservationId('');
   };
 
   // Add Custom Item
@@ -690,6 +771,26 @@ export function InvoicesView({
                   </div>
                 </div>
 
+                {/* Transferred Reservation Notification Banner */}
+                {transferredFromRes && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 flex items-center justify-between text-xs text-emerald-800 shadow-xs">
+                    <div className="flex items-center gap-2.5">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <div>
+                        <p className="font-bold text-emerald-900">
+                          Data Transferred from Reservation #{transferredFromRes.reservation_id}
+                        </p>
+                        <p className="text-emerald-700 text-[11px]">
+                          Customer, dates, currency, and line items were auto-populated. You can add more line items or modify prices, then confirm the invoice below.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="font-bold uppercase px-2.5 py-1 bg-emerald-200/80 text-emerald-900 rounded-md text-[10px] tracking-wide shrink-0">
+                      Ready to Confirm
+                    </span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {recipientType === 'Customer' ? (
                     <div className="sm:col-span-2">
@@ -732,9 +833,10 @@ export function InvoicesView({
                       onChange={(e) => setInvoiceCurrency(e.target.value)}
                       className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-cyan-500 font-bold text-cyan-700"
                     >
-                      <option value="USD">U.S. Dollar ($)</option>
                       <option value="EGP">Egyptian Pound (EGP)</option>
-                      <option value="EUR">Euro (€)</option>
+                      <option value="$">US Dollar ($)</option>
+                      <option value="EUR">Euro (EUR)</option>
+                      <option value="USD">US Dollar (USD)</option>
                       <option value="GBP">British Pound (£)</option>
                       <option value="SAR">Saudi Riyal (SAR)</option>
                       <option value="AED">UAE Dirham (AED)</option>
@@ -764,13 +866,32 @@ export function InvoicesView({
                 </div>
               </div>
 
-              {/* QUICK AUTO-POPULATE ITEM DROPDOWNS (Requirement: trip, hotel, flight from dropdowns) */}
+              {/* QUICK AUTO-POPULATE ITEM DROPDOWNS */}
               <div className="bg-cyan-50/50 p-4 rounded-2xl border border-cyan-200/80 space-y-3">
                 <div className="flex items-center gap-2 text-cyan-900 font-bold text-xs">
                   <Sparkles className="w-4 h-4 text-cyan-600" />
-                  <span>One-Click Auto-Populate from System Inventory</span>
+                  <span>One-Click Auto-Populate from Reservations & Inventory</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Reservation Dropdown */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Add from Reservation</label>
+                    <select
+                      value={selectedReservationId}
+                      onChange={(e) => {
+                        if (e.target.value) handleAddReservationItem(e.target.value);
+                      }}
+                      className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
+                    >
+                      <option value="">-- Choose Reservation --</option>
+                      {reservations.map(r => (
+                        <option key={r.id} value={r.id}>
+                          #{r.reservation_id} - {r.customer_name || 'Client'} ({r.destination})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {/* Tour Package Dropdown */}
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">Add Tour Package</label>
@@ -779,7 +900,7 @@ export function InvoicesView({
                       onChange={(e) => {
                         if (e.target.value) handleAddTourPackage(e.target.value);
                       }}
-                      className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+                      className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Package --</option>
                       {packages.map(p => (
@@ -798,7 +919,7 @@ export function InvoicesView({
                       onChange={(e) => {
                         if (e.target.value) handleAddHotel(e.target.value);
                       }}
-                      className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+                      className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Hotel --</option>
                       {hotels.map(h => (
@@ -817,7 +938,7 @@ export function InvoicesView({
                       onChange={(e) => {
                         if (e.target.value) handleAddFlight(e.target.value);
                       }}
-                      className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500"
+                      className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Flight --</option>
                       {flights.map(f => (
@@ -1004,16 +1125,20 @@ export function InvoicesView({
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setTransferredFromRes(null);
+                  }}
                   className="px-5 py-2.5 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-cyan-600/20 cursor-pointer"
+                  className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 cursor-pointer flex items-center gap-1.5"
                 >
-                  Issue & Save Invoice
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Confirm & Issue Invoice</span>
                 </button>
               </div>
             </form>

@@ -909,6 +909,7 @@ export function FinancePayrollView({
                 <tr>
                   <th className="py-3 px-4 font-semibold">Res ID</th>
                   <th className="py-3 px-4 font-semibold">Destination / Trip</th>
+                  <th className="py-3 px-4 font-semibold">Currency</th>
                   <th className="py-3 px-4 font-semibold">Selling Price</th>
                   <th className="py-3 px-4 font-semibold">Supplier Cost</th>
                   <th className="py-3 px-4 font-semibold">Gross Profit</th>
@@ -919,7 +920,7 @@ export function FinancePayrollView({
               <tbody className="divide-y divide-slate-100">
                 {reservations.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">No reservations available for profitability analysis.</td>
+                    <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">No reservations available for profitability analysis.</td>
                   </tr>
                 ) : (
                   reservations.map(r => {
@@ -927,13 +928,19 @@ export function FinancePayrollView({
                     const cost = Number(r.cost_price) || 0;
                     const prof = sell - cost;
                     const margin = sell > 0 ? ((prof / sell) * 100).toFixed(1) : 0;
+                    const resCurrency = r.currency || 'EGP';
                     return (
                       <tr key={r.id} className="hover:bg-slate-50/80">
                         <td className="py-3.5 px-4 font-bold text-slate-900">{r.reservation_id}</td>
                         <td className="py-3.5 px-4 font-medium text-slate-800">{r.destination} ({r.service_type})</td>
-                        <td className="py-3.5 px-4 font-bold text-emerald-600">${sell.toLocaleString()}</td>
-                        <td className="py-3.5 px-4 font-bold text-rose-600">${cost.toLocaleString()}</td>
-                        <td className="py-3.5 px-4 font-extrabold text-blue-600">${prof.toLocaleString()}</td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+                            {resCurrency}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-emerald-600">{formatCurrency(sell, resCurrency)}</td>
+                        <td className="py-3.5 px-4 font-bold text-rose-600">{formatCurrency(cost, resCurrency)}</td>
+                        <td className="py-3.5 px-4 font-extrabold text-blue-600">{formatCurrency(prof, resCurrency)}</td>
                         <td className="py-3.5 px-4 font-bold text-indigo-600">{margin}%</td>
                         <td className="py-3.5 px-4">
                           <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-semibold">{r.reservation_status}</span>
