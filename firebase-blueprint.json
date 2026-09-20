@@ -319,6 +319,34 @@
     "/permission_requests/{requestId}": {
       "schema": "PermissionRequest",
       "description": "Permission requests collection"
+    },
+    "/customer_payments/{paymentId}": {
+      "schema": "CustomerPayment",
+      "description": "Customer payments collection"
+    },
+    "/supplier_payments/{paymentId}": {
+      "schema": "SupplierPayment",
+      "description": "Supplier payments collection"
+    },
+    "/payroll_records/{recordId}": {
+      "schema": "PayrollRecord",
+      "description": "Payroll records collection"
+    },
+    "/employee_advances/{advanceId}": {
+      "schema": "EmployeeAdvance",
+      "description": "Employee advances collection"
+    },
+    "/commission_records/{commissionId}": {
+      "schema": "CommissionRecord",
+      "description": "Commission records collection"
+    },
+    "/finance_audit_logs/{logId}": {
+      "schema": "FinanceAuditLog",
+      "description": "Finance audit logs collection"
+    },
+    "/settings/{settingId}": {
+      "schema": "CompanySettings",
+      "description": "Company settings collection"
     }
   }
 }

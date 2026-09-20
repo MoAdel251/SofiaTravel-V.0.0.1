@@ -133,7 +133,11 @@ export default function App() {
         notifRes,
         settRes,
         logRes,
-        pReqRes
+        pReqRes,
+        payrollRes,
+        advRes,
+        commRes,
+        fAuditRes
       ] = await Promise.all([
         fetch('/api/dashboard-stats?t=' + Date.now()).then(r => r.json()).catch(() => null),
         dataService.getCollection<Customer>('customers', '/api/customers', customers),
@@ -153,6 +157,10 @@ export default function App() {
         dataService.getDocument<CompanySettings>('settings', 'company_settings', '/api/settings', settings),
         dataService.getCollection<ActivityLog>('activity_logs', '/api/activity-logs', activityLogs),
         dataService.getCollection<PermissionRequest>('permission_requests', '/api/permission-requests', permissionRequests),
+        dataService.getCollection<PayrollRecord>('payroll_records', '/api/payroll-records', payrollRecords),
+        dataService.getCollection<EmployeeAdvance>('employee_advances', '/api/employee-advances', advances),
+        dataService.getCollection<CommissionRecord>('commission_records', '/api/commission-records', commissions),
+        dataService.getCollection<FinanceAuditLog>('finance_audit_logs', '/api/finance-audit-logs', financeAuditLogs)
       ]);
 
       setCustomers(custRes || []);
@@ -172,6 +180,10 @@ export default function App() {
       if (settRes) setSettings(settRes);
       setActivityLogs(logRes || []);
       setPermissionRequests(pReqRes || []);
+      setPayrollRecords(payrollRes || []);
+      setAdvances(advRes || []);
+      setCommissions(commRes || []);
+      setFinanceAuditLogs(fAuditRes || []);
 
       if (statsRes && statsRes.total_sales !== undefined) {
         setStats(statsRes);
@@ -927,7 +939,7 @@ export default function App() {
     fetchAllData();
   };
 
-  const handleGeneratePayroll = (month: string) => {
+  const handleGeneratePayroll = async (month: string) => {
     const generated: PayrollRecord[] = employees.map(emp => ({
       id: `PAY-${month}-${emp.id}`,
       payroll_month: month,
@@ -946,30 +958,43 @@ export default function App() {
       status: 'Pending'
     }));
     setPayrollRecords(prev => [...generated.filter(g => !prev.some(p => p.id === g.id)), ...prev]);
+    for (const rec of generated) {
+      await dataService.saveDocument('payroll_records', rec.id, rec, '/api/payroll-records', 'POST');
+    }
   };
 
-  const handleUpdatePayrollStatus = (id: string, status: 'Pending' | 'Partially Paid' | 'Paid', details?: any) => {
+  const handleUpdatePayrollStatus = async (id: string, status: 'Pending' | 'Partially Paid' | 'Paid', details?: any) => {
     setPayrollRecords(prev => prev.map(p => p.id === id ? { ...p, status, ...details } : p));
+    const target = payrollRecords.find(p => p.id === id);
+    if (target) {
+      const updated = { ...target, status, ...details };
+      await dataService.saveDocument('payroll_records', id, updated, `/api/payroll-records/${id}`, 'PUT');
+    }
   };
 
-  const handleAddAdvance = (adv: EmployeeAdvance) => {
+  const handleAddAdvance = async (adv: EmployeeAdvance) => {
     setAdvances(prev => [adv, ...prev]);
+    await dataService.saveDocument('employee_advances', adv.id, adv, '/api/employee-advances', 'POST');
   };
 
-  const handleUpdateAdvance = (adv: EmployeeAdvance) => {
+  const handleUpdateAdvance = async (adv: EmployeeAdvance) => {
     setAdvances(prev => prev.map(a => a.id === adv.id ? adv : a));
+    await dataService.saveDocument('employee_advances', adv.id, adv, `/api/employee-advances/${adv.id}`, 'PUT');
   };
 
-  const handleDeleteAdvance = (id: string) => {
+  const handleDeleteAdvance = async (id: string) => {
     setAdvances(prev => prev.filter(a => a.id !== id));
+    await dataService.deleteDocument('employee_advances', id, `/api/employee-advances/${id}`);
   };
 
-  const handleAddCommission = (comm: CommissionRecord) => {
+  const handleAddCommission = async (comm: CommissionRecord) => {
     setCommissions(prev => [comm, ...prev]);
+    await dataService.saveDocument('commission_records', comm.id, comm, '/api/commission-records', 'POST');
   };
 
-  const handleDeleteCommission = (id: string) => {
+  const handleDeleteCommission = async (id: string) => {
     setCommissions(prev => prev.filter(c => c.id !== id));
+    await dataService.deleteDocument('commission_records', id, `/api/commission-records/${id}`);
   };
 
   const handleAddAuditLog = async (log: FinanceAuditLog) => {

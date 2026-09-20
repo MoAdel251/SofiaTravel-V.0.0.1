@@ -116,7 +116,11 @@ let db = {
   notifications: [],
   invoices: [],
   activity_logs: [],
-  permission_requests: []
+  permission_requests: [],
+  payroll_records: [],
+  employee_advances: [],
+  commission_records: [],
+  finance_audit_logs: []
 };
 
 async function getCollectionDocs(collectionName: string): Promise<any[]> {
@@ -167,29 +171,42 @@ async function testConnection() {
 }
 
 async function loadFromFirestore() {
-  const collections = ["employees", "customers", "suppliers", "hotels", "flights", "tour_packages", "reservations", "customer_payments", "supplier_payments", "expenses", "tasks", "documents", "notifications", "invoices", "activity_logs", "permission_requests"];
+  const collections = [
+    "employees", "customers", "suppliers", "hotels", "flights", "tour_packages",
+    "reservations", "customer_payments", "supplier_payments", "expenses",
+    "tasks", "documents", "notifications", "invoices", "activity_logs",
+    "permission_requests", "payroll_records", "employee_advances", "commission_records",
+    "finance_audit_logs"
+  ];
   try {
-    console.log("Loading data from Firestore...");
+    console.log("Loading persistent data from Firestore...");
     const setSnap = await getDocs(collection(firestoreDb, "settings"));
     if (!setSnap.empty) {
-       db.settings = { ...db.settings, ...setSnap.docs[0].data() };
+      const foundDoc = setSnap.docs.find(d => d.id === 'company_settings') || setSnap.docs.find(d => d.id === 'main') || setSnap.docs[0];
+      db.settings = { ...db.settings, ...foundDoc.data() };
     } else {
-       await setDoc(doc(firestoreDb, "settings", "main"), db.settings);
+      await setDoc(doc(firestoreDb, "settings", "company_settings"), db.settings);
     }
 
     for (const c of collections) {
-       await getCollectionDocs(c);
+      await getCollectionDocs(c);
     }
 
-    console.log("Firestore data loaded successfully.");
+    console.log("Firestore persistent data loaded and synchronized successfully.");
   } catch (err) {
     console.error("Error loading from Firestore:", err);
   }
 }
 
 async function wipeAllFirestoreTestData() {
-  const collections = ["employees", "customers", "suppliers", "hotels", "flights", "tour_packages", "reservations", "customer_payments", "supplier_payments", "expenses", "tasks", "documents", "notifications", "invoices", "activity_logs", "permission_requests"];
-  console.log("Wiping all test data completely from Firestore...");
+  const collections = [
+    "employees", "customers", "suppliers", "hotels", "flights", "tour_packages",
+    "reservations", "customer_payments", "supplier_payments", "expenses",
+    "tasks", "documents", "notifications", "invoices", "activity_logs",
+    "permission_requests", "payroll_records", "employee_advances", "commission_records",
+    "finance_audit_logs"
+  ];
+  console.log("Admin action: Wiping all data from Firestore...");
   for (const col of collections) {
     try {
       const snap = await getDocs(collection(firestoreDb, col));
@@ -446,7 +463,7 @@ app.get("/api/settings", async (req, res) => {
 app.put("/api/settings", async (req, res) => {
   db.settings = { ...db.settings, ...req.body };
   await logActivity("Administrator", "Updated company settings", "Settings", "Settings");
-  await saveToFirestore('settings', 'main', db.settings);
+  await saveToFirestore('settings', 'company_settings', db.settings);
   res.json(db.settings);
 });
 
@@ -839,11 +856,136 @@ app.post("/api/expenses", async (req, res) => {
   res.json(exp);
 });
 
+app.put("/api/expenses/:id", async (req, res) => {
+  const { id } = req.params;
+  const idx = db.expenses.findIndex(e => e.id === id);
+  if (idx >= 0) {
+    db.expenses[idx] = { ...db.expenses[idx], ...req.body };
+    await saveToFirestore('expenses', id, db.expenses[idx]);
+    return res.json(db.expenses[idx]);
+  }
+  const newExp = { id, ...req.body };
+  db.expenses.push(newExp);
+  await saveToFirestore('expenses', id, newExp);
+  res.json(newExp);
+});
+
 app.delete("/api/expenses/:id", async (req, res) => {
   const { id } = req.params;
   db.expenses = db.expenses.filter(e => e.id !== id);
   await deleteFromFirestore('expenses', id);
   res.json({ success: true });
+});
+
+// Payroll Records
+app.get("/api/payroll-records", async (req, res) => {
+  const records = await getCollectionDocs('payroll_records');
+  res.json(records);
+});
+
+app.post("/api/payroll-records", async (req, res) => {
+  const rec = {
+    id: req.body.id || ("PAY-" + Math.random().toString(36).substring(2, 7).toUpperCase()),
+    ...req.body
+  };
+  const idx = db.payroll_records.findIndex(p => p.id === rec.id);
+  if (idx >= 0) {
+    db.payroll_records[idx] = rec;
+  } else {
+    db.payroll_records.push(rec);
+  }
+  await saveToFirestore('payroll_records', rec.id, rec);
+  res.json(rec);
+});
+
+app.put("/api/payroll-records/:id", async (req, res) => {
+  const { id } = req.params;
+  const idx = db.payroll_records.findIndex(p => p.id === id);
+  if (idx >= 0) {
+    db.payroll_records[idx] = { ...db.payroll_records[idx], ...req.body };
+    await saveToFirestore('payroll_records', id, db.payroll_records[idx]);
+    return res.json(db.payroll_records[idx]);
+  }
+  const newRec = { id, ...req.body };
+  db.payroll_records.push(newRec);
+  await saveToFirestore('payroll_records', id, newRec);
+  res.json(newRec);
+});
+
+// Employee Advances
+app.get("/api/employee-advances", async (req, res) => {
+  const advances = await getCollectionDocs('employee_advances');
+  res.json(advances);
+});
+
+app.post("/api/employee-advances", async (req, res) => {
+  const adv = {
+    id: req.body.id || ("ADV-" + Math.random().toString(36).substring(2, 7).toUpperCase()),
+    ...req.body
+  };
+  db.employee_advances.push(adv);
+  await saveToFirestore('employee_advances', adv.id, adv);
+  res.json(adv);
+});
+
+app.put("/api/employee-advances/:id", async (req, res) => {
+  const { id } = req.params;
+  const idx = db.employee_advances.findIndex(a => a.id === id);
+  if (idx >= 0) {
+    db.employee_advances[idx] = { ...db.employee_advances[idx], ...req.body };
+    await saveToFirestore('employee_advances', id, db.employee_advances[idx]);
+    return res.json(db.employee_advances[idx]);
+  }
+  const newAdv = { id, ...req.body };
+  db.employee_advances.push(newAdv);
+  await saveToFirestore('employee_advances', id, newAdv);
+  res.json(newAdv);
+});
+
+app.delete("/api/employee-advances/:id", async (req, res) => {
+  const { id } = req.params;
+  db.employee_advances = db.employee_advances.filter(a => a.id !== id);
+  await deleteFromFirestore('employee_advances', id);
+  res.json({ success: true });
+});
+
+// Commission Records
+app.get("/api/commission-records", async (req, res) => {
+  const commissions = await getCollectionDocs('commission_records');
+  res.json(commissions);
+});
+
+app.post("/api/commission-records", async (req, res) => {
+  const comm = {
+    id: req.body.id || ("COMM-" + Math.random().toString(36).substring(2, 7).toUpperCase()),
+    ...req.body
+  };
+  db.commission_records.push(comm);
+  await saveToFirestore('commission_records', comm.id, comm);
+  res.json(comm);
+});
+
+app.delete("/api/commission-records/:id", async (req, res) => {
+  const { id } = req.params;
+  db.commission_records = db.commission_records.filter(c => c.id !== id);
+  await deleteFromFirestore('commission_records', id);
+  res.json({ success: true });
+});
+
+// Finance Audit Logs
+app.get("/api/finance-audit-logs", async (req, res) => {
+  const logs = await getCollectionDocs('finance_audit_logs');
+  res.json(logs);
+});
+
+app.post("/api/finance-audit-logs", async (req, res) => {
+  const log = {
+    id: req.body.id || ("LOG-F-" + Math.random().toString(36).substring(2, 7).toUpperCase()),
+    ...req.body
+  };
+  db.finance_audit_logs.push(log);
+  await saveToFirestore('finance_audit_logs', log.id, log);
+  res.json(log);
 });
 
 // Employees
@@ -1325,14 +1467,14 @@ async function startServer() {
     console.log(`Sofia Travel Management System running on http://localhost:${PORT}`);
   });
 
-  // Wipe all test data from Firestore and memory in the background
+  // Load all persistent data from Firestore on startup
   (async () => {
     try {
       await testConnection();
-      await wipeAllFirestoreTestData();
-      console.log("Database completely wiped clean - ready for official live operations.");
+      await loadFromFirestore();
+      console.log("Persistent data successfully synchronized from Firestore. Database ready for live operations.");
     } catch (e) {
-      console.warn("Background Firestore wipe initialization note:", e);
+      console.warn("Background Firestore initialization note:", e);
     }
   })();
 }
