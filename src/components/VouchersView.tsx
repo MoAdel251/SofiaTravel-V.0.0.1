@@ -379,7 +379,9 @@ export function VouchersView({
   const handleOpenSend = (v: Voucher) => {
     setSendModalVoucher(v);
     setSendChannel('WhatsApp');
-    setCustomSendNote(`Dear ${v.customer_name || 'Valued Customer'}, please find attached your confirmed Sofia Travel voucher #${v.voucher_number} for "${v.service_title}". Total: ${formatCurrency(v.selling_price, v.currency)}. Have a memorable journey!`);
+    const matched = customers.find(c => c.id === v.customer_id || c.customer_id === v.customer_id || c.full_name === v.customer_name || c.name === v.customer_name);
+    const code = matched?.customer_id || v.customer_id;
+    setCustomSendNote(`Dear ${v.customer_name || 'Valued Customer'}${code ? ` (Customer Code: ${code})` : ''}, please find attached your confirmed Sofia Travel voucher #${v.voucher_number} for "${v.service_title}". Total: ${formatCurrency(v.selling_price, v.currency)}. Have a memorable journey!`);
   };
 
   const handleConfirmSend = () => {
@@ -575,7 +577,18 @@ export function VouchersView({
                     <div>
                       <h3 className="text-base font-bold text-slate-900 leading-snug">{v.service_title}</h3>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-slate-500">
-                        <span className="font-semibold text-slate-700">Client: {v.customer_name || 'Individual Traveler'}</span>
+                        <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                          <span>Client: {v.customer_name || 'Individual Traveler'}</span>
+                          {(() => {
+                            const matched = customers.find(c => c.id === v.customer_id || c.customer_id === v.customer_id || c.full_name === v.customer_name || c.name === v.customer_name);
+                            const code = matched?.customer_id || v.customer_id;
+                            return code ? (
+                              <span className="font-mono text-[10px] font-bold text-indigo-800 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                                {code}
+                              </span>
+                            ) : null;
+                          })()}
+                        </span>
                         <span>•</span>
                         <span>Destination: <strong>{v.destination}</strong></span>
                         <span>•</span>
@@ -857,20 +870,23 @@ export function VouchersView({
                     required
                     value={formData.customer_id || ''}
                     onChange={(e) => {
-                      const c = customers.find(cust => cust.id === e.target.value);
+                      const c = customers.find(cust => cust.id === e.target.value || cust.customer_id === e.target.value);
                       setFormData({
                         ...formData,
-                        customer_id: e.target.value,
-                        customer_name: c ? c.name : '',
+                        customer_id: c ? (c.customer_id || c.id) : e.target.value,
+                        customer_name: c ? (c.full_name || c.name) : '',
                         customer_phone: c ? c.phone : '',
-                        customer_email: c ? c.email : ''
+                        customer_email: c ? c.email : '',
+                        customer_passport: c ? c.passport_number : ''
                       });
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
                   >
                     <option value="">-- Select Registered Customer --</option>
                     {customers.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.phone || c.email})</option>
+                      <option key={c.id} value={c.id}>
+                        {c.full_name || c.name} (Code: {c.customer_id}) • {c.phone || c.email}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -1161,7 +1177,21 @@ export function VouchersView({
                 <div>
                   <span className="text-slate-400 font-bold uppercase block text-[10px]">Guest / Traveler Name</span>
                   <span className="font-bold text-sm text-slate-900">{previewVoucher.customer_name || 'Valued Customer'}</span>
+                  {(() => {
+                    const matched = customers.find(c => c.id === previewVoucher.customer_id || c.customer_id === previewVoucher.customer_id || c.full_name === previewVoucher.customer_name || c.name === previewVoucher.customer_name);
+                    const code = matched?.customer_id || previewVoucher.customer_id;
+                    return code ? (
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Customer Code:</span>
+                        <span className="font-mono font-black text-indigo-800 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded text-[11px] tracking-wide">
+                          {code}
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
+                  {previewVoucher.customer_passport && <p className="text-slate-500 mt-1">Passport: {previewVoucher.customer_passport}</p>}
                   {previewVoucher.customer_phone && <p className="text-slate-500 mt-0.5">Phone: {previewVoucher.customer_phone}</p>}
+                  {previewVoucher.customer_email && <p className="text-slate-500 mt-0.5">Email: {previewVoucher.customer_email}</p>}
                 </div>
 
                 <div>
@@ -1298,9 +1328,20 @@ export function VouchersView({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Customer Contact:</label>
-                <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1 text-slate-700">
-                  <div><strong>Name:</strong> {sendModalVoucher.customer_name || 'Client'}</div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Customer Contact & Code:</label>
+                <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1.5 text-slate-700 border border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <span><strong>Customer Name:</strong> {sendModalVoucher.customer_name || 'Client'}</span>
+                    {(() => {
+                      const matched = customers.find(c => c.id === sendModalVoucher.customer_id || c.customer_id === sendModalVoucher.customer_id || c.full_name === sendModalVoucher.customer_name || c.name === sendModalVoucher.customer_name);
+                      const code = matched?.customer_id || sendModalVoucher.customer_id;
+                      return code ? (
+                        <span className="font-mono text-[11px] font-bold text-sky-900 bg-sky-100 border border-sky-300 px-2 py-0.5 rounded">
+                          Code: {code}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   <div><strong>Phone / WhatsApp:</strong> {sendModalVoucher.customer_phone || '+20 100 000 0000'}</div>
                   <div><strong>Email:</strong> {sendModalVoucher.customer_email || 'client@example.com'}</div>
                 </div>

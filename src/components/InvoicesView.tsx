@@ -386,7 +386,7 @@ export function InvoicesView({
       return;
     }
 
-    const customer = customers.find(c => c.id === selectedCustomerId);
+    const customer = customers.find(c => c.id === selectedCustomerId || c.customer_id === selectedCustomerId);
     const supplier = suppliers.find(s => s.id === selectedSupplierId);
 
     const payment_status = balanceDue <= 0 ? 'Paid' : paidAmount > 0 ? 'Partially Paid' : 'Unpaid';
@@ -396,8 +396,8 @@ export function InvoicesView({
     const invoiceData: Partial<Invoice> = {
       recipient_type: recipientType,
       reservation_id: linkedResId,
-      customer_id: recipientType === 'Customer' ? customer?.id : undefined,
-      customer_name: recipientType === 'Customer' ? customer?.full_name : undefined,
+      customer_id: recipientType === 'Customer' ? (customer?.customer_id || customer?.id) : undefined,
+      customer_name: recipientType === 'Customer' ? (customer?.full_name || customer?.name) : undefined,
       customer_email: recipientType === 'Customer' ? customer?.email : undefined,
       customer_phone: recipientType === 'Customer' ? customer?.phone : undefined,
       customer_address: recipientType === 'Customer' ? customer?.address : undefined,
@@ -510,13 +510,15 @@ export function InvoicesView({
     const isSup = inv.recipient_type === 'Supplier';
     const recipient = isSup ? inv.supplier_name : inv.customer_name;
     const phone = (isSup ? inv.supplier_phone : inv.customer_phone)?.replace(/[^0-9]/g, '') || '';
+    const matchedCust = !isSup ? customers.find(c => c.id === inv.customer_id || c.customer_id === inv.customer_id || c.full_name === inv.customer_name) : null;
+    const custCode = matchedCust?.customer_id || inv.customer_id;
     
     const text = encodeURIComponent(
-      `*SOFIA TRAVEL - OFFICIAL INVOICE*\n` +
+      `*SOFIA TRAVEL - OFFICIAL INVOICE / RECEIPT*\n` +
       `-----------------------------------------\n` +
       `Invoice #: ${inv.invoice_number}\n` +
       `Date: ${inv.issue_date}\n` +
-      `Recipient: ${recipient}\n` +
+      `Recipient: ${recipient}${custCode ? `\nCustomer Code: ${custCode}` : ''}\n` +
       `Total Amount: ${formatCurrency(inv.total_amount, inv.currency)}\n` +
       `Amount Paid: ${formatCurrency(inv.paid_amount, inv.currency)}\n` +
       `*Outstanding Balance: ${formatCurrency(inv.balance_due, inv.currency)}*\n` +
@@ -756,6 +758,15 @@ export function InvoicesView({
                             {isSupplier ? 'Supplier (Liability)' : 'Customer'}
                           </span>
                           <span className="font-semibold text-slate-800">{recipientName}</span>
+                          {!isSupplier && (() => {
+                            const matched = customers.find(c => c.id === inv.customer_id || c.customer_id === inv.customer_id || c.full_name === inv.customer_name);
+                            const code = matched?.customer_id || inv.customer_id;
+                            return code ? (
+                              <span className="text-[10px] bg-cyan-50 text-cyan-900 border border-cyan-200 font-mono font-bold px-1.5 py-0.5 rounded">
+                                {code}
+                              </span>
+                            ) : null;
+                          })()}
                           {inv.reservation_id && (
                             <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200">
                               Res #{inv.reservation_id}
@@ -1422,6 +1433,18 @@ export function InvoicesView({
                   <p className="font-bold text-sm text-slate-900 mt-1">
                     {viewInvoice.recipient_type === 'Supplier' ? viewInvoice.supplier_name : viewInvoice.customer_name}
                   </p>
+                  {viewInvoice.recipient_type !== 'Supplier' && (() => {
+                    const matched = customers.find(c => c.id === viewInvoice.customer_id || c.customer_id === viewInvoice.customer_id || c.full_name === viewInvoice.customer_name);
+                    const code = matched?.customer_id || viewInvoice.customer_id;
+                    return code ? (
+                      <div className="mt-1 mb-1.5 flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Customer Code:</span>
+                        <span className="font-mono font-black text-cyan-800 bg-cyan-100 border border-cyan-300 px-2 py-0.5 rounded text-[11px] tracking-wide">
+                          {code}
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
                   {viewInvoice.customer_passport && (
                     <p className="text-slate-600">Passport: {viewInvoice.customer_passport}</p>
                   )}
