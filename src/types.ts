@@ -72,6 +72,10 @@ export interface Reservation {
   payment_status: 'Pending' | 'Paid' | 'Partially Paid' | 'Refunded';
   reservation_status: ReservationStatus;
   notes: string;
+  customer_invoice_id?: string;
+  customer_invoice_number?: string;
+  supplier_invoice_id?: string;
+  supplier_invoice_number?: string;
 }
 
 export type PackageStatus = 'Draft' | 'Available' | 'Fully Booked' | 'Closed' | 'Cancelled';

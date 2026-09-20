@@ -52,12 +52,13 @@ interface InvoicesViewProps {
   hotels: Hotel[];
   flights: Flight[];
   reservations?: Reservation[];
-  initialReservation?: Reservation | null;
+  initialReservation?: any;
   onClearInitialReservation?: () => void;
   settings: CompanySettings;
   onAddInvoice: (invoiceData: Partial<Invoice>) => void;
   onUpdateInvoice: (id: string, invoiceData: Partial<Invoice>) => void;
   onDeleteInvoice: (id: string) => void;
+  onUpdateReservation?: (id: string, data: Partial<Reservation>) => void;
   userRole?: UserRole;
   currentCurrency?: string;
 }
@@ -76,6 +77,7 @@ export function InvoicesView({
   onAddInvoice,
   onUpdateInvoice,
   onDeleteInvoice,
+  onUpdateReservation,
   userRole = 'Administrator',
   currentCurrency = 'USD'
 }: InvoicesViewProps) {
@@ -116,40 +118,99 @@ export function InvoicesView({
   // Auto-fill and transfer data when initialReservation is passed
   useEffect(() => {
     if (initialReservation) {
+      const isSupplierTarget = (initialReservation as any).targetRecipientType === 'Supplier';
       setTransferredFromRes(initialReservation);
-      setRecipientType('Customer');
 
-      // Match customer if exists
-      if (initialReservation.customer_id) {
-        setSelectedCustomerId(initialReservation.customer_id);
-      } else if (initialReservation.customer_name) {
-        const found = customers.find(c => c.full_name?.toLowerCase() === initialReservation.customer_name.toLowerCase());
-        if (found) setSelectedCustomerId(found.id);
+      // Check if invoice of this type already exists to prevent duplicate invoicing
+      const existingCustInv = invoices.find(inv => 
+        (inv.reservation_id === initialReservation.id || inv.reservation_id === initialReservation.reservation_id || initialReservation.customer_invoice_id === inv.id || initialReservation.customer_invoice_number === inv.invoice_number) &&
+        (inv.recipient_type === 'Customer' || (!inv.recipient_type && !inv.supplier_id))
+      );
+      const existingSuppInv = invoices.find(inv => 
+        (inv.reservation_id === initialReservation.id || inv.reservation_id === initialReservation.reservation_id || initialReservation.supplier_invoice_id === inv.id || initialReservation.supplier_invoice_number === inv.invoice_number) &&
+        (inv.recipient_type === 'Supplier' || (inv.supplier_id && !inv.customer_id))
+      );
+
+      if (isSupplierTarget && existingSuppInv) {
+        alert(`⚠️ Duplicate Invoice Prevention Notice:\nA Supplier Liability Invoice (#${existingSuppInv.invoice_number}) has already been generated for Reservation #${initialReservation.reservation_id}.\nTo prevent recording duplicate payment liabilities, another supplier invoice cannot be generated for this reservation.`);
+        if (onClearInitialReservation) onClearInitialReservation();
+        return;
       }
 
-      // Currency
+      if (!isSupplierTarget && existingCustInv) {
+        alert(`⚠️ Duplicate Invoice Prevention Notice:\nA Customer Invoice (#${existingCustInv.invoice_number}) has already been generated for Reservation #${initialReservation.reservation_id}.\nTo prevent double billing the customer, another customer invoice cannot be generated for this reservation.`);
+        if (onClearInitialReservation) onClearInitialReservation();
+        return;
+      }
+
       let resCurrency = initialReservation.currency || '$';
       if (resCurrency === 'USD') resCurrency = '$';
+      else if (resCurrency.toUpperCase() === 'EGP') resCurrency = 'EGP';
+      else if (resCurrency.toUpperCase() === 'EUR') resCurrency = 'EUR';
       setInvoiceCurrency(resCurrency);
 
       const qty = Number(initialReservation.number_of_travelers) || 1;
-      const sellPrice = Number(initialReservation.selling_price) || 0;
-      const unitPrice = qty > 0 ? sellPrice / qty : sellPrice;
 
-      const newItem: InvoiceItem = {
-        id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
-        item_type: 'Custom',
-        item_reference_id: initialReservation.reservation_id || initialReservation.id,
-        title: `${initialReservation.service_type} - ${initialReservation.destination}`,
-        description: `Reservation #${initialReservation.reservation_id} • Customer: ${initialReservation.customer_name || 'Client'} • Travelers: ${qty} • Travel Date: ${initialReservation.travel_date} to ${initialReservation.return_date}`,
-        quantity: qty,
-        unit_price: Math.round(unitPrice * 100) / 100,
-        total_price: sellPrice
-      };
+      if (isSupplierTarget) {
+        // Supplier Invoice: Company Payment Liability
+        setRecipientType('Supplier');
 
-      setItems([newItem]);
-      setPaidAmount(Number(initialReservation.paid_amount) || 0);
-      setNotes(`Invoice created for Reservation #${initialReservation.reservation_id} (${initialReservation.destination}). Thank you for booking with Sofia Travel!`);
+        if (initialReservation.supplier_id) {
+          setSelectedSupplierId(initialReservation.supplier_id);
+        } else if (initialReservation.supplier_name) {
+          const found = suppliers.find(s => s.supplier_name?.toLowerCase() === initialReservation.supplier_name?.toLowerCase());
+          if (found) setSelectedSupplierId(found.id);
+        }
+
+        const costPrice = Number(initialReservation.cost_price) || 0;
+        const unitCost = qty > 0 ? costPrice / qty : costPrice;
+
+        const newItem: InvoiceItem = {
+          id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+          item_type: 'Custom',
+          item_reference_id: initialReservation.reservation_id || initialReservation.id,
+          title: `${initialReservation.service_type} - ${initialReservation.destination} (Supplier Cost / Payable)`,
+          description: `Reservation #${initialReservation.reservation_id} • Payable to: ${initialReservation.supplier_name || 'Supplier'} • Company Payment Liability • Travelers: ${qty} • Travel: ${initialReservation.travel_date} to ${initialReservation.return_date}`,
+          quantity: qty,
+          unit_price: Math.round(unitCost * 100) / 100,
+          total_price: costPrice
+        };
+
+        setItems([newItem]);
+        setPaidAmount(0);
+        setNotes(`Supplier invoice payable to ${initialReservation.supplier_name || 'supplier'} for Reservation #${initialReservation.reservation_id}. Counted as part of Sofia Travel company liabilities and payment obligations.`);
+        setTerms(`Company payment obligation payable to supplier in accordance with contractual terms.`);
+      } else {
+        // Customer Invoice: Accounts Receivable
+        setRecipientType('Customer');
+
+        if (initialReservation.customer_id) {
+          setSelectedCustomerId(initialReservation.customer_id);
+        } else if (initialReservation.customer_name) {
+          const found = customers.find(c => c.full_name?.toLowerCase() === initialReservation.customer_name.toLowerCase());
+          if (found) setSelectedCustomerId(found.id);
+        }
+
+        const sellPrice = Number(initialReservation.selling_price) || 0;
+        const unitPrice = qty > 0 ? sellPrice / qty : sellPrice;
+
+        const newItem: InvoiceItem = {
+          id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+          item_type: 'Custom',
+          item_reference_id: initialReservation.reservation_id || initialReservation.id,
+          title: `${initialReservation.service_type} - ${initialReservation.destination}`,
+          description: `Reservation #${initialReservation.reservation_id} • Customer: ${initialReservation.customer_name || 'Client'} • Travelers: ${qty} • Travel Date: ${initialReservation.travel_date} to ${initialReservation.return_date}`,
+          quantity: qty,
+          unit_price: Math.round(unitPrice * 100) / 100,
+          total_price: sellPrice
+        };
+
+        setItems([newItem]);
+        setPaidAmount(Number(initialReservation.paid_amount) || 0);
+        setNotes(`Invoice created for Reservation #${initialReservation.reservation_id} (${initialReservation.destination}). Thank you for booking with Sofia Travel!`);
+        setTerms(`Standard payment terms apply.`);
+      }
+
       setShowCreateModal(true);
 
       if (onClearInitialReservation) {
@@ -222,26 +283,69 @@ export function InvoicesView({
   const handleAddReservationItem = (resId: string) => {
     const res = reservations.find(r => r.id === resId || r.reservation_id === resId);
     if (!res) return;
+
+    // Check if an invoice of current recipientType already exists for this reservation
+    const existingCustInv = invoices.find(inv => 
+      (inv.reservation_id === res.id || inv.reservation_id === res.reservation_id || res.customer_invoice_id === inv.id || res.customer_invoice_number === inv.invoice_number) &&
+      (inv.recipient_type === 'Customer' || (!inv.recipient_type && !inv.supplier_id))
+    );
+    const existingSuppInv = invoices.find(inv => 
+      (inv.reservation_id === res.id || inv.reservation_id === res.reservation_id || res.supplier_invoice_id === inv.id || res.supplier_invoice_number === inv.invoice_number) &&
+      (inv.recipient_type === 'Supplier' || (inv.supplier_id && !inv.customer_id))
+    );
+
+    if (recipientType === 'Customer' && existingCustInv) {
+      alert(`⚠️ Duplicate Invoice Prevention:\nA Customer Invoice (#${existingCustInv.invoice_number}) has already been generated for Reservation #${res.reservation_id}.\nTo prevent billing the customer twice, duplicate customer invoice creation is blocked.`);
+      setSelectedReservationId('');
+      return;
+    }
+
+    if (recipientType === 'Supplier' && existingSuppInv) {
+      alert(`⚠️ Duplicate Liability Prevention:\nA Supplier Liability Invoice (#${existingSuppInv.invoice_number}) has already been generated for Reservation #${res.reservation_id}.\nTo prevent recording duplicate payment liabilities, duplicate supplier invoice creation is blocked.`);
+      setSelectedReservationId('');
+      return;
+    }
+
+    setTransferredFromRes(res);
+
     const qty = Number(res.number_of_travelers) || 1;
-    const sellPrice = Number(res.selling_price) || 0;
-    const unitPrice = qty > 0 ? sellPrice / qty : sellPrice;
+    // For Supplier invoices, the amount payable to supplier is the cost_price! For Customer invoices, it's selling_price.
+    const isSupp = recipientType === 'Supplier';
+    const itemTotal = isSupp ? (Number(res.cost_price) || 0) : (Number(res.selling_price) || 0);
+    const unitPrice = qty > 0 ? itemTotal / qty : itemTotal;
 
     let resCurrency = res.currency || '$';
     if (resCurrency === 'USD') resCurrency = '$';
+    else if (resCurrency.toUpperCase() === 'EGP') resCurrency = 'EGP';
+    else if (resCurrency.toUpperCase() === 'EUR') resCurrency = 'EUR';
     setInvoiceCurrency(resCurrency);
 
     const newItem: InvoiceItem = {
       id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
       item_type: 'Custom',
       item_reference_id: res.reservation_id || res.id,
-      title: `${res.service_type} - ${res.destination}`,
-      description: `Reservation #${res.reservation_id} • Customer: ${res.customer_name || 'Client'} • Travelers: ${qty} • Travel: ${res.travel_date} to ${res.return_date}`,
+      title: isSupp
+        ? `${res.service_type} - ${res.destination} (Supplier Cost / Payable Liability)`
+        : `${res.service_type} - ${res.destination}`,
+      description: isSupp
+        ? `Reservation #${res.reservation_id} • Payable to: ${res.supplier_name || 'Supplier'} • Company Payment Liability • Travelers: ${qty} • Travel: ${res.travel_date} to ${res.return_date}`
+        : `Reservation #${res.reservation_id} • Customer: ${res.customer_name || 'Client'} • Travelers: ${qty} • Travel: ${res.travel_date} to ${res.return_date}`,
       quantity: qty,
       unit_price: Math.round(unitPrice * 100) / 100,
-      total_price: sellPrice
+      total_price: itemTotal
     };
 
     setItems(prev => [...prev, newItem]);
+    if (isSupp) {
+      if (res.supplier_id) setSelectedSupplierId(res.supplier_id);
+      setNotes(`Supplier invoice payable to ${res.supplier_name || 'supplier'} for Reservation #${res.reservation_id}. Counted as company liabilities and payment obligations.`);
+      setTerms(`Company payment obligation payable to supplier within agreed contractual settlement terms.`);
+    } else {
+      if (res.customer_id) setSelectedCustomerId(res.customer_id);
+      setPaidAmount(Number(res.paid_amount) || 0);
+      setNotes(`Customer sales invoice for Reservation #${res.reservation_id} (${res.destination}).`);
+    }
+
     setSelectedReservationId('');
   };
 
@@ -287,8 +391,11 @@ export function InvoicesView({
 
     const payment_status = balanceDue <= 0 ? 'Paid' : paidAmount > 0 ? 'Partially Paid' : 'Unpaid';
 
+    const linkedResId = transferredFromRes?.id || transferredFromRes?.reservation_id || undefined;
+
     const invoiceData: Partial<Invoice> = {
       recipient_type: recipientType,
+      reservation_id: linkedResId,
       customer_id: recipientType === 'Customer' ? customer?.id : undefined,
       customer_name: recipientType === 'Customer' ? customer?.full_name : undefined,
       customer_email: recipientType === 'Customer' ? customer?.email : undefined,
@@ -313,16 +420,30 @@ export function InvoicesView({
       balance_due: balanceDue,
       payment_status,
       payment_method: paymentMethod as any,
-      notes,
-      terms,
+      notes: notes || (recipientType === 'Supplier' ? `Payable to supplier ${supplier?.supplier_name || ''}. Counted as company liabilities and payment obligations.` : undefined),
+      terms: terms || (recipientType === 'Supplier' ? `Company payment obligation payable to supplier according to contractual terms.` : undefined),
       manager_name: "Ahmed Ali",
       created_by_employee: userRole === 'Administrator' ? 'IT (Admin)' : 'Staff'
     };
 
     onAddInvoice(invoiceData);
+
+    if (transferredFromRes && onUpdateReservation) {
+      if (recipientType === 'Supplier') {
+        onUpdateReservation(transferredFromRes.id, {
+          supplier_invoice_id: 'pending'
+        });
+      } else {
+        onUpdateReservation(transferredFromRes.id, {
+          customer_invoice_id: 'pending'
+        });
+      }
+    }
+
     setShowCreateModal(false);
 
     // Reset Form
+    setTransferredFromRes(null);
     setItems([]);
     setDiscount(0);
     setTaxRate(0);
@@ -628,16 +749,27 @@ export function InvoicesView({
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                            isSupplier ? 'bg-purple-100 text-purple-800' : 'bg-cyan-100 text-cyan-800'
+                            isSupplier ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-cyan-100 text-cyan-800'
                           }`}>
-                            {isSupplier ? 'Supplier' : 'Customer'}
+                            {isSupplier ? 'Supplier (Liability)' : 'Customer'}
                           </span>
                           <span className="font-semibold text-slate-800">{recipientName}</span>
+                          {inv.reservation_id && (
+                            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200">
+                              Res #{inv.reservation_id}
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
-                          {isSupplier ? inv.supplier_type : (inv.customer_phone || inv.customer_email || 'Direct Client')}
+                          {isSupplier ? (
+                            <span className="text-amber-700 font-semibold">
+                              Payable Liability (Company Obligation) • {inv.supplier_type || 'Supplier Partner'}
+                            </span>
+                          ) : (
+                            inv.customer_phone || inv.customer_email || 'Direct Client'
+                          )}
                         </div>
                       </td>
 
@@ -884,11 +1016,29 @@ export function InvoicesView({
                       className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Reservation --</option>
-                      {reservations.map(r => (
-                        <option key={r.id} value={r.id}>
-                          #{r.reservation_id} - {r.customer_name || 'Client'} ({r.destination})
-                        </option>
-                      ))}
+                      {reservations.map(r => {
+                        const hasCust = invoices.some(inv => 
+                          (inv.reservation_id === r.id || inv.reservation_id === r.reservation_id || r.customer_invoice_id === inv.id || r.customer_invoice_number === inv.invoice_number) &&
+                          (inv.recipient_type === 'Customer' || (!inv.recipient_type && !inv.supplier_id))
+                        );
+                        const hasSupp = invoices.some(inv => 
+                          (inv.reservation_id === r.id || inv.reservation_id === r.reservation_id || r.supplier_invoice_id === inv.id || r.supplier_invoice_number === inv.invoice_number) &&
+                          (inv.recipient_type === 'Supplier' || (inv.supplier_id && !inv.customer_id))
+                        );
+                        const statusTag = hasCust && hasSupp 
+                          ? ' [Fully Invoiced]' 
+                          : hasCust 
+                            ? ' [Cust Invoiced]' 
+                            : hasSupp 
+                              ? ' [Supp Invoiced]' 
+                              : ' [No Invoice]';
+
+                        return (
+                          <option key={r.id} value={r.id}>
+                            #{r.reservation_id} - {r.customer_name || 'Client'} ({r.destination}){statusTag}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 

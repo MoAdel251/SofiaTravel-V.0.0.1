@@ -200,13 +200,13 @@ async function loadFromFirestore() {
 
 async function wipeAllFirestoreTestData() {
   const collections = [
-    "employees", "customers", "suppliers", "hotels", "flights", "tour_packages",
+    "customers", "suppliers", "hotels", "flights", "tour_packages",
     "reservations", "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs"
   ];
-  console.log("Admin action: Wiping all data from Firestore...");
+  console.log("Admin action: Wiping operational test data from Firestore (preserving employee accounts)...");
   for (const col of collections) {
     try {
       const snap = await getDocs(collection(firestoreDb, col));
@@ -230,7 +230,6 @@ async function saveToFirestore(collectionName: string, id: string, data: any) {
     await setDoc(doc(firestoreDb, collectionName, String(id)), cleanData, { merge: true });
   } catch (err) {
     console.error(`Firestore sync error (save to ${collectionName}/${id}):`, err);
-    throw err;
   }
 }
 
@@ -239,7 +238,6 @@ async function deleteFromFirestore(collectionName: string, id: string) {
     await deleteDoc(doc(firestoreDb, collectionName, String(id)));
   } catch (err) {
     console.error(`Firestore sync error (delete from ${collectionName}/${id}):`, err);
-    throw err;
   }
 }
 
@@ -474,16 +472,22 @@ app.get("/api/customers", async (req, res) => {
 });
 
 app.post("/api/customers", async (req, res) => {
+  const custId = req.body.id || ("CUST-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const newCust = {
-    id: "CUST-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    customer_id: "C-" + Math.floor(1000 + Math.random() * 9000),
-    registration_date: new Date().toISOString().split('T')[0],
+    customer_id: req.body.customer_id || ("C-" + Math.floor(1000 + Math.random() * 9000)),
+    registration_date: req.body.registration_date || new Date().toISOString().split('T')[0],
     outstanding_balance: 0,
     currency: "USD",
-    ...req.body
+    ...req.body,
+    id: custId
   };
-  db.customers.push(newCust);
-  await logActivity("Ahmed Hassan", `Created customer ${newCust.full_name}`, "Customers", newCust.customer_id);
+  const idx = db.customers.findIndex(c => c.id === newCust.id);
+  if (idx >= 0) {
+    db.customers[idx] = newCust;
+  } else {
+    db.customers.push(newCust);
+  }
+  await logActivity((req.headers['x-acting-user'] as string) || "Staff", `Created customer ${newCust.full_name}`, "Customers", newCust.customer_id);
   await saveToFirestore('customers', newCust.id, newCust);
   res.json(newCust);
 });
@@ -534,20 +538,26 @@ app.post("/api/reservations", async (req, res) => {
   else if (currency.toUpperCase() === "EGP") currency = "EGP";
   else if (currency.toUpperCase() === "EUR") currency = "EUR";
 
+  const resId = data.id || ("RES-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const newRes = {
-    id: "RES-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    reservation_id: "RES-" + Math.floor(1000 + Math.random() * 9000),
-    booking_date: new Date().toISOString().split('T')[0],
+    reservation_id: data.reservation_id || ("RES-" + Math.floor(1000 + Math.random() * 9000)),
+    booking_date: data.booking_date || new Date().toISOString().split('T')[0],
     profit,
     remaining_amount: remaining,
     payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending",
     ...data,
+    id: resId,
     currency,
     selling_price: selling,
     cost_price: cost,
     paid_amount: paid
   };
-  db.reservations.push(newRes);
+  const idx = db.reservations.findIndex(r => r.id === newRes.id);
+  if (idx >= 0) {
+    db.reservations[idx] = newRes;
+  } else {
+    db.reservations.push(newRes);
+  }
 
   // Update customer balance if remaining > 0
   const cust = db.customers.find(c => c.id === newRes.customer_id);
@@ -555,7 +565,7 @@ app.post("/api/reservations", async (req, res) => {
     cust.outstanding_balance += remaining;
   }
 
-  await logActivity("Karim Nabil", `Created reservation ${newRes.reservation_id}`, "Reservations", newRes.reservation_id);
+  await logActivity(newRes.employee_name || "Staff", `Created reservation ${newRes.reservation_id}`, "Reservations", newRes.reservation_id);
   await saveToFirestore('reservations', newRes.id, newRes);
   res.json(newRes);
 });
@@ -591,6 +601,12 @@ app.put("/api/reservations/:id", async (req, res) => {
     paid_amount: paid,
     profit,
     remaining_amount: remaining,
+    employee_id: data.employee_id || existing.employee_id,
+    employee_name: data.employee_name || existing.employee_name,
+    customer_invoice_id: data.customer_invoice_id || existing.customer_invoice_id,
+    customer_invoice_number: data.customer_invoice_number || existing.customer_invoice_number,
+    supplier_invoice_id: data.supplier_invoice_id || existing.supplier_invoice_id,
+    supplier_invoice_number: data.supplier_invoice_number || existing.supplier_invoice_number,
     payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending"
   };
 
@@ -620,12 +636,18 @@ app.get("/api/tour-packages", async (req, res) => {
 });
 
 app.post("/api/tour-packages", async (req, res) => {
+  const pkgId = req.body.id || ("PKG-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const pkg = {
-    id: "PKG-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    ...req.body
+    ...req.body,
+    id: pkgId
   };
-  db.tour_packages.push(pkg);
-  await logActivity("Karim Nabil", `Created tour package ${pkg.package_name}`, "Tour Packages", pkg.package_name);
+  const idx = db.tour_packages.findIndex(p => p.id === pkg.id);
+  if (idx >= 0) {
+    db.tour_packages[idx] = pkg;
+  } else {
+    db.tour_packages.push(pkg);
+  }
+  await logActivity((req.headers['x-acting-user'] as string) || "Staff", `Created tour package ${pkg.package_name}`, "Tour Packages", pkg.package_name);
   await saveToFirestore('tour_packages', pkg.id, pkg);
   res.json(pkg);
 });
@@ -662,11 +684,17 @@ app.get("/api/hotels", async (req, res) => {
 });
 
 app.post("/api/hotels", async (req, res) => {
+  const hotId = req.body.id || ("HOT-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const hotel = {
-    id: "HOT-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    ...req.body
+    ...req.body,
+    id: hotId
   };
-  db.hotels.push(hotel);
+  const idx = db.hotels.findIndex(h => h.id === hotel.id);
+  if (idx >= 0) {
+    db.hotels[idx] = hotel;
+  } else {
+    db.hotels.push(hotel);
+  }
   await saveToFirestore('hotels', hotel.id, hotel);
   res.json(hotel);
 });
@@ -703,11 +731,17 @@ app.get("/api/flights", async (req, res) => {
 });
 
 app.post("/api/flights", async (req, res) => {
+  const fltId = req.body.id || ("FL-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const flight = {
-    id: "FL-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    ...req.body
+    ...req.body,
+    id: fltId
   };
-  db.flights.push(flight);
+  const idx = db.flights.findIndex(f => f.id === flight.id);
+  if (idx >= 0) {
+    db.flights[idx] = flight;
+  } else {
+    db.flights.push(flight);
+  }
   await saveToFirestore('flights', flight.id, flight);
   res.json(flight);
 });
@@ -744,12 +778,18 @@ app.get("/api/suppliers", async (req, res) => {
 });
 
 app.post("/api/suppliers", async (req, res) => {
+  const supId = req.body.id || ("SUP-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const sup = {
-    id: "SUP-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
     outstanding_balance: 0,
-    ...req.body
+    ...req.body,
+    id: supId
   };
-  db.suppliers.push(sup);
+  const idx = db.suppliers.findIndex(s => s.id === sup.id);
+  if (idx >= 0) {
+    db.suppliers[idx] = sup;
+  } else {
+    db.suppliers.push(sup);
+  }
   await saveToFirestore('suppliers', sup.id, sup);
   res.json(sup);
 });
@@ -786,13 +826,19 @@ app.get("/api/customer-payments", async (req, res) => {
 });
 
 app.post("/api/customer-payments", async (req, res) => {
+  const payId = req.body.id || ("PAY-C-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const pay = {
-    id: "PAY-C-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    payment_id: "CP-" + Math.floor(5000 + Math.random() * 9000),
-    date: new Date().toISOString().split('T')[0],
-    ...req.body
+    payment_id: req.body.payment_id || ("CP-" + Math.floor(5000 + Math.random() * 9000)),
+    date: req.body.date || new Date().toISOString().split('T')[0],
+    ...req.body,
+    id: payId
   };
-  db.customer_payments.push(pay);
+  const idx = db.customer_payments.findIndex(p => p.id === pay.id);
+  if (idx >= 0) {
+    db.customer_payments[idx] = pay;
+  } else {
+    db.customer_payments.push(pay);
+  }
 
   // Update customer balance and reservation paid amount
   const cust = db.customers.find(c => c.id === pay.customer_id);
@@ -807,7 +853,7 @@ app.post("/api/customer-payments", async (req, res) => {
     resv.payment_status = resv.remaining_amount === 0 ? "Paid" : "Partially Paid";
   }
 
-  await logActivity("Tarek Lotfy", `Recorded customer payment of $${pay.amount}`, "Finance", pay.payment_id);
+  await logActivity((req.headers['x-acting-user'] as string) || "Staff", `Recorded customer payment of $${pay.amount}`, "Finance", pay.payment_id);
   await saveToFirestore('customer_payments', pay.id, pay);
   res.json(pay);
 });
@@ -819,20 +865,26 @@ app.get("/api/supplier-payments", async (req, res) => {
 });
 
 app.post("/api/supplier-payments", async (req, res) => {
+  const payId = req.body.id || ("PAY-S-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const pay = {
-    id: "PAY-S-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    payment_id: "SP-" + Math.floor(7000 + Math.random() * 9000),
-    payment_date: new Date().toISOString().split('T')[0],
-    ...req.body
+    payment_id: req.body.payment_id || ("SP-" + Math.floor(7000 + Math.random() * 9000)),
+    payment_date: req.body.payment_date || new Date().toISOString().split('T')[0],
+    ...req.body,
+    id: payId
   };
-  db.supplier_payments.push(pay);
+  const idx = db.supplier_payments.findIndex(p => p.id === pay.id);
+  if (idx >= 0) {
+    db.supplier_payments[idx] = pay;
+  } else {
+    db.supplier_payments.push(pay);
+  }
 
   const sup = db.suppliers.find(s => s.id === pay.supplier_id);
   if (sup) {
     sup.outstanding_balance = Math.max(0, sup.outstanding_balance - Number(pay.amount));
   }
 
-  await logActivity("Tarek Lotfy", `Recorded supplier payment of $${pay.amount}`, "Finance", pay.payment_id || pay.id);
+  await logActivity((req.headers['x-acting-user'] as string) || "Staff", `Recorded supplier payment of $${pay.amount}`, "Finance", pay.payment_id || pay.id);
   await saveToFirestore('supplier_payments', pay.id, pay);
   res.json(pay);
 });
@@ -844,14 +896,20 @@ app.get("/api/expenses", async (req, res) => {
 });
 
 app.post("/api/expenses", async (req, res) => {
+  const expId = req.body.id || ("EXP-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const exp = {
-    id: "EXP-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    expense_id: "EX-" + Math.floor(300 + Math.random() * 900),
-    date: new Date().toISOString().split('T')[0],
-    ...req.body
+    expense_id: req.body.expense_id || ("EX-" + Math.floor(300 + Math.random() * 900)),
+    date: req.body.date || new Date().toISOString().split('T')[0],
+    ...req.body,
+    id: expId
   };
-  db.expenses.push(exp);
-  await logActivity("Tarek Lotfy", `Recorded expense ${exp.category} ($${exp.amount})`, "Finance", exp.expense_id);
+  const idx = db.expenses.findIndex(e => e.id === exp.id);
+  if (idx >= 0) {
+    db.expenses[idx] = exp;
+  } else {
+    db.expenses.push(exp);
+  }
+  await logActivity((req.headers['x-acting-user'] as string) || "Staff", `Recorded expense ${exp.category} ($${exp.amount})`, "Finance", exp.expense_id);
   await saveToFirestore('expenses', exp.id, exp);
   res.json(exp);
 });
@@ -1031,11 +1089,12 @@ app.post("/api/employees", async (req, res) => {
   const data = req.body;
   const name = data.name || data.full_name || 'New Employee';
   const position = data.position || data.job_title || data.role || 'Sales Executive';
+  const empId = data.id || ("EMP-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const emp = {
-    id: "EMP-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    employee_id: "E-" + Math.floor(200 + Math.random() * 800),
-    joining_date: new Date().toISOString().split('T')[0],
+    employee_id: data.employee_id || ("E-" + Math.floor(200 + Math.random() * 800)),
+    joining_date: data.joining_date || new Date().toISOString().split('T')[0],
     ...data,
+    id: empId,
     name,
     full_name: data.full_name || name,
     position,
@@ -1044,7 +1103,13 @@ app.post("/api/employees", async (req, res) => {
     status: data.status || 'Active',
     salary: Number(data.salary) || 0
   };
-  db.employees.push(emp);
+  const idx = db.employees.findIndex(e => e.id === emp.id || (emp.employee_id && e.employee_id === emp.employee_id));
+  if (idx >= 0) {
+    db.employees[idx] = emp;
+  } else {
+    db.employees.push(emp);
+  }
+  await logActivity((req.headers['x-acting-user'] as string) || "Administrator", `Created/Updated employee account ${emp.name}`, "Employees", emp.employee_id);
   await saveToFirestore('employees', emp.id, emp);
   res.json(emp);
 });
@@ -1081,11 +1146,17 @@ app.get("/api/tasks", async (req, res) => {
 });
 
 app.post("/api/tasks", async (req, res) => {
+  const taskId = req.body.id || ("TSK-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const task = {
-    id: "TSK-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    ...req.body
+    ...req.body,
+    id: taskId
   };
-  db.tasks.push(task);
+  const idx = db.tasks.findIndex(t => t.id === task.id);
+  if (idx >= 0) {
+    db.tasks[idx] = task;
+  } else {
+    db.tasks.push(task);
+  }
   await saveToFirestore('tasks', task.id, task);
   res.json(task);
 });
@@ -1122,14 +1193,20 @@ app.get("/api/documents", async (req, res) => {
 });
 
 app.post("/api/documents", async (req, res) => {
+  const docId = req.body.id || ("DOC-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const doc = {
-    id: "DOC-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    upload_date: new Date().toISOString().split('T')[0],
+    upload_date: req.body.upload_date || new Date().toISOString().split('T')[0],
     file_size: "1.2 MB",
     file_url: "#",
-    ...req.body
+    ...req.body,
+    id: docId
   };
-  db.documents.push(doc);
+  const idx = db.documents.findIndex(d => d.id === doc.id);
+  if (idx >= 0) {
+    db.documents[idx] = doc;
+  } else {
+    db.documents.push(doc);
+  }
   await saveToFirestore('documents', doc.id, doc);
   res.json(doc);
 });
@@ -1148,12 +1225,12 @@ app.get("/api/invoices", async (req, res) => {
 });
 
 app.post("/api/invoices", async (req, res) => {
+  const invId = req.body.id || ("INV-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const invCount = (db.invoices?.length || 0) + 1001;
   const newInvoice = {
-    id: "INV-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    invoice_number: `INV-2026-${invCount}`,
-    issue_date: new Date().toISOString().split('T')[0],
-    due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    invoice_number: req.body.invoice_number || `INV-2026-${invCount}`,
+    issue_date: req.body.issue_date || new Date().toISOString().split('T')[0],
+    due_date: req.body.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     currency: "USD",
     items: [],
     subtotal: 0,
@@ -1165,11 +1242,17 @@ app.post("/api/invoices", async (req, res) => {
     balance_due: 0,
     payment_status: "Unpaid",
     manager_name: "Ahmed Ali",
-    ...req.body
+    ...req.body,
+    id: invId
   };
 
   if (!db.invoices) db.invoices = [];
-  db.invoices.unshift(newInvoice);
+  const idx = db.invoices.findIndex(inv => inv.id === newInvoice.id);
+  if (idx >= 0) {
+    db.invoices[idx] = newInvoice;
+  } else {
+    db.invoices.unshift(newInvoice);
+  }
 
   // If customer is selected, update customer balance
   if (newInvoice.recipient_type !== 'Supplier' && newInvoice.customer_id) {

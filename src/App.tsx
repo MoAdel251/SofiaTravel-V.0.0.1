@@ -43,10 +43,13 @@ export default function App() {
   const [selectedBookingPackage, setSelectedBookingPackage] = useState<TourPackage | null>(null);
 
   // Selected reservation for invoice flow auto-population
-  const [selectedReservationForInvoice, setSelectedReservationForInvoice] = useState<Reservation | null>(null);
+  const [selectedReservationForInvoice, setSelectedReservationForInvoice] = useState<(Reservation & { targetRecipientType?: 'Customer' | 'Supplier' }) | null>(null);
 
-  const handleTransferReservationToInvoice = (reservation: Reservation) => {
-    setSelectedReservationForInvoice(reservation);
+  const handleTransferReservationToInvoice = (reservation: Reservation, targetRecipientType?: 'Customer' | 'Supplier') => {
+    setSelectedReservationForInvoice({
+      ...reservation,
+      targetRecipientType: targetRecipientType || 'Customer'
+    });
     setCurrentTab('invoices');
   };
 
@@ -354,28 +357,46 @@ export default function App() {
     const invCount = (invoices?.length || 0) + 1001;
     const newInvoice: Invoice = {
       id: newId,
-      invoice_number: `INV-2026-${invCount}`,
-      issue_date: new Date().toISOString().split('T')[0],
-      due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      currency: "USD",
-      items: [],
-      subtotal: 0,
-      discount: 0,
-      tax_rate: 0,
-      tax_amount: 0,
-      total_amount: 0,
-      paid_amount: 0,
-      balance_due: 0,
-      payment_status: "Unpaid",
-      manager_name: currentUsername || "Admin",
-      customer_id: "",
-      customer_name: "",
-      recipient_type: "Customer",
+      invoice_number: data.invoice_number || `INV-2026-${invCount}`,
+      issue_date: data.issue_date || new Date().toISOString().split('T')[0],
+      due_date: data.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      currency: data.currency || "USD",
+      items: data.items || [],
+      subtotal: data.subtotal || 0,
+      discount: data.discount || 0,
+      tax_rate: data.tax_rate || 0,
+      tax_amount: data.tax_amount || 0,
+      total_amount: data.total_amount || 0,
+      paid_amount: data.paid_amount || 0,
+      balance_due: data.balance_due || 0,
+      payment_status: data.payment_status || "Unpaid",
+      manager_name: data.manager_name || currentUsername || "Admin",
+      customer_id: data.customer_id || "",
+      customer_name: data.customer_name || "",
+      recipient_type: data.recipient_type || "Customer",
       ...data
     };
     setInvoices(prev => [newInvoice, ...prev]);
     await dataService.saveDocument('invoices', newId, newInvoice, '/api/invoices', 'POST');
+
+    // If invoice is linked to a reservation, update the reservation's invoice link
+    if (newInvoice.reservation_id) {
+      const targetRes = reservations.find(r => r.id === newInvoice.reservation_id || r.reservation_id === newInvoice.reservation_id);
+      if (targetRes) {
+        const updateData: Partial<Reservation> = {};
+        if (newInvoice.recipient_type === 'Supplier') {
+          updateData.supplier_invoice_id = newInvoice.id;
+          updateData.supplier_invoice_number = newInvoice.invoice_number;
+        } else {
+          updateData.customer_invoice_id = newInvoice.id;
+          updateData.customer_invoice_number = newInvoice.invoice_number;
+        }
+        await handleUpdateReservation(targetRes.id, updateData);
+      }
+    }
+
     fetchAllData();
+    return newInvoice;
   };
 
   const handleUpdateInvoice = async (id: string, data: Partial<Invoice>) => {
@@ -505,8 +526,8 @@ export default function App() {
       destination: data.destination || "Egypt",
       supplier_id: data.supplier_id || "SUP-001",
       supplier_name: data.supplier_name || "Partner",
-      employee_id: currentUsername || "Admin",
-      employee_name: currentUsername || "Admin",
+      employee_id: currentEmployee?.id || currentEmpId || currentUsername || "Admin",
+      employee_name: currentEmployee?.name || currentUsername || "Admin",
       selling_price: sellPrice,
       cost_price: costPrice,
       paid_amount: paidAmt,
@@ -547,7 +568,17 @@ export default function App() {
       });
       return;
     }
-    const updated = { ...resv, ...sanitizedData, id };
+    const updated = { 
+      ...resv, 
+      ...sanitizedData, 
+      id,
+      employee_id: sanitizedData.employee_id || resv?.employee_id,
+      employee_name: sanitizedData.employee_name || resv?.employee_name,
+      customer_invoice_id: sanitizedData.customer_invoice_id || resv?.customer_invoice_id,
+      customer_invoice_number: sanitizedData.customer_invoice_number || resv?.customer_invoice_number,
+      supplier_invoice_id: sanitizedData.supplier_invoice_id || resv?.supplier_invoice_id,
+      supplier_invoice_number: sanitizedData.supplier_invoice_number || resv?.supplier_invoice_number,
+    };
     setReservations(prev => prev.map(r => (r.id === id ? (updated as Reservation) : r)));
     await dataService.saveDocument('reservations', id, updated, `/api/reservations/${id}`, 'PUT');
     fetchAllData();
@@ -916,8 +947,8 @@ export default function App() {
       amount: Number(data.amount) || 0,
       currency: "USD",
       date: data.date || new Date().toISOString().split('T')[0],
-      employee_id: currentUsername || "Admin",
-      employee_name: currentUsername || "Admin",
+      employee_id: currentEmployee?.id || currentEmpId || currentUsername || "Admin",
+      employee_name: currentEmployee?.name || currentUsername || "Admin",
       payment_method: data.payment_method || "Cash",
       notes: data.notes || "",
       ...data
@@ -1098,7 +1129,7 @@ export default function App() {
     setCustomerPayments([]);
     setSupplierPayments([]);
     setExpenses([]);
-    setEmployees([]);
+    // Note: Employee accounts are preserved to prevent losing user credentials and staff data
     setTasks([]);
     setDocuments([]);
     setNotifications([]);
@@ -1223,12 +1254,15 @@ export default function App() {
               suppliers={suppliers}
               employees={employees}
               packages={packages}
+              invoices={invoices}
               initialPackage={selectedBookingPackage}
               onClearInitialPackage={() => setSelectedBookingPackage(null)}
               onAddReservation={handleAddReservation}
               onUpdateReservation={handleUpdateReservation}
               onDeleteReservation={handleDeleteReservation}
               onTransferToInvoice={handleTransferReservationToInvoice}
+              onAddInvoice={handleAddInvoice}
+              settings={settings}
             />
           )}
           {currentTab === 'packages' && (
@@ -1313,6 +1347,7 @@ export default function App() {
               onAddInvoice={handleAddInvoice}
               onUpdateInvoice={handleUpdateInvoice}
               onDeleteInvoice={handleDeleteInvoice}
+              onUpdateReservation={handleUpdateReservation}
               userRole={userRole}
               currentCurrency={currentCurrency}
             />

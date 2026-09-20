@@ -11,13 +11,32 @@ import {
   Edit, 
   X,
   CheckCircle,
+  CheckCircle2,
   DollarSign,
   Compass,
   Sparkles,
   Receipt,
-  ArrowDown
+  ArrowDown,
+  Building2,
+  User,
+  ShieldCheck,
+  ExternalLink,
+  Info,
+  Clock,
+  AlertTriangle,
+  Send
 } from 'lucide-react';
-import { Reservation, ServiceType, ReservationStatus, Customer, Supplier, Employee, TourPackage } from '../types';
+import { 
+  Reservation, 
+  ServiceType, 
+  ReservationStatus, 
+  Customer, 
+  Supplier, 
+  Employee, 
+  TourPackage,
+  Invoice,
+  CompanySettings
+} from '../types';
 import { formatCurrency } from '../utils/currency';
 import { SofiaLogo } from './SofiaLogo';
 
@@ -27,12 +46,15 @@ interface ReservationsViewProps {
   suppliers: Supplier[];
   employees: Employee[];
   packages?: TourPackage[];
+  invoices?: Invoice[];
   initialPackage?: TourPackage | null;
   onClearInitialPackage?: () => void;
   onAddReservation: (data: Partial<Reservation>) => void;
   onUpdateReservation: (id: string, data: Partial<Reservation>) => void;
   onDeleteReservation: (id: string) => void;
-  onTransferToInvoice?: (reservation: Reservation) => void;
+  onTransferToInvoice?: (reservation: Reservation, targetRecipientType?: 'Customer' | 'Supplier') => void;
+  onAddInvoice?: (invoiceData: Partial<Invoice>) => Promise<any> | void;
+  settings?: CompanySettings;
 }
 
 export function ReservationsView({
@@ -41,12 +63,15 @@ export function ReservationsView({
   suppliers,
   employees,
   packages = [],
+  invoices = [],
   initialPackage = null,
   onClearInitialPackage,
   onAddReservation,
   onUpdateReservation,
   onDeleteReservation,
-  onTransferToInvoice
+  onTransferToInvoice,
+  onAddInvoice,
+  settings
 }: ReservationsViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -57,6 +82,9 @@ export function ReservationsView({
   const [invoiceModalRes, setInvoiceModalRes] = useState<Reservation | null>(null);
   const [editingReservation, setEditingReservation] = useState<Reservation | null>(null);
   const [deleteConfirmRes, setDeleteConfirmRes] = useState<Reservation | null>(null);
+  const [convertModalRes, setConvertModalRes] = useState<Reservation | null>(null);
+  const [selectedInvoicePreview, setSelectedInvoicePreview] = useState<Invoice | null>(null);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
 
   const [formData, setFormData] = useState<Partial<Reservation>>({
     customer_id: customers[0]?.id || '',
@@ -167,6 +195,120 @@ export function ReservationsView({
     setSelectedPackageId('');
   };
 
+  // Helper to find generated customer & supplier invoices for a reservation
+  const getReservationInvoices = (res: Reservation) => {
+    // 1. Customer invoice matching
+    const customerInvoice = invoices.find(inv => 
+      (inv.reservation_id === res.id || inv.reservation_id === res.reservation_id || res.customer_invoice_id === inv.id || res.customer_invoice_number === inv.invoice_number) &&
+      (inv.recipient_type === 'Customer' || (!inv.recipient_type && !inv.supplier_id))
+    );
+
+    // 2. Supplier invoice matching (Company Payment Liability)
+    const supplierInvoice = invoices.find(inv => 
+      (inv.reservation_id === res.id || inv.reservation_id === res.reservation_id || res.supplier_invoice_id === inv.id || res.supplier_invoice_number === inv.invoice_number) &&
+      (inv.recipient_type === 'Supplier' || (inv.supplier_id && !inv.customer_id))
+    );
+
+    const hasCustomerInvoice = Boolean(customerInvoice || res.customer_invoice_id || res.customer_invoice_number);
+    const hasSupplierInvoice = Boolean(supplierInvoice || res.supplier_invoice_id || res.supplier_invoice_number);
+    const hasBothInvoices = hasCustomerInvoice && hasSupplierInvoice;
+
+    return {
+      customerInvoice,
+      supplierInvoice,
+      hasCustomerInvoice,
+      hasSupplierInvoice,
+      hasBothInvoices
+    };
+  };
+
+  // Instant 1-Click Invoice Generation from Reservation
+  const handleInstantGenerateInvoice = async (targetRes: Reservation, recipientType: 'Customer' | 'Supplier') => {
+    if (!onAddInvoice) return;
+    setIsGeneratingInvoice(true);
+    try {
+      const isSupp = recipientType === 'Supplier';
+      const cust = customers.find(c => c.id === targetRes.customer_id);
+      const supp = suppliers.find(s => s.id === targetRes.supplier_id);
+      
+      const qty = Number(targetRes.number_of_travelers) || 1;
+      const totalAmt = isSupp ? (Number(targetRes.cost_price) || 0) : (Number(targetRes.selling_price) || 0);
+      const unitAmt = qty > 0 ? totalAmt / qty : totalAmt;
+
+      let resCurrency = targetRes.currency || '$';
+      if (resCurrency === 'USD') resCurrency = '$';
+      else if (resCurrency.toUpperCase() === 'EGP') resCurrency = 'EGP';
+      else if (resCurrency.toUpperCase() === 'EUR') resCurrency = 'EUR';
+
+      const lineItem = {
+        id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+        item_type: 'Custom' as const,
+        item_reference_id: targetRes.reservation_id || targetRes.id,
+        title: isSupp 
+          ? `${targetRes.service_type} - ${targetRes.destination} (Supplier Cost / Payable Liability)`
+          : `${targetRes.service_type} - ${targetRes.destination}`,
+        description: isSupp
+          ? `Reservation #${targetRes.reservation_id} • Payable to: ${targetRes.supplier_name || 'Supplier'} • Company Payment Liability • Travelers: ${qty} • Travel: ${targetRes.travel_date} to ${targetRes.return_date}`
+          : `Reservation #${targetRes.reservation_id} • Customer: ${targetRes.customer_name || 'Client'} • Travelers: ${qty} • Travel Date: ${targetRes.travel_date} to ${targetRes.return_date}`,
+        quantity: qty,
+        unit_price: Math.round(unitAmt * 100) / 100,
+        total_price: totalAmt
+      };
+
+      const invoiceData: Partial<Invoice> = {
+        recipient_type: recipientType,
+        reservation_id: targetRes.id || targetRes.reservation_id,
+        customer_id: !isSupp ? (cust?.id || targetRes.customer_id) : undefined,
+        customer_name: !isSupp ? (cust?.full_name || targetRes.customer_name) : undefined,
+        customer_email: !isSupp ? cust?.email : undefined,
+        customer_phone: !isSupp ? cust?.phone : undefined,
+        customer_address: !isSupp ? cust?.address : undefined,
+        customer_passport: !isSupp ? cust?.passport_number : undefined,
+        supplier_id: isSupp ? (supp?.id || targetRes.supplier_id) : undefined,
+        supplier_name: isSupp ? (supp?.supplier_name || targetRes.supplier_name) : undefined,
+        supplier_email: isSupp ? supp?.email : undefined,
+        supplier_phone: isSupp ? supp?.phone : undefined,
+        supplier_type: isSupp ? supp?.type : undefined,
+        issue_date: new Date().toISOString().split('T')[0],
+        due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        currency: resCurrency,
+        items: [lineItem],
+        subtotal: totalAmt,
+        discount: 0,
+        tax_rate: 0,
+        tax_amount: 0,
+        total_amount: totalAmt,
+        paid_amount: !isSupp ? (Number(targetRes.paid_amount) || 0) : 0,
+        balance_due: !isSupp ? Math.max(0, totalAmt - (Number(targetRes.paid_amount) || 0)) : totalAmt,
+        payment_status: !isSupp && (Number(targetRes.paid_amount) || 0) >= totalAmt ? 'Paid' : (!isSupp && (Number(targetRes.paid_amount) || 0) > 0 ? 'Partially Paid' : 'Unpaid'),
+        payment_method: 'Bank Transfer',
+        notes: isSupp 
+          ? `Supplier invoice payable to ${targetRes.supplier_name || 'supplier'}. Counted as part of company liabilities and payment obligations for Reservation #${targetRes.reservation_id}.`
+          : `Customer invoice for Reservation #${targetRes.reservation_id} (${targetRes.destination}).`,
+        terms: isSupp
+          ? `Company payment obligation payable to supplier within agreed contractual settlement terms.`
+          : `Standard booking payment terms apply.`,
+        manager_name: "Ahmed Ali",
+        created_by_employee: 'Staff'
+      };
+
+      await onAddInvoice(invoiceData);
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  };
+
+  const handleGenerateBothInvoices = async (targetRes: Reservation) => {
+    setIsGeneratingInvoice(true);
+    try {
+      await handleInstantGenerateInvoice(targetRes, 'Customer');
+      await handleInstantGenerateInvoice(targetRes, 'Supplier');
+      setConvertModalRes(null);
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  };
+
   return (
     <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
       {/* Header */}
@@ -234,86 +376,220 @@ export function ReservationsView({
                 <th className="py-3 px-4 font-semibold">Travel Date</th>
                 <th className="py-3 px-4 font-semibold">Selling / Profit</th>
                 <th className="py-3 px-4 font-semibold">Status</th>
+                <th className="py-3 px-4 font-semibold min-w-[220px]">Generated Invoices</th>
                 <th className="py-3 px-4 font-semibold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredReservations.map(res => (
-                <tr key={res.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3.5 px-4 font-bold text-slate-900">{res.reservation_id}</td>
-                  <td className="py-3.5 px-4 font-semibold text-slate-900">{res.customer_name || 'Customer'}</td>
-                  <td className="py-3.5 px-4">
-                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
-                      {res.service_type}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600">{res.destination}</td>
-                  <td className="py-3.5 px-4 text-slate-600">{res.travel_date}</td>
-                  <td className="py-3.5 px-4">
-                    <div className="font-bold text-slate-900">{formatCurrency(res.selling_price, res.currency || '$')}</div>
-                    <div className="text-[10px] text-emerald-600 font-medium">Profit: {formatCurrency(res.profit, res.currency || '$')}</div>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                      res.reservation_status === 'Confirmed' ? 'bg-emerald-100 text-emerald-800' :
-                      res.reservation_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
-                      res.reservation_status === 'Completed' ? 'bg-blue-100 text-blue-800' :
-                      'bg-slate-100 text-slate-800'
-                    }`}>
-                      {res.reservation_status}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end space-x-1.5">
-                      <button
-                        onClick={() => onTransferToInvoice && onTransferToInvoice(res)}
-                        className="flex items-center space-x-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer whitespace-nowrap"
-                        title="Add reservation and transfer data to Invoices page to add line items and confirm invoice"
-                      >
-                        <Receipt className="w-3.5 h-3.5" />
-                        <span>To Invoice</span>
-                      </button>
-                      <button
-                        onClick={() => setEditingReservation({ ...res })}
-                        className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 rounded-lg transition-colors cursor-pointer"
-                        title="Edit Reservation"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setConfirmationModalRes(res)}
-                        className="p-1.5 hover:bg-cyan-50 text-cyan-600 rounded-lg transition-colors cursor-pointer"
-                        title="Booking Confirmation"
-                      >
-                        <Printer className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setInvoiceModalRes(res)}
-                        className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg transition-colors cursor-pointer"
-                        title="Invoice"
-                      >
-                        <FileText className="w-4 h-4" />
-                      </button>
-                      <a
-                        href={`https://wa.me/?text=Booking%20Confirmation%20%23${res.reservation_id}%0ADestination:%20${encodeURIComponent(res.destination)}%0ATravel%20Date:%20${res.travel_date}%0ATotal:%20${encodeURIComponent(formatCurrency(res.selling_price, res.currency || '$'))}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors cursor-pointer"
-                        title="Send WhatsApp Confirmation"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                      </a>
-                      <button
-                        onClick={() => setDeleteConfirmRes(res)}
-                        className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors cursor-pointer"
-                        title="Delete Reservation"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filteredReservations.map(res => {
+                const { 
+                  customerInvoice, 
+                  supplierInvoice, 
+                  hasCustomerInvoice, 
+                  hasSupplierInvoice, 
+                  hasBothInvoices 
+                } = getReservationInvoices(res);
+
+                return (
+                  <tr key={res.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3.5 px-4 font-bold text-slate-900">{res.reservation_id}</td>
+                    <td className="py-3.5 px-4 font-semibold text-slate-900">{res.customer_name || 'Customer'}</td>
+                    <td className="py-3.5 px-4">
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                        {res.service_type}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-600">{res.destination}</td>
+                    <td className="py-3.5 px-4 text-slate-600">{res.travel_date}</td>
+                    <td className="py-3.5 px-4">
+                      <div className="font-bold text-slate-900">{formatCurrency(res.selling_price, res.currency || '$')}</div>
+                      <div className="text-[10px] text-emerald-600 font-medium">Profit: {formatCurrency(res.profit, res.currency || '$')}</div>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                        res.reservation_status === 'Confirmed' ? 'bg-emerald-100 text-emerald-800' :
+                        res.reservation_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
+                        res.reservation_status === 'Completed' ? 'bg-blue-100 text-blue-800' :
+                        'bg-slate-100 text-slate-800'
+                      }`}>
+                        {res.reservation_status}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 min-w-[220px]">
+                      <div className="flex flex-col gap-1.5">
+                        {/* Customer Invoice Indicator */}
+                        {hasCustomerInvoice ? (
+                          <div 
+                            onClick={() => customerInvoice && setSelectedInvoicePreview(customerInvoice)}
+                            className={`group flex items-center justify-between gap-1.5 px-2.5 py-1 bg-emerald-50/90 border border-emerald-300 rounded-lg transition-all shadow-2xs ${
+                              customerInvoice ? 'cursor-pointer hover:bg-emerald-100 hover:border-emerald-400' : ''
+                            }`}
+                            title={
+                              customerInvoice 
+                                ? `Customer Invoice #${customerInvoice.invoice_number} • Amount: ${formatCurrency(customerInvoice.total_amount, customerInvoice.currency)} • Status: ${customerInvoice.payment_status} (Click to inspect official invoice)`
+                                : `Customer Invoice #${res.customer_invoice_number || 'Generated'}`
+                            }
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <User className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-tight">Cust Inv:</span>
+                                  <span className="text-xs font-mono font-extrabold text-emerald-950 truncate">
+                                    {customerInvoice?.invoice_number || res.customer_invoice_number || 'Generated'}
+                                  </span>
+                                </div>
+                                {customerInvoice && (
+                                  <span className="text-[10px] text-emerald-700 font-medium">
+                                    {formatCurrency(customerInvoice.total_amount, customerInvoice.currency)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0 ${
+                              customerInvoice?.payment_status === 'Paid' ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                            }`}>
+                              {customerInvoice?.payment_status || 'Issued'}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-[10px]">
+                            <div className="flex items-center gap-1">
+                              <User className="w-3 h-3 text-slate-400" />
+                              <span className="font-medium">Cust Invoice:</span>
+                            </div>
+                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">Pending</span>
+                          </div>
+                        )}
+
+                        {/* Supplier Invoice Indicator (Payable Liability) */}
+                        {hasSupplierInvoice ? (
+                          <div 
+                            onClick={() => supplierInvoice && setSelectedInvoicePreview(supplierInvoice)}
+                            className={`group flex items-center justify-between gap-1.5 px-2.5 py-1 bg-amber-50/90 border border-amber-300 rounded-lg transition-all shadow-2xs ${
+                              supplierInvoice ? 'cursor-pointer hover:bg-amber-100 hover:border-amber-400' : ''
+                            }`}
+                            title={
+                              supplierInvoice 
+                                ? `Supplier Invoice #${supplierInvoice.invoice_number} • Payable to ${supplierInvoice.supplier_name || res.supplier_name || 'Supplier'} • Company Payment Liability • Cost: ${formatCurrency(supplierInvoice.total_amount, supplierInvoice.currency)} • Status: ${supplierInvoice.payment_status} (Click to inspect)`
+                                : `Supplier Liability Invoice #${res.supplier_invoice_number || 'Generated'} (Company Payment Liability)`
+                            }
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Building2 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] font-bold text-amber-900 uppercase tracking-tight">Supp Inv:</span>
+                                  <span className="text-xs font-mono font-extrabold text-amber-950 truncate">
+                                    {supplierInvoice?.invoice_number || res.supplier_invoice_number || 'Generated'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 text-[10px] text-amber-800 font-semibold">
+                                  {supplierInvoice && (
+                                    <span>{formatCurrency(supplierInvoice.total_amount, supplierInvoice.currency)}</span>
+                                  )}
+                                  <span className="text-[9px] bg-amber-200/90 text-amber-950 px-1 rounded font-bold">Liability</span>
+                                </div>
+                              </div>
+                            </div>
+                            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0 ${
+                              supplierInvoice?.payment_status === 'Paid' ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-100 text-rose-900 border border-rose-300'
+                            }`}>
+                              {supplierInvoice?.payment_status || 'Liability'}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-[10px]">
+                            <div className="flex items-center gap-1">
+                              <Building2 className="w-3 h-3 text-slate-400" />
+                              <span className="font-medium">Supp Liability:</span>
+                            </div>
+                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">Pending</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end space-x-1.5">
+                        {/* Convert Reservation to Invoice Button / Fully Invoiced Indicator */}
+                        {hasBothInvoices ? (
+                          <div
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold whitespace-nowrap shadow-2xs select-none"
+                            title="Both Customer and Supplier invoices have been generated for this reservation. The 'Convert Reservation to Invoice' button is hidden to prevent duplicate invoicing."
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Fully Invoiced</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConvertModalRes(res)}
+                            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer whitespace-nowrap ${
+                              hasCustomerInvoice
+                                ? 'bg-linear-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white'
+                                : hasSupplierInvoice
+                                  ? 'bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white'
+                                  : 'bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white'
+                            }`}
+                            title={
+                              hasCustomerInvoice
+                                ? `Customer invoice already generated (#${customerInvoice?.invoice_number || res.customer_invoice_number}). Click to generate Supplier Invoice (Company Payment Liability)`
+                                : hasSupplierInvoice
+                                  ? `Supplier liability invoice already generated (#${supplierInvoice?.invoice_number || res.supplier_invoice_number}). Click to generate Customer Invoice`
+                                  : "Convert Reservation to Invoice (Customer & Supplier)"
+                            }
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>
+                              {hasCustomerInvoice 
+                                ? '+ Supp Invoice (Liability)' 
+                                : hasSupplierInvoice 
+                                  ? '+ Customer Invoice' 
+                                  : 'To Invoice'}
+                            </span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setEditingReservation({ ...res })}
+                          className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 rounded-lg transition-colors cursor-pointer"
+                          title="Edit Reservation"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setConfirmationModalRes(res)}
+                          className="p-1.5 hover:bg-cyan-50 text-cyan-600 rounded-lg transition-colors cursor-pointer"
+                          title="Booking Confirmation"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setInvoiceModalRes(res)}
+                          className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg transition-colors cursor-pointer"
+                          title="Invoice"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                        <a
+                          href={`https://wa.me/?text=Booking%20Confirmation%20%23${res.reservation_id}%0ADestination:%20${encodeURIComponent(res.destination)}%0ATravel%20Date:%20${res.travel_date}%0ATotal:%20${encodeURIComponent(formatCurrency(res.selling_price, res.currency || '$'))}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors cursor-pointer"
+                          title="Send WhatsApp Confirmation"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </a>
+                        <button
+                          onClick={() => setDeleteConfirmRes(res)}
+                          className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                          title="Delete Reservation"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -760,6 +1036,46 @@ export function ReservationsView({
                   </select>
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Assigned Employee</label>
+                  <select
+                    value={editingReservation.employee_id || ''}
+                    onChange={(e) => {
+                      const emp = employees.find(em => em.id === e.target.value);
+                      setEditingReservation({
+                        ...editingReservation,
+                        employee_id: e.target.value,
+                        employee_name: emp?.name || editingReservation.employee_name
+                      });
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="">-- Keep Current / Unassigned --</option>
+                    {employees.map(e => (
+                      <option key={e.id} value={e.id}>{e.name} ({e.position || 'Staff'})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier</label>
+                  <select
+                    value={editingReservation.supplier_id || ''}
+                    onChange={(e) => {
+                      const supp = suppliers.find(s => s.id === e.target.value);
+                      setEditingReservation({
+                        ...editingReservation,
+                        supplier_id: e.target.value,
+                        supplier_name: supp?.supplier_name || editingReservation.supplier_name
+                      });
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="">-- Select Supplier --</option>
+                    {suppliers.map(s => (
+                      <option key={s.id} value={s.id}>{s.supplier_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Service Type</label>
                   <select
                     value={editingReservation.service_type || 'Travel Package'}
@@ -990,6 +1306,554 @@ export function ReservationsView({
                 className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"
               >
                 Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Convert Reservation to Invoice Modal with Safeguards & Liability Clarification */}
+      {convertModalRes && (() => {
+        const { 
+          customerInvoice, 
+          supplierInvoice, 
+          hasCustomerInvoice, 
+          hasSupplierInvoice, 
+          hasBothInvoices 
+        } = getReservationInvoices(convertModalRes);
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in-95 my-8">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/20">
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Convert Reservation to Invoice</h3>
+                    <p className="text-xs text-slate-500">
+                      Booking Ref: <strong className="text-slate-800 font-mono">#{convertModalRes.reservation_id}</strong> • Destination: <strong className="text-slate-800">{convertModalRes.destination}</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setConvertModalRes(null)}
+                  className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Policy & Safeguard Banner */}
+              <div className="p-4 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-start gap-3">
+                <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                <div className="text-xs space-y-1">
+                  <div className="font-bold text-amber-900">Duplicate Invoicing Safeguard & Liabilities Policy</div>
+                  <p className="text-amber-800 leading-relaxed">
+                    <strong>Customer Invoices</strong> represent receivables from clients. <strong>Supplier Invoices</strong> are payable to the supplier and are <strong>counted as part of company liabilities (payment obligations)</strong>.
+                  </p>
+                  <p className="text-amber-700 text-[11px]">
+                    To prevent double-billing or duplicate liabilities, each party can only be invoiced once per reservation. When both invoices exist, conversion is finalized and locked.
+                  </p>
+                </div>
+              </div>
+
+              {/* Invoices Status & Action Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Customer Invoice Card */}
+                <div className={`p-4 rounded-2xl border transition-all ${
+                  hasCustomerInvoice 
+                    ? 'bg-emerald-50/60 border-emerald-300 ring-1 ring-emerald-200' 
+                    : 'bg-white border-slate-200 shadow-xs'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                        hasCustomerInvoice ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900">Customer Invoice</div>
+                        <div className="text-[10px] text-slate-500">Accounts Receivable</div>
+                      </div>
+                    </div>
+                    {hasCustomerInvoice ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                        <CheckCircle className="w-3 h-3 text-emerald-600" />
+                        <span>Created</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+
+                  {hasCustomerInvoice ? (
+                    <div className="space-y-2.5">
+                      <div className="bg-white p-3 rounded-xl border border-emerald-200 text-xs space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Invoice Ref:</span>
+                          <span className="font-mono font-bold text-emerald-900">
+                            #{customerInvoice?.invoice_number || convertModalRes.customer_invoice_number}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Billed To:</span>
+                          <span className="font-semibold text-slate-800 truncate max-w-[150px]">
+                            {convertModalRes.customer_name || 'Customer'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Total Billed:</span>
+                          <span className="font-bold text-emerald-700">
+                            {formatCurrency(customerInvoice?.total_amount || convertModalRes.selling_price, convertModalRes.currency)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t border-emerald-100">
+                          <span className="text-slate-500">Status:</span>
+                          <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold">
+                            {customerInvoice?.payment_status || 'Issued'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        {customerInvoice && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedInvoicePreview(customerInvoice)}
+                            className="flex-1 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>View Invoice</span>
+                          </button>
+                        )}
+                        <span className="text-[10px] text-emerald-700 font-medium text-center">
+                          🔒 Duplicate invoice prevented
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Client:</span>
+                          <span className="font-semibold text-slate-800">{convertModalRes.customer_name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Selling Price:</span>
+                          <span className="font-bold text-slate-900">
+                            {formatCurrency(convertModalRes.selling_price, convertModalRes.currency)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Travelers:</span>
+                          <span className="font-semibold text-slate-800">{convertModalRes.number_of_travelers || 1}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 pt-1">
+                        <button
+                          type="button"
+                          disabled={isGeneratingInvoice}
+                          onClick={() => handleInstantGenerateInvoice(convertModalRes, 'Customer')}
+                          className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>⚡ 1-Click Generate Customer Inv</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onTransferToInvoice) {
+                              onTransferToInvoice(convertModalRes, 'Customer');
+                              setConvertModalRes(null);
+                            }
+                          }}
+                          className="w-full py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Transfer to Hub (Customize Lines)</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Supplier Invoice Card (Company Payment Liability) */}
+                <div className={`p-4 rounded-2xl border transition-all ${
+                  hasSupplierInvoice 
+                    ? 'bg-amber-50/60 border-amber-300 ring-1 ring-amber-200' 
+                    : 'bg-white border-slate-200 shadow-xs'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                        hasSupplierInvoice ? 'bg-amber-200 text-amber-900' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        <Building2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900">Supplier Invoice</div>
+                        <div className="text-[10px] text-amber-800 font-semibold">Payable Liability (Obligation)</div>
+                      </div>
+                    </div>
+                    {hasSupplierInvoice ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-900 rounded-md">
+                        <CheckCircle className="w-3 h-3 text-amber-700" />
+                        <span>Recorded</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+
+                  {hasSupplierInvoice ? (
+                    <div className="space-y-2.5">
+                      <div className="bg-white p-3 rounded-xl border border-amber-200 text-xs space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Invoice Ref:</span>
+                          <span className="font-mono font-bold text-amber-950">
+                            #{supplierInvoice?.invoice_number || convertModalRes.supplier_invoice_number}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Payable To:</span>
+                          <span className="font-semibold text-slate-800 truncate max-w-[150px]">
+                            {convertModalRes.supplier_name || 'Supplier'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Liability Amount:</span>
+                          <span className="font-bold text-rose-700">
+                            {formatCurrency(supplierInvoice?.total_amount || convertModalRes.cost_price, convertModalRes.currency)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t border-amber-100">
+                          <span className="text-slate-500">Obligation:</span>
+                          <span className="px-1.5 py-0.5 bg-amber-200 text-amber-950 rounded text-[10px] font-bold">
+                            Company Liability
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        {supplierInvoice && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedInvoicePreview(supplierInvoice)}
+                            className="flex-1 py-1.5 px-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>View Invoice</span>
+                          </button>
+                        )}
+                        <span className="text-[10px] text-amber-800 font-medium text-center">
+                          🔒 Duplicate liability prevented
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="bg-amber-50/50 p-2.5 rounded-xl border border-amber-100 text-xs space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Supplier:</span>
+                          <span className="font-semibold text-slate-800">{convertModalRes.supplier_name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Cost Price (Payable):</span>
+                          <span className="font-bold text-rose-600">
+                            {formatCurrency(convertModalRes.cost_price, convertModalRes.currency)}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-amber-700 pt-0.5 font-medium flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                          <span>Recorded as company payment liability</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 pt-1">
+                        <button
+                          type="button"
+                          disabled={isGeneratingInvoice}
+                          onClick={() => handleInstantGenerateInvoice(convertModalRes, 'Supplier')}
+                          className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>⚡ 1-Click Generate Supplier Inv</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onTransferToInvoice) {
+                              onTransferToInvoice(convertModalRes, 'Supplier');
+                              setConvertModalRes(null);
+                            }
+                          }}
+                          className="w-full py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Transfer to Hub (Customize Lines)</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-100">
+                {!hasBothInvoices && !hasCustomerInvoice && !hasSupplierInvoice ? (
+                  <button
+                    type="button"
+                    disabled={isGeneratingInvoice}
+                    onClick={() => handleGenerateBothInvoices(convertModalRes)}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white rounded-xl text-xs font-extrabold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>⚡ Generate Both Invoices (1-Click Complete)</span>
+                  </button>
+                ) : hasBothInvoices ? (
+                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                    <span>All Invoices Complete: 'Convert' button is hidden in table.</span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500">
+                    Generate the remaining invoice above to complete reservation billing.
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setConvertModalRes(null)}
+                  className="w-full sm:w-auto px-5 py-2 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Close Window
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Official Invoice Preview Modal (Opened from Reservation Table Badges) */}
+      {selectedInvoicePreview && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl border border-slate-200 space-y-6 animate-in fade-in zoom-in-95 my-8">
+            {/* Top Bar */}
+            <div className="flex items-start justify-between border-b border-slate-200 pb-5">
+              <div className="space-y-1">
+                <SofiaLogo className="h-8" />
+                <div className="text-xs text-slate-500">
+                  {settings?.company_name || "Sofia Tours & Travel Agency"}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {settings?.address || "Luxor Corniche, Luxor, Egypt"} • Tax ID: {settings?.tax_number || "EG-902-881-X"}
+                </div>
+              </div>
+
+              <div className="text-right space-y-1">
+                <div className="flex items-center justify-end gap-2">
+                  <span className="text-sm font-bold text-slate-400">INVOICE</span>
+                  <span className="font-mono font-extrabold text-lg text-slate-900">
+                    #{selectedInvoicePreview.invoice_number}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500">
+                  Date: <strong className="text-slate-800">{selectedInvoicePreview.issue_date}</strong>
+                </div>
+                <div className="text-xs text-slate-500">
+                  Due: <strong className="text-slate-800">{selectedInvoicePreview.due_date}</strong>
+                </div>
+
+                {/* Recipient Classification Banner */}
+                <div className="pt-1">
+                  {selectedInvoicePreview.recipient_type === 'Supplier' ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 bg-amber-100 text-amber-950 border border-amber-300 rounded-lg shadow-2xs">
+                      <Building2 className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Supplier Payable Liability (Company Obligation)</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 bg-emerald-100 text-emerald-950 border border-emerald-300 rounded-lg shadow-2xs">
+                      <User className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Customer Invoice (Accounts Receivable)</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Recipient Details */}
+            <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  {selectedInvoicePreview.recipient_type === 'Supplier' ? 'Payable To (Supplier)' : 'Billed To (Customer)'}
+                </span>
+                <div className="font-bold text-slate-900 text-sm">
+                  {selectedInvoicePreview.recipient_type === 'Supplier' 
+                    ? selectedInvoicePreview.supplier_name 
+                    : selectedInvoicePreview.customer_name}
+                </div>
+                {(selectedInvoicePreview.customer_email || selectedInvoicePreview.supplier_email) && (
+                  <div className="text-slate-500">
+                    {selectedInvoicePreview.recipient_type === 'Supplier' ? selectedInvoicePreview.supplier_email : selectedInvoicePreview.customer_email}
+                  </div>
+                )}
+                {(selectedInvoicePreview.customer_phone || selectedInvoicePreview.supplier_phone) && (
+                  <div className="text-slate-500">
+                    {selectedInvoicePreview.recipient_type === 'Supplier' ? selectedInvoicePreview.supplier_phone : selectedInvoicePreview.customer_phone}
+                  </div>
+                )}
+                {selectedInvoicePreview.customer_passport && (
+                  <div className="text-slate-500">Passport: {selectedInvoicePreview.customer_passport}</div>
+                )}
+              </div>
+
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Accounting Status & Booking Ref
+                </span>
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Reservation Ref:</span>
+                    <span className="font-mono font-bold text-slate-800">
+                      #{selectedInvoicePreview.reservation_id || 'Direct'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Payment Status:</span>
+                    <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                      selectedInvoicePreview.payment_status === 'Paid' 
+                        ? 'bg-emerald-100 text-emerald-800' 
+                        : 'bg-amber-100 text-amber-900'
+                    }`}>
+                      {selectedInvoicePreview.payment_status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Classification:</span>
+                    <span className="font-semibold text-slate-700">
+                      {selectedInvoicePreview.recipient_type === 'Supplier' ? 'Company Liability' : 'Receivable'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Line Items Table */}
+            <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-semibold">
+                  <tr>
+                    <th className="py-2.5 px-4">Item & Description</th>
+                    <th className="py-2.5 px-4 text-center">Qty</th>
+                    <th className="py-2.5 px-4 text-right">Unit Price</th>
+                    <th className="py-2.5 px-4 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {selectedInvoicePreview.items.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/60">
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-900">{item.title}</div>
+                        {item.description && (
+                          <div className="text-[11px] text-slate-500 leading-tight mt-0.5">{item.description}</div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center text-slate-700 font-semibold">{item.quantity}</td>
+                      <td className="py-3 px-4 text-right text-slate-700 font-medium">
+                        {formatCurrency(item.unit_price, selectedInvoicePreview.currency)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-slate-900">
+                        {formatCurrency(item.total_price, selectedInvoicePreview.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Financial Summary & Liabilities Clause */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-2">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-cyan-600" />
+                  <span>Notes & Obligations</span>
+                </div>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  {selectedInvoicePreview.notes || (
+                    selectedInvoicePreview.recipient_type === 'Supplier'
+                      ? 'Official supplier liability voucher. Counted under Sofia Travel company settlement liabilities.'
+                      : 'Thank you for choosing Sofia Tours. We appreciate your business!'
+                  )}
+                </p>
+                {selectedInvoicePreview.recipient_type === 'Supplier' && (
+                  <div className="p-2 bg-amber-100/70 border border-amber-300 text-amber-950 text-[10px] rounded-xl font-medium">
+                    ⚠️ Accounting Note: Counts against company payment obligations. Recorded as Accounts Payable liability.
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Subtotal:</span>
+                  <span className="font-semibold">{formatCurrency(selectedInvoicePreview.subtotal, selectedInvoicePreview.currency)}</span>
+                </div>
+                {selectedInvoicePreview.tax_amount > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Tax:</span>
+                    <span className="font-semibold">{formatCurrency(selectedInvoicePreview.tax_amount, selectedInvoicePreview.currency)}</span>
+                  </div>
+                )}
+                {selectedInvoicePreview.discount > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Discount:</span>
+                    <span>-{formatCurrency(selectedInvoicePreview.discount, selectedInvoicePreview.currency)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200">
+                  <span>Total Amount:</span>
+                  <span className="text-base text-cyan-800">
+                    {formatCurrency(selectedInvoicePreview.total_amount, selectedInvoicePreview.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-600 pt-1">
+                  <span>Paid Amount:</span>
+                  <span className="font-bold text-emerald-600">
+                    {formatCurrency(selectedInvoicePreview.paid_amount, selectedInvoicePreview.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs font-bold text-rose-600 pt-0.5">
+                  <span>Balance Due:</span>
+                  <span>{formatCurrency(selectedInvoicePreview.balance_due, selectedInvoicePreview.currency)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-slate-500" />
+                <span>Print Document</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedInvoicePreview(null)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close Preview
               </button>
             </div>
           </div>
