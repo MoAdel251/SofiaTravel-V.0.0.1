@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { CustomersView } from './components/CustomersView';
+import { VouchersView } from './components/VouchersView';
+import { ServicesView } from './components/ServicesView';
 import { ReservationsView } from './components/ReservationsView';
 import { TourPackagesView } from './components/TourPackagesView';
 import { HotelsView } from './components/HotelsView';
@@ -23,7 +25,37 @@ import { AiAssistantModal } from './components/AiAssistantModal';
 import { LoginModal } from './components/LoginModal';
 import { PermissionRequestsView } from './components/PermissionRequestsView';
 import { PermissionModal } from './components/PermissionModal';
-import { UserRole, Customer, Reservation, TourPackage, Hotel, Flight, Supplier, CustomerPayment, SupplierPayment, Expense, Employee, EmployeePosition, Task, TravelDocument, NotificationItem, CompanySettings, ActivityLog, Invoice, PermissionRequest, PayrollRecord, EmployeeAdvance, CommissionRecord, FinanceAuditLog } from './types';
+import { 
+  UserRole, 
+  Customer, 
+  Reservation, 
+  TourPackage, 
+  Hotel, 
+  Flight, 
+  Supplier, 
+  CustomerPayment, 
+  SupplierPayment, 
+  Expense, 
+  Employee, 
+  EmployeePosition, 
+  Task, 
+  TravelDocument, 
+  NotificationItem, 
+  CompanySettings, 
+  ActivityLog, 
+  Invoice, 
+  PermissionRequest, 
+  PayrollRecord, 
+  EmployeeAdvance, 
+  CommissionRecord, 
+  FinanceAuditLog,
+  Voucher,
+  VisaService,
+  TransferService,
+  CruiseService,
+  TourService,
+  DayTripService
+} from './types';
 import { dataService } from './services/dataService';
 
 export default function App() {
@@ -61,6 +93,12 @@ export default function App() {
   const [stats, setStats] = useState<any>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [visas, setVisas] = useState<VisaService[]>([]);
+  const [transfers, setTransfers] = useState<TransferService[]>([]);
+  const [cruises, setCruises] = useState<CruiseService[]>([]);
+  const [tours, setTours] = useState<TourService[]>([]);
+  const [dayTrips, setDayTrips] = useState<DayTripService[]>([]);
   const [packages, setPackages] = useState<TourPackage[]>([]);
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [flights, setFlights] = useState<Flight[]>([]);
@@ -122,6 +160,12 @@ export default function App() {
         statsRes,
         custRes,
         resvRes,
+        vouchRes,
+        visaRes,
+        transRes,
+        cruiseRes,
+        tourRes,
+        dayTripRes,
         pkgRes,
         hotelRes,
         flightRes,
@@ -145,6 +189,12 @@ export default function App() {
         fetch('/api/dashboard-stats?t=' + Date.now()).then(r => r.json()).catch(() => null),
         dataService.getCollection<Customer>('customers', '/api/customers', customers),
         dataService.getCollection<Reservation>('reservations', '/api/reservations', reservations),
+        dataService.getCollection<Voucher>('vouchers', '/api/vouchers', vouchers),
+        dataService.getCollection<VisaService>('visas', '/api/visas', visas),
+        dataService.getCollection<TransferService>('transfers', '/api/transfers', transfers),
+        dataService.getCollection<CruiseService>('cruises', '/api/cruises', cruises),
+        dataService.getCollection<TourService>('tours', '/api/tours', tours),
+        dataService.getCollection<DayTripService>('day_trips', '/api/day-trips', dayTrips),
         dataService.getCollection<TourPackage>('tour_packages', '/api/tour-packages', packages),
         dataService.getCollection<Hotel>('hotels', '/api/hotels', hotels),
         dataService.getCollection<Flight>('flights', '/api/flights', flights),
@@ -168,6 +218,12 @@ export default function App() {
 
       setCustomers(custRes || []);
       setReservations(resvRes || []);
+      setVouchers(vouchRes || []);
+      setVisas(visaRes || []);
+      setTransfers(transRes || []);
+      setCruises(cruiseRes || []);
+      setTours(tourRes || []);
+      setDayTrips(dayTripRes || []);
       setPackages(pkgRes || []);
       setHotels(hotelRes || []);
       setFlights(flightRes || []);
@@ -502,6 +558,466 @@ export default function App() {
     fetchAllData();
   };
 
+  // ---------------- Vouchers & Services Handlers ----------------
+  const handleAddVoucher = async (data: Partial<Voucher>) => {
+    const newId = "VCH-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+    const vchCount = (vouchers?.length || 0) + 101;
+    const sellPrice = Number(data.selling_price) || 0;
+    const costPrice = Number(data.cost_price) || 0;
+    const paidAmt = Number(data.paid_amount) || 0;
+    const vchPrefix = settings?.voucher_prefix || 'VCH-2026-';
+
+    const newVoucher: Voucher = {
+      id: newId,
+      voucher_number: data.voucher_number || `${vchPrefix}${vchCount}`,
+      reservation_id: data.reservation_id || `${vchPrefix}${vchCount}`,
+      customer_id: data.customer_id || '',
+      customer_name: data.customer_name || 'Valued Client',
+      customer_phone: data.customer_phone || '',
+      customer_email: data.customer_email || '',
+      service_category: data.service_category || 'Tour Package',
+      service_title: data.service_title || 'Tourism Service',
+      destination: data.destination || 'Egypt',
+      travel_date: data.travel_date || new Date().toISOString().split('T')[0],
+      return_date: data.return_date || '',
+      issue_date: data.issue_date || new Date().toISOString().split('T')[0],
+      valid_until: data.valid_until || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      number_of_travelers: Number(data.number_of_travelers) || 1,
+      adults_count: Number(data.adults_count) || 1,
+      children_count: Number(data.children_count) || 0,
+      infants_count: Number(data.infants_count) || 0,
+      employee_id: currentEmployee?.id || currentUsername || 'Admin',
+      employee_name: currentEmployee?.name || currentUsername || 'Admin',
+      selling_price: sellPrice,
+      cost_price: costPrice,
+      paid_amount: paidAmt,
+      remaining_amount: Math.max(0, sellPrice - paidAmt),
+      profit: sellPrice - costPrice,
+      currency: data.currency || 'USD',
+      payment_method: data.payment_method || 'Cash',
+      payment_status: paidAmt >= sellPrice ? 'Paid' : paidAmt > 0 ? 'Partially Paid' : 'Pending',
+      status: data.status || 'Draft',
+      reservation_status: data.status === 'Converted to Trip/Service' ? 'Confirmed' : 'Pending',
+      itinerary_or_details: data.itinerary_or_details || '',
+      inclusions: data.inclusions || [],
+      exclusions: data.exclusions || [],
+      terms_conditions: data.terms_conditions || '',
+      installment_details: data.installment_details || null,
+      ...data
+    };
+
+    setVouchers(prev => [newVoucher, ...prev]);
+    await dataService.saveDocument('vouchers', newId, newVoucher, '/api/vouchers', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateVoucher = async (id: string, data: Partial<Voucher>) => {
+    const existing = vouchers.find(v => v.id === id);
+    const itemName = existing ? `Voucher ${existing.voucher_number || existing.id} (${existing.customer_name})` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Customer Vouchers',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = {
+      ...existing,
+      ...data,
+      id,
+      remaining_amount: (Number(data.selling_price ?? existing?.selling_price) || 0) - (Number(data.paid_amount ?? existing?.paid_amount) || 0),
+      profit: (Number(data.selling_price ?? existing?.selling_price) || 0) - (Number(data.cost_price ?? existing?.cost_price) || 0)
+    };
+    setVouchers(prev => prev.map(v => (v.id === id ? (updated as Voucher) : v)));
+    await dataService.saveDocument('vouchers', id, updated, `/api/vouchers/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteVoucher = async (id: string) => {
+    const existing = vouchers.find(v => v.id === id);
+    const itemName = existing ? `Voucher ${existing.voucher_number || existing.id} (${existing.customer_name})` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Customer Vouchers',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setVouchers(prev => prev.filter(v => v.id !== id));
+    await dataService.deleteDocument('vouchers', id, `/api/vouchers/${id}`);
+    fetchAllData();
+  };
+
+  const handleSendVoucher = async (id: string, channel: 'WhatsApp' | 'Email' | 'Print', notes?: string) => {
+    try {
+      const resp = await fetch(`/api/vouchers/${id}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel, notes })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setVouchers(prev => prev.map(v => (v.id === id ? data.voucher : v)));
+      }
+    } catch (err) {
+      console.error('Failed to send voucher:', err);
+      // Client-side fallback
+      setVouchers(prev => prev.map(v => v.id === id ? {
+        ...v,
+        status: 'Sent',
+        sent_to_customer_at: new Date().toISOString(),
+        sent_via: channel,
+        customer_send_notes: notes
+      } : v));
+    }
+    fetchAllData();
+  };
+
+  const handleConvertVoucher = async (id: string, trip_title?: string, notes?: string) => {
+    try {
+      const resp = await fetch(`/api/vouchers/${id}/convert-to-trip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_title, notes })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setVouchers(prev => prev.map(v => (v.id === id ? data.voucher : v)));
+      }
+    } catch (err) {
+      console.error('Failed to convert voucher:', err);
+      setVouchers(prev => prev.map(v => v.id === id ? {
+        ...v,
+        status: 'Converted to Trip/Service',
+        reservation_status: 'Confirmed',
+        converted_at: new Date().toISOString(),
+        confirmed_at: new Date().toISOString(),
+        converted_trip_title: trip_title || v.service_title
+      } : v));
+    }
+    fetchAllData();
+  };
+
+  // Tourism Services CRUD Handlers
+  const handleAddVisa = async (data: Partial<VisaService>) => {
+    const newId = "VISA-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newVisa: VisaService = {
+      id: newId,
+      country: data.country || 'Egypt',
+      visa_title: data.visa_title || 'Tourist Visa',
+      visa_type: data.visa_type || 'Tourist',
+      entry_type: data.entry_type || 'Single Entry',
+      processing_time: data.processing_time || '3-5 Business Days',
+      validity_duration: data.validity_duration || '30 Days',
+      embassy_consular_fee: Number(data.embassy_consular_fee) || 0,
+      agency_fee: Number(data.agency_fee) || 0,
+      cost_price: Number(data.cost_price) || 0,
+      selling_price: Number(data.selling_price) || 0,
+      currency: data.currency || 'USD',
+      status: data.status || 'Active',
+      submission_method: data.submission_method || 'Online E-Visa',
+      required_documents: data.required_documents || [],
+      ...data
+    };
+    setVisas(prev => [newVisa, ...prev]);
+    await dataService.saveDocument('visas', newId, newVisa, '/api/visas', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateVisa = async (id: string, data: Partial<VisaService>) => {
+    const existing = visas.find(v => v.id === id);
+    const itemName = existing ? `Visa: ${existing.visa_title} (${existing.country})` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Visas',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...existing, ...data, id };
+    setVisas(prev => prev.map(v => (v.id === id ? (updated as VisaService) : v)));
+    await dataService.saveDocument('visas', id, updated, `/api/visas/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteVisa = async (id: string) => {
+    const existing = visas.find(v => v.id === id);
+    const itemName = existing ? `Visa: ${existing.visa_title} (${existing.country})` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Visas',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setVisas(prev => prev.filter(v => v.id !== id));
+    await dataService.deleteDocument('visas', id, `/api/visas/${id}`);
+    fetchAllData();
+  };
+
+  const handleAddTransfer = async (data: Partial<TransferService>) => {
+    const newId = "TRF-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newTrf: TransferService = {
+      id: newId,
+      service_title: data.service_title || 'Airport Transfer',
+      vehicle_type: data.vehicle_type || 'Sedan / Limousine (1-3 Pax)',
+      transfer_type: data.transfer_type || 'Airport Pickup',
+      pickup_location: data.pickup_location || 'Cairo Airport',
+      dropoff_location: data.dropoff_location || 'Downtown Hotel',
+      max_passengers: Number(data.max_passengers) || 3,
+      max_luggage: Number(data.max_luggage) || 3,
+      cost_price: Number(data.cost_price) || 0,
+      selling_price: Number(data.selling_price) || 0,
+      currency: data.currency || 'USD',
+      status: data.status || 'Active',
+      meet_and_greet: data.meet_and_greet ?? true,
+      includes_tolls: data.includes_tolls ?? true,
+      amenities: data.amenities || [],
+      ...data
+    };
+    setTransfers(prev => [newTrf, ...prev]);
+    await dataService.saveDocument('transfers', newId, newTrf, '/api/transfers', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateTransfer = async (id: string, data: Partial<TransferService>) => {
+    const existing = transfers.find(t => t.id === id);
+    const itemName = existing ? `Transfer: ${existing.service_title}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Transfers',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...existing, ...data, id };
+    setTransfers(prev => prev.map(t => (t.id === id ? (updated as TransferService) : t)));
+    await dataService.saveDocument('transfers', id, updated, `/api/transfers/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteTransfer = async (id: string) => {
+    const existing = transfers.find(t => t.id === id);
+    const itemName = existing ? `Transfer: ${existing.service_title}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Transfers',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setTransfers(prev => prev.filter(t => t.id !== id));
+    await dataService.deleteDocument('transfers', id, `/api/transfers/${id}`);
+    fetchAllData();
+  };
+
+  const handleAddCruise = async (data: Partial<CruiseService>) => {
+    const newId = "CRU-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newCru: CruiseService = {
+      id: newId,
+      cruise_name: data.cruise_name || 'Nile Cruise',
+      cruise_category: data.cruise_category || '5-Star Luxury Nile Cruise',
+      route_itinerary: data.route_itinerary || 'Luxor to Aswan (4 Nights)',
+      duration_nights: Number(data.duration_nights) || 4,
+      board_basis: data.board_basis || 'Full Board (3 Meals)',
+      cabin_type: data.cabin_type || 'Standard Nile View Cabin',
+      cost_price: Number(data.cost_price) || 0,
+      selling_price: Number(data.selling_price) || 0,
+      currency: data.currency || 'USD',
+      status: data.status || 'Active',
+      ...data
+    };
+    setCruises(prev => [newCru, ...prev]);
+    await dataService.saveDocument('cruises', newId, newCru, '/api/cruises', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateCruise = async (id: string, data: Partial<CruiseService>) => {
+    const existing = cruises.find(c => c.id === id);
+    const itemName = existing ? `Cruise: ${existing.cruise_name}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Cruises',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...existing, ...data, id };
+    setCruises(prev => prev.map(c => (c.id === id ? (updated as CruiseService) : c)));
+    await dataService.saveDocument('cruises', id, updated, `/api/cruises/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteCruise = async (id: string) => {
+    const existing = cruises.find(c => c.id === id);
+    const itemName = existing ? `Cruise: ${existing.cruise_name}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Cruises',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setCruises(prev => prev.filter(c => c.id !== id));
+    await dataService.deleteDocument('cruises', id, `/api/cruises/${id}`);
+    fetchAllData();
+  };
+
+  const handleAddTour = async (data: Partial<TourService>) => {
+    const newId = "TOUR-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newTour: TourService = {
+      id: newId,
+      tour_title: data.tour_title || 'Guided Tour',
+      tour_style: data.tour_style || 'Private VIP Tour',
+      destination: data.destination || 'Cairo',
+      duration_days: Number(data.duration_days) || 1,
+      cost_price: Number(data.cost_price) || 0,
+      selling_price: Number(data.selling_price) || 0,
+      currency: data.currency || 'USD',
+      status: data.status || 'Active',
+      ...data
+    };
+    setTours(prev => [newTour, ...prev]);
+    await dataService.saveDocument('tours', newId, newTour, '/api/tours', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateTour = async (id: string, data: Partial<TourService>) => {
+    const existing = tours.find(t => t.id === id);
+    const itemName = existing ? `Tour: ${existing.tour_title}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Tours',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...existing, ...data, id };
+    setTours(prev => prev.map(t => (t.id === id ? (updated as TourService) : t)));
+    await dataService.saveDocument('tours', id, updated, `/api/tours/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteTour = async (id: string) => {
+    const existing = tours.find(t => t.id === id);
+    const itemName = existing ? `Tour: ${existing.tour_title}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Tours',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setTours(prev => prev.filter(t => t.id !== id));
+    await dataService.deleteDocument('tours', id, `/api/tours/${id}`);
+    fetchAllData();
+  };
+
+  const handleAddDayTrip = async (data: Partial<DayTripService>) => {
+    const newId = "DTRIP-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newTrip: DayTripService = {
+      id: newId,
+      trip_title: data.trip_title || 'Day Trip Excursion',
+      category: data.category || 'Desert Safari & Quad Biking',
+      city_location: data.city_location || 'Hurghada / Red Sea',
+      duration_hours: Number(data.duration_hours) || 4,
+      cost_price: Number(data.cost_price) || 0,
+      selling_price: Number(data.selling_price) || 0,
+      currency: data.currency || 'USD',
+      status: data.status || 'Active',
+      ...data
+    };
+    setDayTrips(prev => [newTrip, ...prev]);
+    await dataService.saveDocument('day_trips', newId, newTrip, '/api/day-trips', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateDayTrip = async (id: string, data: Partial<DayTripService>) => {
+    const existing = dayTrips.find(d => d.id === id);
+    const itemName = existing ? `Day Trip: ${existing.trip_title}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Day Trips',
+        itemId: id,
+        itemName,
+        proposedChanges: data
+      });
+      return;
+    }
+    const updated = { ...existing, ...data, id };
+    setDayTrips(prev => prev.map(d => (d.id === id ? (updated as DayTripService) : d)));
+    await dataService.saveDocument('day_trips', id, updated, `/api/day-trips/${id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteDayTrip = async (id: string) => {
+    const existing = dayTrips.find(d => d.id === id);
+    const itemName = existing ? `Day Trip: ${existing.trip_title}` : id;
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Day Trips',
+        itemId: id,
+        itemName
+      });
+      return;
+    }
+    setDayTrips(prev => prev.filter(d => d.id !== id));
+    await dataService.deleteDocument('day_trips', id, `/api/day-trips/${id}`);
+    fetchAllData();
+  };
+
+  const handleCreateVoucherForService = (category: string, service: any) => {
+    handleAddVoucher({
+      service_category: category as any,
+      service_title: service.trip_title || service.tour_title || service.cruise_name || service.service_title || `${service.country} - ${service.visa_title}`,
+      destination: service.destination || service.city_location || service.country || service.route_itinerary || 'Egypt',
+      cost_price: service.cost_price || 0,
+      selling_price: service.selling_price || 0,
+      currency: service.currency || 'USD',
+      inclusions: service.inclusions || service.required_documents || service.amenities || []
+    });
+    setCurrentTab('vouchers');
+  };
+
   const handleAddReservation = async (data: Partial<Reservation>) => {
     const newId = "RES-" + Math.random().toString(36).substring(2, 7).toUpperCase();
     const resCount = (reservations?.length || 0) + 1001;
@@ -516,10 +1032,16 @@ export default function App() {
     const newRes: Reservation = {
       id: newId,
       reservation_id: `RES-2026-${resCount}`,
+      voucher_number: data.voucher_number || `VCH-2026-${resCount}`,
+      service_category: (data.service_category || data.service_type || 'Tour') as any,
+      service_title: data.service_title || data.destination || 'Service',
+      status: (data.status || 'Confirmed') as any,
       customer_id: data.customer_id || "",
       customer_name: data.customer_name || "Guest",
       service_type: data.service_type || "Tour",
       booking_date: new Date().toISOString().split('T')[0],
+      issue_date: new Date().toISOString().split('T')[0],
+      valid_until: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
       travel_date: data.travel_date || new Date().toISOString().split('T')[0],
       return_date: data.return_date || new Date().toISOString().split('T')[0],
       number_of_travelers: Number(data.number_of_travelers) || 1,
@@ -1247,22 +1769,75 @@ export default function App() {
               onDeleteCustomer={handleDeleteCustomer}
             />
           )}
-          {currentTab === 'reservations' && (
-            <ReservationsView
-              reservations={reservations}
+
+          {(currentTab === 'vouchers' || currentTab === 'reservations') && (
+            <VouchersView
+              vouchers={vouchers}
               customers={customers}
               suppliers={suppliers}
               employees={employees}
               packages={packages}
               invoices={invoices}
-              initialPackage={selectedBookingPackage}
-              onClearInitialPackage={() => setSelectedBookingPackage(null)}
-              onAddReservation={handleAddReservation}
-              onUpdateReservation={handleUpdateReservation}
-              onDeleteReservation={handleDeleteReservation}
+              settings={settings}
+              currentCurrency={currentCurrency}
+              visas={visas}
+              transfers={transfers}
+              cruises={cruises}
+              tours={tours}
+              dayTrips={dayTrips}
+              onAddVoucher={handleAddVoucher}
+              onUpdateVoucher={handleUpdateVoucher}
+              onDeleteVoucher={handleDeleteVoucher}
+              onSendVoucher={handleSendVoucher}
+              onConvertVoucher={handleConvertVoucher}
               onTransferToInvoice={handleTransferReservationToInvoice}
               onAddInvoice={handleAddInvoice}
+              onNavigateToServices={() => setCurrentTab('services')}
+            />
+          )}
+
+          {(currentTab === 'services' || currentTab === 'visas' || currentTab === 'flights' || currentTab === 'hotels' || currentTab === 'transfers' || currentTab === 'cruises' || currentTab === 'tours' || currentTab === 'day-trips') && (
+            <ServicesView
+              initialSubTab={
+                currentTab === 'flights' ? 'flights' :
+                currentTab === 'hotels' ? 'hotels' :
+                currentTab === 'transfers' ? 'transfers' :
+                currentTab === 'cruises' ? 'cruises' :
+                currentTab === 'tours' ? 'tours' :
+                currentTab === 'day-trips' ? 'day-trips' : 'visas'
+              }
+              visas={visas}
+              flights={flights}
+              hotels={hotels}
+              transfers={transfers}
+              cruises={cruises}
+              tours={tours}
+              dayTrips={dayTrips}
+              packages={packages}
               settings={settings}
+              currentCurrency={currentCurrency}
+              onAddVisa={handleAddVisa}
+              onUpdateVisa={handleUpdateVisa}
+              onDeleteVisa={handleDeleteVisa}
+              onAddFlight={handleAddFlight}
+              onUpdateFlight={handleUpdateFlight}
+              onDeleteFlight={handleDeleteFlight}
+              onAddHotel={handleAddHotel}
+              onUpdateHotel={handleUpdateHotel}
+              onDeleteHotel={handleDeleteHotel}
+              onAddTransfer={handleAddTransfer}
+              onUpdateTransfer={handleUpdateTransfer}
+              onDeleteTransfer={handleDeleteTransfer}
+              onAddCruise={handleAddCruise}
+              onUpdateCruise={handleUpdateCruise}
+              onDeleteCruise={handleDeleteCruise}
+              onAddTour={handleAddTour}
+              onUpdateTour={handleUpdateTour}
+              onDeleteTour={handleDeleteTour}
+              onAddDayTrip={handleAddDayTrip}
+              onUpdateDayTrip={handleUpdateDayTrip}
+              onDeleteDayTrip={handleDeleteDayTrip}
+              onCreateVoucherForService={handleCreateVoucherForService}
             />
           )}
           {currentTab === 'packages' && (
@@ -1272,8 +1847,7 @@ export default function App() {
               onUpdatePackage={handleUpdatePackage}
               onDeletePackage={handleDeletePackage}
               onBookPackage={(pkg) => {
-                setSelectedBookingPackage(pkg);
-                setCurrentTab('reservations');
+                handleCreateVoucherForService('Tour Package', pkg);
               }} 
             />
           )}

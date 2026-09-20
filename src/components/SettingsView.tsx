@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2 } from 'lucide-react';
-import { CompanySettings, UserRole } from '../types';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X } from 'lucide-react';
+import { CompanySettings, UserRole, InstallmentPartnerConfig, InstallmentPlanRule } from '../types';
 
 interface SettingsViewProps {
   settings: CompanySettings;
@@ -368,11 +368,11 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
             <DollarSign className="w-5 h-5 text-emerald-600" />
             <div>
               <h2 className="text-base font-bold text-slate-900">Supported Currencies & System Formats</h2>
-              <p className="text-xs text-slate-500">Supports Egyptian Pound (EGP), U.S. Dollar ($), Euro (€), and others.</p>
+              <p className="text-xs text-slate-500">Supports Egyptian Pound (EGP), U.S. Dollar ($), Euro (€), and numbering prefixes.</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Default Base Currency</label>
               <select
@@ -387,6 +387,15 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
                 <option value="SAR">Saudi Riyal (SAR)</option>
                 <option value="AED">UAE Dirham (AED)</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Voucher Number Prefix</label>
+              <input
+                type="text"
+                value={formData.voucher_prefix || 'VCH-2026-'}
+                onChange={(e) => handleFieldChange({ voucher_prefix: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-indigo-700"
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice Number Prefix</label>
@@ -406,6 +415,128 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono"
               />
             </div>
+          </div>
+        </div>
+
+        {/* Installment Payment Agreements & Rules (ValU & TRU) */}
+        <div className="bg-white rounded-2xl border border-purple-200 p-6 space-y-5 shadow-xs bg-linear-to-b from-purple-50/20 to-white">
+          <div className="flex items-center justify-between pb-3 border-b border-purple-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                <Percent className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Installment Financing Agreements (ValU & TRU)</h2>
+                <p className="text-xs text-slate-500">Configure corporate agreement terms, merchant IDs, interest rates, and customer tenor plans.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {(formData.installment_partners || []).map((partner, pIndex) => (
+              <div key={partner.id || pIndex} className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-bold text-purple-900">{partner.partner_name} Agreement</span>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                      partner.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {partner.is_active ? 'Active in System' : 'Disabled'}
+                    </span>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={partner.is_active}
+                      onChange={(e) => {
+                        const updatedPartners = [...(formData.installment_partners || [])];
+                        updatedPartners[pIndex] = { ...partner, is_active: e.target.checked };
+                        handleFieldChange({ installment_partners: updatedPartners });
+                      }}
+                      className="rounded text-purple-600 focus:ring-purple-500"
+                    />
+                    <span>Enable {partner.partner_name} Installments for Trips</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Corporate Agreement / Contract #</label>
+                    <input
+                      type="text"
+                      value={partner.contract_number || ''}
+                      onChange={(e) => {
+                        const updated = [...(formData.installment_partners || [])];
+                        updated[pIndex] = { ...partner, contract_number: e.target.value };
+                        handleFieldChange({ installment_partners: updated });
+                      }}
+                      placeholder="e.g. VALU-SOFIA-88219"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Registered Merchant ID</label>
+                    <input
+                      type="text"
+                      value={partner.merchant_id || ''}
+                      onChange={(e) => {
+                        const updated = [...(formData.installment_partners || [])];
+                        updated[pIndex] = { ...partner, merchant_id: e.target.value };
+                        handleFieldChange({ installment_partners: updated });
+                      }}
+                      placeholder="e.g. MID-VALU-0091"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Partner Support Contact</label>
+                    <input
+                      type="text"
+                      value={partner.support_phone || ''}
+                      onChange={(e) => {
+                        const updated = [...(formData.installment_partners || [])];
+                        updated[pIndex] = { ...partner, support_phone: e.target.value };
+                        handleFieldChange({ installment_partners: updated });
+                      }}
+                      placeholder="e.g. 16671"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Tenor Plans Table */}
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-700 block">Available Tenor Plans & Terms:</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                    {(partner.plans || []).map((plan, planIdx) => (
+                      <div key={planIdx} className="bg-white p-2.5 rounded-xl border border-slate-200 text-center space-y-1">
+                        <span className="text-xs font-bold text-purple-900 block">{plan.months} Months</span>
+                        <span className="text-[10px] text-slate-500 block">Interest: {plan.interest_rate_percent}%</span>
+                        <span className="text-[10px] text-slate-400 block">Admin: {plan.admin_fee_percent}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Official Agreement Terms & Policy</label>
+                  <textarea
+                    rows={2}
+                    value={partner.agreement_terms || ''}
+                    onChange={(e) => {
+                      const updated = [...(formData.installment_partners || [])];
+                      updated[pIndex] = { ...partner, agreement_terms: e.target.value };
+                      handleFieldChange({ installment_partners: updated });
+                    }}
+                    placeholder="Terms of the agreement between Sofia Travel and the financing entity..."
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-700"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

@@ -14,6 +14,7 @@ export interface Customer {
   id: string;
   customer_id: string;
   full_name: string;
+  name?: string; // alias
   passport_number: string;
   nationality: string;
   date_of_birth: string;
@@ -36,9 +37,18 @@ export type ServiceType =
   | 'Transfer' 
   | 'Visa' 
   | 'Cruise' 
+  | 'Day Trip'
   | 'Transportation' 
   | 'Travel Package' 
   | 'Other';
+
+export type VoucherStatus = 
+  | 'Draft' 
+  | 'Sent' 
+  | 'Confirmed' 
+  | 'Converted to Trip/Service' 
+  | 'Completed' 
+  | 'Cancelled';
 
 export type ReservationStatus = 
   | 'Pending' 
@@ -48,18 +58,83 @@ export type ReservationStatus =
   | 'Cancelled' 
   | 'Completed';
 
-export interface Reservation {
+export type InstallmentPartnerConfig = InstallmentPartnerAgreement;
+export type InstallmentPlanRule = InstallmentPlanOption;
+
+export interface InstallmentPlanOption {
+  months: number;
+  interest_rate_percent: number; // 0% for promos, or interest rate
+  admin_fee_percent: number; // e.g. 3%, 5%
+  down_payment_percent: number; // e.g. 0%, 10%
+  merchant_fee_percent: number; // merchant discount rate
+  label?: string;
+}
+
+export interface InstallmentPartnerAgreement {
   id: string;
-  reservation_id: string;
+  partner_name: 'ValU' | 'TRU' | string;
+  is_active: boolean;
+  merchant_id: string;
+  contract_number: string;
+  support_phone?: string;
+  settlement_cycle?: string; // e.g. "T+2 Business Days via Bank Transfer"
+  settlement_account?: string;
+  min_amount?: number;
+  max_amount?: number;
+  customer_admin_fee_rule?: string;
+  terms_and_conditions?: string;
+  agreement_terms?: string;
+  support_contact?: string;
+  plans: InstallmentPlanOption[];
+}
+
+export interface InstallmentDetails {
+  partner?: 'ValU' | 'TRU' | string;
+  partner_name?: string;
+  contract_number?: string;
+  plan_months: number;
+  monthly_amount?: number;
+  monthly_installment_amount?: number;
+  down_payment?: number;
+  down_payment_amount?: number;
+  admin_fee?: number;
+  admin_fee_amount?: number;
+  interest_rate_percent?: number;
+  total_interest_amount?: number;
+  financed_amount?: number;
+  total_payable_by_customer?: number;
+  total_customer_cost?: number;
+  merchant_commission_deducted?: number;
+  merchant_settlement_amount?: number;
+  customer_phone_registered?: string;
+  approval_code?: string;
+  approval_status?: string;
+  transaction_reference?: string;
+  status?: 'Pending Approval' | 'Approved' | 'Settled' | 'Cancelled' | string;
+}
+
+export interface Voucher {
+  id: string;
+  voucher_number: string;
+  reservation_id?: string; // mapped reservation
   customer_id: string;
   customer_name?: string;
-  service_type: ServiceType;
-  booking_date: string;
-  travel_date: string;
-  return_date: string;
-  number_of_travelers: number;
+  customer_phone?: string;
+  customer_email?: string;
+  customer_passport?: string;
+  service_category: 'Tour Package' | 'Visa' | 'Transfer' | 'Cruise' | 'Tour' | 'Day Trip' | 'Flight' | 'Hotel' | 'Custom';
+  service_reference_id?: string;
+  service_title: string;
   destination: string;
-  supplier_id: string;
+  issue_date: string;
+  valid_until: string;
+  travel_date: string;
+  return_date?: string;
+  number_of_travelers: number;
+  adults_count?: number;
+  children_count?: number;
+  infants_count?: number;
+  supplier_id?: string;
   supplier_name?: string;
   employee_id: string;
   employee_name?: string;
@@ -69,13 +144,170 @@ export interface Reservation {
   remaining_amount: number;
   profit: number;
   currency: string;
-  payment_status: 'Pending' | 'Paid' | 'Partially Paid' | 'Refunded';
-  reservation_status: ReservationStatus;
-  notes: string;
+  payment_method?: string; // Cash, Bank Transfer, Credit Card, InstaPay, ValU (Installments), TRU (Installments)
+  payment_status?: string;
+  installment_details?: InstallmentDetails | null;
+  status: VoucherStatus;
+  reservation_status?: ReservationStatus;
+  sent_to_customer_at?: string;
+  sent_via?: 'WhatsApp' | 'Email' | 'Direct Print' | 'SMS';
+  confirmed_at?: string;
+  converted_at?: string;
+  converted_trip_title?: string;
+  itinerary_or_details?: string;
+  inclusions?: string[];
+  exclusions?: string[];
+  terms_conditions?: string;
+  notes?: string;
   customer_invoice_id?: string;
   customer_invoice_number?: string;
   supplier_invoice_id?: string;
   supplier_invoice_number?: string;
+}
+
+export interface Reservation extends Voucher {
+  // Alias for backward compatibility
+  service_type: ServiceType;
+  booking_date: string;
+  payment_status: 'Pending' | 'Paid' | 'Partially Paid' | 'Refunded';
+  reservation_status: ReservationStatus;
+}
+
+// Tourism-Related Services
+export type VisaType = 'Tourist' | 'Business' | 'Transit' | 'Work / Employment' | 'Family / Visit' | 'Umrah / Religious';
+export type VisaEntry = 'Single Entry' | 'Multiple Entry';
+
+export interface VisaService {
+  id: string;
+  country: string;
+  visa_title: string;
+  visa_type: VisaType;
+  entry_type: VisaEntry;
+  validity_duration: string;
+  processing_time: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  embassy_consular_fee: number;
+  agency_fee: number;
+  cost_price: number;
+  selling_price: number;
+  currency: string;
+  required_documents: string[];
+  submission_method: 'Online E-Visa' | 'Embassy In-Person' | 'Visa on Arrival' | 'Authorized Center (VFS/TLS)';
+  notes?: string;
+  status: 'Active' | 'Suspended';
+}
+
+export type VehicleType = 'Sedan / Limousine (1-3 Pax)' | 'SUV / Minivan (1-6 Pax)' | 'HiAce Van (1-14 Pax)' | 'Coaster Minibus (1-24 Pax)' | 'Coach Bus (1-50 Pax)';
+
+export interface TransferService {
+  id: string;
+  service_title: string;
+  vehicle_type: VehicleType;
+  pickup_location: string;
+  dropoff_location: string;
+  transfer_type: 'Airport Pickup' | 'Airport Dropoff' | 'Intercity Transfer' | 'City Tour By Hours' | 'Port Transfer';
+  max_passengers: number;
+  max_luggage: number;
+  distance_km?: number;
+  estimated_duration?: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  driver_name?: string;
+  driver_phone?: string;
+  cost_price: number;
+  selling_price: number;
+  currency: string;
+  meet_and_greet: boolean;
+  includes_tolls: boolean;
+  amenities: string[];
+  notes?: string;
+  status: 'Active' | 'Inactive';
+}
+
+export type CruiseCategory = 'Nile Cruise (Luxor - Aswan)' | 'Lake Nasser Cruise' | 'Red Sea Yacht Charter' | 'Dahabiya Luxury Sail' | 'Mediterranean Sea Cruise' | string;
+export type CruiseCabinType = 'Standard Cabin' | 'Deluxe Nile View' | 'Junior Suite' | 'Presidential Suite' | 'Royal Suite' | string;
+export type BoardBasis = 'Full Board' | 'All Inclusive' | 'Half Board' | 'Bed & Breakfast' | string;
+export type DayTripCategory = 'Desert Safari & Camping' | 'Historical & Archeological' | 'Snorkeling & Diving' | 'City Sightseeing' | 'Adventure & Water Sports' | string;
+export type TourStyle = TourType | string;
+
+export interface CruiseService {
+  id: string;
+  cruise_name: string;
+  cruise_category: CruiseCategory;
+  ship_rating?: '5-Star Deluxe' | '5-Star Standard' | 'Ultra Luxury Boutique' | '4-Star Standard' | string;
+  route?: string;
+  route_itinerary?: string;
+  embarkation_port?: string;
+  disembarkation_port?: string;
+  duration_nights: number;
+  cabin_type?: CruiseCabinType;
+  board_basis?: BoardBasis;
+  departure_schedule?: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  cost_price: number;
+  selling_price: number;
+  currency: string;
+  highlights?: string[];
+  inclusions?: string[];
+  sightseeing_included?: boolean;
+  guide_included?: boolean;
+  notes?: string;
+  status: 'Active' | 'Seasonal' | 'Sold Out';
+}
+
+export type TourType = 'Cultural & Historical' | 'Desert Safari & Camping' | 'Religious & Heritage' | 'Adventure & Trekking' | 'Eco & Nature' | 'Classic Roundtrip';
+
+export interface TourService {
+  id: string;
+  tour_title: string;
+  tour_type?: TourType;
+  tour_style?: TourStyle;
+  destination?: string;
+  destination_cities?: string[];
+  duration_days: number;
+  guide_languages?: string[];
+  transport_mode?: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  cost_price: number;
+  selling_price: number;
+  currency: string;
+  included_meals?: string;
+  entrance_tickets_included?: boolean;
+  min_travelers?: number;
+  max_travelers?: number;
+  itinerary_summary?: string;
+  highlights?: string[];
+  inclusions?: string[];
+  exclusions?: string[];
+  notes?: string;
+  status: 'Active' | 'Seasonal' | 'Draft';
+}
+
+export interface DayTripService {
+  id: string;
+  trip_title: string;
+  category?: DayTripCategory;
+  location_city?: string;
+  city_location?: string;
+  duration_hours: number;
+  departure_time?: string;
+  pickup_included?: boolean;
+  supplier_id?: string;
+  supplier_name?: string;
+  cost_price: number;
+  selling_price: number;
+  currency: string;
+  includes_lunch?: boolean;
+  includes_entry_tickets?: boolean;
+  guide_included?: boolean;
+  highlights?: string[];
+  inclusions?: string[];
+  schedule_description?: string;
+  notes?: string;
+  status: 'Active' | 'Inactive';
 }
 
 export type PackageStatus = 'Draft' | 'Available' | 'Fully Booked' | 'Closed' | 'Cancelled';
@@ -83,6 +315,7 @@ export type PackageStatus = 'Draft' | 'Available' | 'Fully Booked' | 'Closed' | 
 export interface TourPackage {
   id: string;
   package_name: string;
+  title?: string; // alias
   destination: string;
   duration: string;
   start_date: string;
@@ -93,11 +326,15 @@ export interface TourPackage {
   meals: string;
   available_seats: number;
   cost: number;
+  cost_price?: number; // alias
   selling_price: number;
   currency?: string;
   profit_margin: number;
   included_services: string[];
+  included?: string[]; // alias
   excluded_services: string[];
+  excluded?: string[]; // alias
+  itinerary?: string;
   terms_conditions: string;
   images: string[];
   status: PackageStatus;
@@ -156,7 +393,9 @@ export type SupplierType =
 export interface Supplier {
   id: string;
   supplier_name: string;
+  name?: string; // alias
   type: SupplierType;
+  category?: string; // alias
   contact_person: string;
   phone: string;
   email: string;
@@ -440,8 +679,10 @@ export interface CompanySettings {
   default_currency: string;
   invoice_prefix: string;
   reservation_prefix: string;
+  voucher_prefix?: string;
   payment_methods: string[];
   exchange_rates: ExchangeRate[];
+  installment_partners?: InstallmentPartnerAgreement[];
 }
 
 export interface ActivityLog {
@@ -454,7 +695,17 @@ export interface ActivityLog {
   time: string;
 }
 
-export type InvoiceItemType = 'Tour Package' | 'Hotel' | 'Flight' | 'Custom';
+export type InvoiceItemType = 
+  | 'Tour Package' 
+  | 'Voucher'
+  | 'Visa' 
+  | 'Transfer' 
+  | 'Cruise' 
+  | 'Tour' 
+  | 'Day Trip' 
+  | 'Hotel' 
+  | 'Flight' 
+  | 'Custom';
 
 export interface InvoiceItem {
   id: string;

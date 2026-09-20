@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Bell, Sparkles, Globe, Shield, ChevronDown, Check, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, BookmarkCheck, Compass, Plane, Hotel, Truck, FileText, 
-  Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign
+  Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
+  Ticket, Layers, FileCheck2, Car, Ship, Sun
 } from 'lucide-react';
 import { UserRole, NotificationItem } from '../types';
 import { getCurrencySymbol } from '../utils/currency';
@@ -73,14 +74,13 @@ export function Navbar({
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'vouchers', label: 'Customer Vouchers', icon: Ticket, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
+    { id: 'services', label: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_trips' },
     { id: 'permission-requests', label: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
     { id: 'customers', label: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
     { id: 'suppliers', label: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
     { id: 'invoices', label: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_sales' },
-    { id: 'reservations', label: 'Reservations', icon: BookmarkCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
     { id: 'packages', label: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
-    { id: 'flights', label: 'Flights', icon: Plane, roles: ['Administrator', 'Manager', 'Sales', 'Operations'], perm: 'view_trips' },
-    { id: 'hotels', label: 'Hotels', icon: Hotel, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Accountant'], perm: 'view_trips' },
     { id: 'employees', label: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
     { id: 'calendar', label: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },

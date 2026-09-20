@@ -91,7 +91,8 @@ let db = {
     default_currency: "USD",
     invoice_prefix: "INV-2026-",
     reservation_prefix: "RES-",
-    payment_methods: ["Cash", "Bank Transfer", "Credit Card", "InstaPay", "Other"],
+    voucher_prefix: "VCH-2026-",
+    payment_methods: ["Cash", "Bank Transfer", "Credit Card", "InstaPay", "ValU (Installments)", "TRU (Installments)", "Other"],
     exchange_rates: [
       { currency: "USD", rate_to_usd: 1.0 },
       { currency: "EUR", rate_to_usd: 0.92 },
@@ -99,6 +100,52 @@ let db = {
       { currency: "SAR", rate_to_usd: 3.75 },
       { currency: "AED", rate_to_usd: 3.67 },
       { currency: "EGP", rate_to_usd: 48.5 },
+    ],
+    installment_partners: [
+      {
+        id: "PARTNER-VALU-01",
+        partner_name: "ValU",
+        is_active: true,
+        merchant_id: "VALU-SOFIA-88219",
+        contract_number: "VALU-EGY-2026-091",
+        settlement_cycle: "T+2 Business Days (NBE Bank Transfer)",
+        settlement_account: "EG540003001500000010987654321 (EGP)",
+        min_amount: 500,
+        max_amount: 250000,
+        customer_admin_fee_rule: "Financed directly within ValU installment application",
+        terms_and_conditions: "Settled within 48 business hours to Sofia Travel bank account net of 2.5% merchant MDR. Customer OTP authorization required.",
+        support_contact: "support@valu.com.eg / 16671",
+        plans: [
+          { months: 3, interest_rate_percent: 0, admin_fee_percent: 3.0, down_payment_percent: 0, merchant_fee_percent: 2.0, label: "3 Months - 0% Interest (Promo)" },
+          { months: 6, interest_rate_percent: 0, admin_fee_percent: 5.0, down_payment_percent: 0, merchant_fee_percent: 2.5, label: "6 Months - 0% Interest (Best Seller)" },
+          { months: 9, interest_rate_percent: 1.2, admin_fee_percent: 4.0, down_payment_percent: 10, merchant_fee_percent: 2.5, label: "9 Months - Low Interest (1.2%/mo)" },
+          { months: 12, interest_rate_percent: 1.5, admin_fee_percent: 4.5, down_payment_percent: 10, merchant_fee_percent: 2.5, label: "12 Months - Standard Plan (1.5%/mo)" },
+          { months: 18, interest_rate_percent: 1.7, admin_fee_percent: 5.0, down_payment_percent: 15, merchant_fee_percent: 2.8, label: "18 Months - Extended (1.7%/mo)" },
+          { months: 24, interest_rate_percent: 1.85, admin_fee_percent: 5.0, down_payment_percent: 20, merchant_fee_percent: 3.0, label: "24 Months - Long Term (1.85%/mo)" },
+          { months: 36, interest_rate_percent: 1.95, admin_fee_percent: 5.0, down_payment_percent: 25, merchant_fee_percent: 3.2, label: "36 Months - Maximum Tenor (1.95%/mo)" }
+        ]
+      },
+      {
+        id: "PARTNER-TRU-02",
+        partner_name: "TRU",
+        is_active: true,
+        merchant_id: "TRU-SOFIA-77340",
+        contract_number: "TRU-EGY-2026-440",
+        settlement_cycle: "Weekly settlement on Thursdays via Direct ACH",
+        settlement_account: "EG540003001500000010987654321 (EGP)",
+        min_amount: 1000,
+        max_amount: 300000,
+        customer_admin_fee_rule: "Zero admin fee on 6-month promotional campaign; 4% on regular tenors",
+        terms_and_conditions: "Merchant commission is 2.0% deducted at settlement. Quick QR Code / OTP checkout via TRU Mobile Wallet.",
+        support_contact: "partners@tru.eg / 19992",
+        plans: [
+          { months: 6, interest_rate_percent: 0, admin_fee_percent: 4.0, down_payment_percent: 0, merchant_fee_percent: 2.0, label: "6 Months - TRU Zero Interest" },
+          { months: 12, interest_rate_percent: 1.35, admin_fee_percent: 4.0, down_payment_percent: 10, merchant_fee_percent: 2.0, label: "12 Months - TRU Flex (1.35%/mo)" },
+          { months: 18, interest_rate_percent: 1.6, admin_fee_percent: 4.5, down_payment_percent: 15, merchant_fee_percent: 2.2, label: "18 Months - TRU Plus (1.6%/mo)" },
+          { months: 24, interest_rate_percent: 1.75, admin_fee_percent: 5.0, down_payment_percent: 15, merchant_fee_percent: 2.5, label: "24 Months - TRU Extended (1.75%/mo)" },
+          { months: 36, interest_rate_percent: 1.85, admin_fee_percent: 5.0, down_payment_percent: 20, merchant_fee_percent: 2.8, label: "36 Months - TRU Max (1.85%/mo)" }
+        ]
+      }
     ]
   },
   employees: [],
@@ -107,7 +154,13 @@ let db = {
   hotels: [],
   flights: [],
   tour_packages: [],
+  vouchers: [],
   reservations: [],
+  visas: [],
+  transfers: [],
+  cruises: [],
+  tours: [],
+  day_trips: [],
   customer_payments: [],
   supplier_payments: [],
   expenses: [],
@@ -173,7 +226,8 @@ async function testConnection() {
 async function loadFromFirestore() {
   const collections = [
     "employees", "customers", "suppliers", "hotels", "flights", "tour_packages",
-    "reservations", "customer_payments", "supplier_payments", "expenses",
+    "vouchers", "reservations", "visas", "transfers", "cruises", "tours", "day_trips",
+    "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs"
@@ -201,7 +255,8 @@ async function loadFromFirestore() {
 async function wipeAllFirestoreTestData() {
   const collections = [
     "customers", "suppliers", "hotels", "flights", "tour_packages",
-    "reservations", "customer_payments", "supplier_payments", "expenses",
+    "vouchers", "reservations", "visas", "transfers", "cruises", "tours", "day_trips",
+    "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs"
@@ -370,12 +425,22 @@ app.post("/api/permission-requests/:id/approve", async (req, res) => {
   const colMap: Record<string, string> = {
     'Customers': 'customers',
     'Reservations': 'reservations',
+    'Vouchers': 'vouchers',
+    'Customer Vouchers': 'vouchers',
     'Invoices': 'invoices',
     'Suppliers': 'suppliers',
     'Employees': 'employees',
     'Tour Packages': 'tour_packages',
+    'Packages': 'tour_packages',
     'Hotels': 'hotels',
     'Flights': 'flights',
+    'Visas': 'visas',
+    'Transfers': 'transfers',
+    'Cruises': 'cruises',
+    'Tours': 'tours',
+    'Day Trips': 'day_trips',
+    'Services': 'visas',
+    'Tourism Services': 'visas',
     'Tasks': 'tasks',
     'Documents': 'documents',
     'Expenses': 'expenses',
@@ -388,11 +453,22 @@ app.post("/api/permission-requests/:id/approve", async (req, res) => {
     if (request.action_type === 'Delete') {
       db[targetCol] = db[targetCol].filter((i: any) => i.id !== request.item_id);
       await deleteFromFirestore(targetCol, request.item_id);
+      if (targetCol === 'vouchers') {
+        db.reservations = (db.reservations || []).filter((r: any) => r.id !== request.item_id);
+        await deleteFromFirestore('reservations', request.item_id);
+      }
     } else if (request.action_type === 'Edit' && request.proposed_changes) {
       const idx = db[targetCol].findIndex((i: any) => i.id === request.item_id);
       if (idx !== -1) {
         db[targetCol][idx] = { ...db[targetCol][idx], ...request.proposed_changes };
         await saveToFirestore(targetCol, request.item_id, db[targetCol][idx]);
+        if (targetCol === 'vouchers') {
+          const rIdx = (db.reservations || []).findIndex((r: any) => r.id === request.item_id);
+          if (rIdx !== -1) {
+            db.reservations[rIdx] = { ...db.reservations[rIdx], ...request.proposed_changes };
+            await saveToFirestore('reservations', request.item_id, db.reservations[rIdx]);
+          }
+        }
       }
     }
   }
@@ -519,14 +595,8 @@ app.delete("/api/customers/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-// Reservations
-app.get("/api/reservations", async (req, res) => {
-  const reservations = await getCollectionDocs('reservations');
-  res.json(reservations);
-});
-
-app.post("/api/reservations", async (req, res) => {
-  const data = req.body;
+// Vouchers & Reservations
+async function handleSaveVoucher(data: any, isUpdate = false, existingId?: string) {
   const selling = Number(data.selling_price) || 0;
   const cost = Number(data.cost_price) || 0;
   const paid = Number(data.paid_amount) || 0;
@@ -538,94 +608,611 @@ app.post("/api/reservations", async (req, res) => {
   else if (currency.toUpperCase() === "EGP") currency = "EGP";
   else if (currency.toUpperCase() === "EUR") currency = "EUR";
 
-  const resId = data.id || ("RES-" + Math.random().toString(36).substring(2, 7).toUpperCase());
-  const newRes = {
-    reservation_id: data.reservation_id || ("RES-" + Math.floor(1000 + Math.random() * 9000)),
-    booking_date: data.booking_date || new Date().toISOString().split('T')[0],
-    profit,
-    remaining_amount: remaining,
-    payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending",
-    ...data,
-    id: resId,
-    currency,
-    selling_price: selling,
+  const vchId = existingId || data.id || ("VCH-" + Math.random().toString(36).substring(2, 8).toUpperCase());
+  const voucher_number = data.voucher_number || data.reservation_id || ("VCH-2026-" + Math.floor(1000 + Math.random() * 9000));
+
+  const voucherItem = {
+    booking_date: data.booking_date || data.issue_date || new Date().toISOString().split('T')[0],
+    issue_date: data.issue_date || data.booking_date || new Date().toISOString().split('T')[0],
+    valid_until: data.valid_until || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+    travel_date: data.travel_date || new Date().toISOString().split('T')[0],
+    return_date: data.return_date || '',
+    service_category: data.service_category || data.service_type || 'Tour Package',
+    service_type: data.service_type || data.service_category || 'Tour Package',
+    service_title: data.service_title || data.destination || 'Tourism Service',
+    destination: data.destination || data.service_title || 'Egypt',
+    number_of_travelers: Number(data.number_of_travelers) || 1,
+    adults_count: Number(data.adults_count) || Number(data.number_of_travelers) || 1,
+    children_count: Number(data.children_count) || 0,
+    infants_count: Number(data.infants_count) || 0,
     cost_price: cost,
-    paid_amount: paid
+    selling_price: selling,
+    paid_amount: paid,
+    currency,
+    payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending",
+    reservation_status: data.reservation_status || (remaining === 0 ? "Paid" : "Confirmed"),
+    status: data.status || "Draft",
+    payment_method: data.payment_method || "Cash",
+    installment_details: data.installment_details || null,
+    notes: data.notes || '',
+    itinerary_or_details: data.itinerary_or_details || '',
+    inclusions: data.inclusions || [],
+    exclusions: data.exclusions || [],
+    terms_conditions: data.terms_conditions || '',
+    ...data,
+    id: vchId,
+    voucher_number,
+    reservation_id: voucher_number,
+    profit,
+    remaining_amount: remaining
   };
-  const idx = db.reservations.findIndex(r => r.id === newRes.id);
-  if (idx >= 0) {
-    db.reservations[idx] = newRes;
+
+  // Upsert in vouchers
+  const vIdx = db.vouchers.findIndex(v => v.id === vchId);
+  if (vIdx >= 0) {
+    db.vouchers[vIdx] = voucherItem;
   } else {
-    db.reservations.push(newRes);
+    db.vouchers.push(voucherItem);
   }
 
-  // Update customer balance if remaining > 0
-  const cust = db.customers.find(c => c.id === newRes.customer_id);
-  if (cust) {
-    cust.outstanding_balance += remaining;
+  // Keep reservations in sync
+  const rIdx = db.reservations.findIndex(r => r.id === vchId);
+  if (rIdx >= 0) {
+    db.reservations[rIdx] = voucherItem;
+  } else {
+    db.reservations.push(voucherItem);
   }
 
-  await logActivity(newRes.employee_name || "Staff", `Created reservation ${newRes.reservation_id}`, "Reservations", newRes.reservation_id);
-  await saveToFirestore('reservations', newRes.id, newRes);
-  res.json(newRes);
+  // Update customer outstanding balance if remaining amount exists
+  if (voucherItem.customer_id) {
+    const cust = db.customers.find(c => c.id === voucherItem.customer_id);
+    if (cust && remaining > 0 && !isUpdate) {
+      cust.outstanding_balance += remaining;
+    }
+  }
+
+  await saveToFirestore('vouchers', vchId, voucherItem);
+  await saveToFirestore('reservations', vchId, voucherItem);
+  return voucherItem;
+}
+
+// Vouchers API
+app.get("/api/vouchers", async (req, res) => {
+  let list = await getCollectionDocs('vouchers');
+  if (!list || list.length === 0) {
+    // Check reservations for existing records
+    list = await getCollectionDocs('reservations');
+  }
+  res.json(list);
+});
+
+app.post("/api/vouchers", async (req, res) => {
+  const item = await handleSaveVoucher(req.body, false);
+  const user = (req.headers['x-acting-user'] as string) || item.employee_name || "Staff";
+  await logActivity(user, `Created voucher ${item.voucher_number} (${item.service_title})`, "Vouchers", item.voucher_number);
+  await addNotification(
+    'New Customer Voucher Created',
+    `Voucher #${item.voucher_number} for "${item.service_title}" was created for ${item.customer_name} (${item.selling_price} ${item.currency || 'USD'}) by ${user}.`,
+    'voucher',
+    item.id
+  );
+  res.json(item);
+});
+
+app.put("/api/vouchers/:id", async (req, res) => {
+  const { id } = req.params;
+  const item = await handleSaveVoucher(req.body, true, id);
+  const user = (req.headers['x-acting-user'] as string) || item.employee_name || "Manager";
+  await logActivity(user, `Updated voucher ${item.voucher_number}`, "Vouchers", item.voucher_number);
+  await addNotification(
+    'Voucher Updated',
+    `Voucher #${item.voucher_number} was modified by ${user}.`,
+    'voucher',
+    item.id
+  );
+  res.json(item);
+});
+
+app.delete("/api/vouchers/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
+  db.vouchers = db.vouchers.filter(v => v.id !== id);
+  db.reservations = db.reservations.filter(r => r.id !== id);
+  await logActivity(user, "Deleted voucher", "Vouchers", id);
+  await addNotification(
+    'Voucher Deleted',
+    `Voucher #${id} was deleted by ${user}.`,
+    'voucher',
+    id
+  );
+  await deleteFromFirestore('vouchers', id);
+  await deleteFromFirestore('reservations', id);
+  res.json({ success: true });
+});
+
+// Voucher Workflow: Send to customer
+app.post("/api/vouchers/:id/send", async (req, res) => {
+  const { id } = req.params;
+  const { channel, notes } = req.body;
+  let idx = db.vouchers.findIndex(v => v.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('vouchers');
+    idx = db.vouchers.findIndex(v => v.id === id);
+  }
+  if (idx === -1) {
+    return res.status(404).json({ error: "Voucher not found" });
+  }
+
+  const v = db.vouchers[idx];
+  v.status = "Sent";
+  v.sent_to_customer_at = new Date().toISOString();
+  v.sent_via = channel || "WhatsApp";
+  if (notes) v.notes = (v.notes ? v.notes + "\n" : "") + `[Sent via ${v.sent_via} on ${new Date().toLocaleDateString()}]: ${notes}`;
+
+  await saveToFirestore('vouchers', id, v);
+  await saveToFirestore('reservations', id, v);
+  const user = (req.headers['x-acting-user'] as string) || v.employee_name || "Staff";
+  await logActivity(user, `Sent voucher ${v.voucher_number} to ${v.customer_name} via ${v.sent_via}`, "Vouchers", v.voucher_number);
+  await addNotification(
+    'Voucher Sent to Customer',
+    `Voucher #${v.voucher_number} was dispatched to ${v.customer_name} via ${v.sent_via} by ${user}.`,
+    'voucher',
+    v.id
+  );
+  res.json(v);
+});
+
+// Voucher Workflow: Confirm and convert to Trip / Service
+app.post("/api/vouchers/:id/convert", async (req, res) => {
+  const { id } = req.params;
+  const { trip_title, notes } = req.body;
+  let idx = db.vouchers.findIndex(v => v.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('vouchers');
+    idx = db.vouchers.findIndex(v => v.id === id);
+  }
+  if (idx === -1) {
+    return res.status(404).json({ error: "Voucher not found" });
+  }
+
+  const v = db.vouchers[idx];
+  v.status = "Converted to Trip/Service";
+  v.confirmed_at = new Date().toISOString();
+  v.converted_at = new Date().toISOString();
+  v.converted_trip_title = trip_title || v.service_title;
+  v.reservation_status = "Confirmed";
+  if (notes) v.notes = (v.notes ? v.notes + "\n" : "") + `[Confirmed & Converted to Trip on ${new Date().toLocaleDateString()}]: ${notes}`;
+
+  await saveToFirestore('vouchers', id, v);
+  await saveToFirestore('reservations', id, v);
+  const user = (req.headers['x-acting-user'] as string) || v.employee_name || "Staff";
+  await logActivity(user, `Confirmed & Converted voucher ${v.voucher_number} into active trip "${v.converted_trip_title}"`, "Vouchers", v.voucher_number);
+  await addNotification(
+    'Voucher Converted to Active Trip',
+    `Voucher #${v.voucher_number} was confirmed and converted into active trip/service "${v.converted_trip_title}" for ${v.customer_name}.`,
+    'voucher',
+    v.id
+  );
+  res.json(v);
+});
+
+// Backward compatibility for Reservations endpoints
+app.get("/api/reservations", async (req, res) => {
+  const reservations = await getCollectionDocs('reservations');
+  res.json(reservations);
+});
+
+app.post("/api/reservations", async (req, res) => {
+  const item = await handleSaveVoucher(req.body, false);
+  res.json(item);
 });
 
 app.put("/api/reservations/:id", async (req, res) => {
   const { id } = req.params;
-  let idx = db.reservations.findIndex(r => r.id === id);
-  if (idx === -1) {
-    await getCollectionDocs('reservations');
-    idx = db.reservations.findIndex(r => r.id === id);
-  }
-  const existing = idx !== -1 ? db.reservations[idx] : { id };
-  
-  const data = req.body;
-  const selling = data.selling_price !== undefined ? Number(data.selling_price) : (Number(existing.selling_price) || 0);
-  const cost = data.cost_price !== undefined ? Number(data.cost_price) : (Number(existing.cost_price) || 0);
-  const paid = data.paid_amount !== undefined ? Number(data.paid_amount) : (Number(existing.paid_amount) || 0);
-  const profit = selling - cost;
-  const remaining = Math.max(0, selling - paid);
-
-  let currency = data.currency !== undefined ? data.currency : existing.currency || "$";
-  if (currency === "USD") currency = "$";
-  else if (currency.toUpperCase() === "EGP") currency = "EGP";
-  else if (currency.toUpperCase() === "EUR") currency = "EUR";
-
-  const updated = {
-    ...existing,
-    ...data,
-    id,
-    currency,
-    selling_price: selling,
-    cost_price: cost,
-    paid_amount: paid,
-    profit,
-    remaining_amount: remaining,
-    employee_id: data.employee_id || existing.employee_id,
-    employee_name: data.employee_name || existing.employee_name,
-    customer_invoice_id: data.customer_invoice_id || existing.customer_invoice_id,
-    customer_invoice_number: data.customer_invoice_number || existing.customer_invoice_number,
-    supplier_invoice_id: data.supplier_invoice_id || existing.supplier_invoice_id,
-    supplier_invoice_number: data.supplier_invoice_number || existing.supplier_invoice_number,
-    payment_status: remaining === 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending"
-  };
-
-  if (idx !== -1) {
-    db.reservations[idx] = updated;
-  } else {
-    db.reservations.push(updated);
-  }
-
-  await logActivity("Manager", `Updated reservation ${updated.reservation_id || id}`, "Reservations", updated.reservation_id || id);
-  await saveToFirestore('reservations', id, updated);
-  res.json(updated);
+  const item = await handleSaveVoucher(req.body, true, id);
+  res.json(item);
 });
 
 app.delete("/api/reservations/:id", async (req, res) => {
   const { id } = req.params;
   db.reservations = db.reservations.filter(r => r.id !== id);
+  db.vouchers = db.vouchers.filter(v => v.id !== id);
   await logActivity("Administrator", "Deleted reservation", "Reservations", id);
   await deleteFromFirestore('reservations', id);
+  await deleteFromFirestore('vouchers', id);
+  res.json({ success: true });
+});
+
+// Tourism Services: Visas
+app.get("/api/visas", async (req, res) => {
+  const items = await getCollectionDocs('visas');
+  res.json(items);
+});
+
+app.post("/api/visas", async (req, res) => {
+  const id = req.body.id || ("VISA-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const visa = {
+    ...req.body,
+    id,
+    currency: req.body.currency || 'USD',
+    embassy_consular_fee: Number(req.body.embassy_consular_fee) || 0,
+    agency_fee: Number(req.body.agency_fee) || 0,
+    cost_price: Number(req.body.cost_price) || 0,
+    selling_price: Number(req.body.selling_price) || 0
+  };
+  const idx = db.visas.findIndex(v => v.id === id);
+  if (idx >= 0) db.visas[idx] = visa;
+  else db.visas.push(visa);
+  await saveToFirestore('visas', id, visa);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Registered visa service for ${visa.country} (${visa.visa_title})`, "Visas", visa.visa_title);
+  await addNotification(
+    'Visa Service Registered',
+    `Visa service "${visa.visa_title}" for ${visa.country} (${visa.selling_price} ${visa.currency}) was added by ${user}.`,
+    'service',
+    visa.id
+  );
+  res.json(visa);
+});
+
+app.put("/api/visas/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.visas.findIndex(v => v.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('visas');
+    idx = db.visas.findIndex(v => v.id === id);
+  }
+  const existing = idx !== -1 ? db.visas[idx] : { id };
+  const updated = {
+    ...existing,
+    ...req.body,
+    id,
+    currency: req.body.currency || existing.currency || 'USD',
+    embassy_consular_fee: Number(req.body.embassy_consular_fee !== undefined ? req.body.embassy_consular_fee : existing.embassy_consular_fee) || 0,
+    agency_fee: Number(req.body.agency_fee !== undefined ? req.body.agency_fee : existing.agency_fee) || 0,
+    cost_price: Number(req.body.cost_price !== undefined ? req.body.cost_price : existing.cost_price) || 0,
+    selling_price: Number(req.body.selling_price !== undefined ? req.body.selling_price : existing.selling_price) || 0
+  };
+  if (idx !== -1) db.visas[idx] = updated;
+  else db.visas.push(updated);
+  await saveToFirestore('visas', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Updated visa service for ${updated.country}`, "Visas", updated.visa_title);
+  await addNotification(
+    'Visa Service Updated',
+    `Visa service for ${updated.country} (${updated.visa_title}) was updated by ${user}.`,
+    'service',
+    updated.id
+  );
+  res.json(updated);
+});
+
+app.delete("/api/visas/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
+  db.visas = db.visas.filter(v => v.id !== id);
+  await deleteFromFirestore('visas', id);
+  await logActivity(user, "Deleted visa service", "Visas", id);
+  await addNotification(
+    'Visa Service Deleted',
+    `Visa service record #${id} was deleted by ${user}.`,
+    'service',
+    id
+  );
+  res.json({ success: true });
+});
+
+// Tourism Services: Transfers
+app.get("/api/transfers", async (req, res) => {
+  const items = await getCollectionDocs('transfers');
+  res.json(items);
+});
+
+app.post("/api/transfers", async (req, res) => {
+  const id = req.body.id || ("TRF-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const transfer = {
+    ...req.body,
+    id,
+    currency: req.body.currency || 'USD',
+    cost_price: Number(req.body.cost_price) || 0,
+    selling_price: Number(req.body.selling_price) || 0,
+    max_passengers: Number(req.body.max_passengers) || 4,
+    max_luggage: Number(req.body.max_luggage) || 3
+  };
+  const idx = db.transfers.findIndex(t => t.id === id);
+  if (idx >= 0) db.transfers[idx] = transfer;
+  else db.transfers.push(transfer);
+  await saveToFirestore('transfers', id, transfer);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Registered transfer route: ${transfer.service_title}`, "Transfers", transfer.service_title);
+  await addNotification(
+    'Transfer Service Registered',
+    `Transfer route "${transfer.service_title}" (${transfer.vehicle_type}, ${transfer.selling_price} ${transfer.currency}) was added by ${user}.`,
+    'service',
+    transfer.id
+  );
+  res.json(transfer);
+});
+
+app.put("/api/transfers/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.transfers.findIndex(t => t.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('transfers');
+    idx = db.transfers.findIndex(t => t.id === id);
+  }
+  const existing = idx !== -1 ? db.transfers[idx] : { id };
+  const updated = {
+    ...existing,
+    ...req.body,
+    id,
+    currency: req.body.currency || existing.currency || 'USD',
+    cost_price: Number(req.body.cost_price !== undefined ? req.body.cost_price : existing.cost_price) || 0,
+    selling_price: Number(req.body.selling_price !== undefined ? req.body.selling_price : existing.selling_price) || 0,
+    max_passengers: Number(req.body.max_passengers !== undefined ? req.body.max_passengers : existing.max_passengers) || 4,
+    max_luggage: Number(req.body.max_luggage !== undefined ? req.body.max_luggage : existing.max_luggage) || 3
+  };
+  if (idx !== -1) db.transfers[idx] = updated;
+  else db.transfers.push(updated);
+  await saveToFirestore('transfers', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Updated transfer route: ${updated.service_title}`, "Transfers", updated.service_title);
+  await addNotification(
+    'Transfer Service Updated',
+    `Transfer route "${updated.service_title}" was modified by ${user}.`,
+    'service',
+    updated.id
+  );
+  res.json(updated);
+});
+
+app.delete("/api/transfers/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
+  db.transfers = db.transfers.filter(t => t.id !== id);
+  await deleteFromFirestore('transfers', id);
+  await logActivity(user, "Deleted transfer route", "Transfers", id);
+  await addNotification(
+    'Transfer Service Deleted',
+    `Transfer route #${id} was deleted by ${user}.`,
+    'service',
+    id
+  );
+  res.json({ success: true });
+});
+
+// Tourism Services: Cruises
+app.get("/api/cruises", async (req, res) => {
+  const items = await getCollectionDocs('cruises');
+  res.json(items);
+});
+
+app.post("/api/cruises", async (req, res) => {
+  const id = req.body.id || ("CRZ-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const cruise = {
+    ...req.body,
+    id,
+    currency: req.body.currency || 'USD',
+    cost_price: Number(req.body.cost_price) || 0,
+    selling_price: Number(req.body.selling_price) || 0,
+    duration_nights: Number(req.body.duration_nights) || 4
+  };
+  const idx = db.cruises.findIndex(c => c.id === id);
+  if (idx >= 0) db.cruises[idx] = cruise;
+  else db.cruises.push(cruise);
+  await saveToFirestore('cruises', id, cruise);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Registered cruise ship: ${cruise.cruise_name}`, "Cruises", cruise.cruise_name);
+  await addNotification(
+    'Cruise Service Registered',
+    `Cruise package "${cruise.cruise_name}" (${cruise.route_itinerary}, ${cruise.selling_price} ${cruise.currency}) was added by ${user}.`,
+    'service',
+    cruise.id
+  );
+  res.json(cruise);
+});
+
+app.put("/api/cruises/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.cruises.findIndex(c => c.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('cruises');
+    idx = db.cruises.findIndex(c => c.id === id);
+  }
+  const existing = idx !== -1 ? db.cruises[idx] : { id };
+  const updated = {
+    ...existing,
+    ...req.body,
+    id,
+    currency: req.body.currency || existing.currency || 'USD',
+    cost_price: Number(req.body.cost_price !== undefined ? req.body.cost_price : existing.cost_price) || 0,
+    selling_price: Number(req.body.selling_price !== undefined ? req.body.selling_price : existing.selling_price) || 0,
+    duration_nights: Number(req.body.duration_nights !== undefined ? req.body.duration_nights : existing.duration_nights) || 4
+  };
+  if (idx !== -1) db.cruises[idx] = updated;
+  else db.cruises.push(updated);
+  await saveToFirestore('cruises', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Updated cruise ship: ${updated.cruise_name}`, "Cruises", updated.cruise_name);
+  await addNotification(
+    'Cruise Service Updated',
+    `Cruise ship "${updated.cruise_name}" was updated by ${user}.`,
+    'service',
+    updated.id
+  );
+  res.json(updated);
+});
+
+app.delete("/api/cruises/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
+  db.cruises = db.cruises.filter(c => c.id !== id);
+  await deleteFromFirestore('cruises', id);
+  await logActivity(user, "Deleted cruise ship", "Cruises", id);
+  await addNotification(
+    'Cruise Service Deleted',
+    `Cruise ship record #${id} was deleted by ${user}.`,
+    'service',
+    id
+  );
+  res.json({ success: true });
+});
+
+// Tourism Services: Tours
+app.get("/api/tours", async (req, res) => {
+  const items = await getCollectionDocs('tours');
+  res.json(items);
+});
+
+app.post("/api/tours", async (req, res) => {
+  const id = req.body.id || ("TOUR-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const tour = {
+    ...req.body,
+    id,
+    currency: req.body.currency || 'USD',
+    cost_price: Number(req.body.cost_price) || 0,
+    selling_price: Number(req.body.selling_price) || 0,
+    duration_days: Number(req.body.duration_days) || 1,
+    min_travelers: Number(req.body.min_travelers) || 1,
+    max_travelers: Number(req.body.max_travelers) || 30
+  };
+  const idx = db.tours.findIndex(t => t.id === id);
+  if (idx >= 0) db.tours[idx] = tour;
+  else db.tours.push(tour);
+  await saveToFirestore('tours', id, tour);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Registered tour program: ${tour.tour_title}`, "Tours", tour.tour_title);
+  await addNotification(
+    'Guided Tour Registered',
+    `Guided tour program "${tour.tour_title}" (${tour.duration_days} Days, ${tour.selling_price} ${tour.currency}) was added by ${user}.`,
+    'service',
+    tour.id
+  );
+  res.json(tour);
+});
+
+app.put("/api/tours/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.tours.findIndex(t => t.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('tours');
+    idx = db.tours.findIndex(t => t.id === id);
+  }
+  const existing = idx !== -1 ? db.tours[idx] : { id };
+  const updated = {
+    ...existing,
+    ...req.body,
+    id,
+    currency: req.body.currency || existing.currency || 'USD',
+    cost_price: Number(req.body.cost_price !== undefined ? req.body.cost_price : existing.cost_price) || 0,
+    selling_price: Number(req.body.selling_price !== undefined ? req.body.selling_price : existing.selling_price) || 0,
+    duration_days: Number(req.body.duration_days !== undefined ? req.body.duration_days : existing.duration_days) || 1,
+    min_travelers: Number(req.body.min_travelers !== undefined ? req.body.min_travelers : existing.min_travelers) || 1,
+    max_travelers: Number(req.body.max_travelers !== undefined ? req.body.max_travelers : existing.max_travelers) || 30
+  };
+  if (idx !== -1) db.tours[idx] = updated;
+  else db.tours.push(updated);
+  await saveToFirestore('tours', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Updated tour program: ${updated.tour_title}`, "Tours", updated.tour_title);
+  await addNotification(
+    'Guided Tour Updated',
+    `Guided tour "${updated.tour_title}" was updated by ${user}.`,
+    'service',
+    updated.id
+  );
+  res.json(updated);
+});
+
+app.delete("/api/tours/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
+  db.tours = db.tours.filter(t => t.id !== id);
+  await deleteFromFirestore('tours', id);
+  await logActivity(user, "Deleted tour program", "Tours", id);
+  await addNotification(
+    'Guided Tour Deleted',
+    `Guided tour program #${id} was deleted by ${user}.`,
+    'service',
+    id
+  );
+  res.json({ success: true });
+});
+
+// Tourism Services: Day Trips
+app.get("/api/day-trips", async (req, res) => {
+  const items = await getCollectionDocs('day_trips');
+  res.json(items);
+});
+
+app.post("/api/day-trips", async (req, res) => {
+  const id = req.body.id || ("DAY-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const trip = {
+    ...req.body,
+    id,
+    currency: req.body.currency || 'USD',
+    cost_price: Number(req.body.cost_price) || 0,
+    selling_price: Number(req.body.selling_price) || 0,
+    duration_hours: Number(req.body.duration_hours) || 6
+  };
+  const idx = db.day_trips.findIndex(d => d.id === id);
+  if (idx >= 0) db.day_trips[idx] = trip;
+  else db.day_trips.push(trip);
+  await saveToFirestore('day_trips', id, trip);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Registered day trip: ${trip.trip_title}`, "Day Trips", trip.trip_title);
+  await addNotification(
+    'Day Trip Excursion Registered',
+    `Day trip excursion "${trip.trip_title}" (${trip.city_location}, ${trip.selling_price} ${trip.currency}) was added by ${user}.`,
+    'service',
+    trip.id
+  );
+  res.json(trip);
+});
+
+app.put("/api/day-trips/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.day_trips.findIndex(d => d.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('day_trips');
+    idx = db.day_trips.findIndex(d => d.id === id);
+  }
+  const existing = idx !== -1 ? db.day_trips[idx] : { id };
+  const updated = {
+    ...existing,
+    ...req.body,
+    id,
+    currency: req.body.currency || existing.currency || 'USD',
+    cost_price: Number(req.body.cost_price !== undefined ? req.body.cost_price : existing.cost_price) || 0,
+    selling_price: Number(req.body.selling_price !== undefined ? req.body.selling_price : existing.selling_price) || 0,
+    duration_hours: Number(req.body.duration_hours !== undefined ? req.body.duration_hours : existing.duration_hours) || 6
+  };
+  if (idx !== -1) db.day_trips[idx] = updated;
+  else db.day_trips.push(updated);
+  await saveToFirestore('day_trips', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Updated day trip: ${updated.trip_title}`, "Day Trips", updated.trip_title);
+  await addNotification(
+    'Day Trip Updated',
+    `Day trip excursion "${updated.trip_title}" was updated by ${user}.`,
+    'service',
+    updated.id
+  );
+  res.json(updated);
+});
+
+app.delete("/api/day-trips/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
+  db.day_trips = db.day_trips.filter(d => d.id !== id);
+  await deleteFromFirestore('day_trips', id);
+  await logActivity(user, "Deleted day trip", "Day Trips", id);
+  await addNotification(
+    'Day Trip Deleted',
+    `Day trip excursion #${id} was deleted by ${user}.`,
+    'service',
+    id
+  );
   res.json({ success: true });
 });
 
@@ -639,7 +1226,8 @@ app.post("/api/tour-packages", async (req, res) => {
   const pkgId = req.body.id || ("PKG-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const pkg = {
     ...req.body,
-    id: pkgId
+    id: pkgId,
+    currency: req.body.currency || 'USD'
   };
   const idx = db.tour_packages.findIndex(p => p.id === pkg.id);
   if (idx >= 0) {
@@ -647,7 +1235,14 @@ app.post("/api/tour-packages", async (req, res) => {
   } else {
     db.tour_packages.push(pkg);
   }
-  await logActivity((req.headers['x-acting-user'] as string) || "Staff", `Created tour package ${pkg.package_name}`, "Tour Packages", pkg.package_name);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Created tour package ${pkg.package_name}`, "Tour Packages", pkg.package_name);
+  await addNotification(
+    'Tour Package Created',
+    `Tour package "${pkg.package_name}" (${pkg.selling_price} ${pkg.currency}) was created by ${user}.`,
+    'package',
+    pkg.id
+  );
   await saveToFirestore('tour_packages', pkg.id, pkg);
   res.json(pkg);
 });
@@ -660,20 +1255,34 @@ app.put("/api/tour-packages/:id", async (req, res) => {
     idx = db.tour_packages.findIndex(p => p.id === id);
   }
   const current = idx !== -1 ? db.tour_packages[idx] : { id };
-  const updated = { ...current, ...req.body, id };
+  const updated = { ...current, ...req.body, id, currency: req.body.currency || current.currency || 'USD' };
   if (idx !== -1) {
     db.tour_packages[idx] = updated;
   } else {
     db.tour_packages.push(updated);
   }
   await saveToFirestore('tour_packages', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await addNotification(
+    'Tour Package Updated',
+    `Tour package "${updated.package_name}" was updated by ${user}.`,
+    'package',
+    id
+  );
   res.json(updated);
 });
 
 app.delete("/api/tour-packages/:id", async (req, res) => {
   const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
   db.tour_packages = db.tour_packages.filter(p => p.id !== id);
   await deleteFromFirestore('tour_packages', id);
+  await addNotification(
+    'Tour Package Deleted',
+    `Tour package #${id} was deleted by ${user}.`,
+    'package',
+    id
+  );
   res.json({ success: true });
 });
 
@@ -687,7 +1296,8 @@ app.post("/api/hotels", async (req, res) => {
   const hotId = req.body.id || ("HOT-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const hotel = {
     ...req.body,
-    id: hotId
+    id: hotId,
+    currency: req.body.currency || 'USD'
   };
   const idx = db.hotels.findIndex(h => h.id === hotel.id);
   if (idx >= 0) {
@@ -696,6 +1306,14 @@ app.post("/api/hotels", async (req, res) => {
     db.hotels.push(hotel);
   }
   await saveToFirestore('hotels', hotel.id, hotel);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Registered hotel partner: ${hotel.hotel_name}`, "Hotels", hotel.hotel_name);
+  await addNotification(
+    'Partner Hotel Registered',
+    `Hotel "${hotel.hotel_name}" in ${hotel.city}, ${hotel.country} (${hotel.selling_price} ${hotel.currency}) was added by ${user}.`,
+    'hotel',
+    hotel.id
+  );
   res.json(hotel);
 });
 
@@ -707,20 +1325,36 @@ app.put("/api/hotels/:id", async (req, res) => {
     idx = db.hotels.findIndex(h => h.id === id);
   }
   const current = idx !== -1 ? db.hotels[idx] : { id };
-  const updated = { ...current, ...req.body, id };
+  const updated = { ...current, ...req.body, id, currency: req.body.currency || current.currency || 'USD' };
   if (idx !== -1) {
     db.hotels[idx] = updated;
   } else {
     db.hotels.push(updated);
   }
   await saveToFirestore('hotels', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Updated hotel partner: ${updated.hotel_name}`, "Hotels", updated.hotel_name);
+  await addNotification(
+    'Hotel Partner Updated',
+    `Hotel "${updated.hotel_name}" was updated by ${user}.`,
+    'hotel',
+    id
+  );
   res.json(updated);
 });
 
 app.delete("/api/hotels/:id", async (req, res) => {
   const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
   db.hotels = db.hotels.filter(h => h.id !== id);
   await deleteFromFirestore('hotels', id);
+  await logActivity(user, "Deleted hotel partner", "Hotels", id);
+  await addNotification(
+    'Hotel Partner Deleted',
+    `Hotel record #${id} was deleted by ${user}.`,
+    'hotel',
+    id
+  );
   res.json({ success: true });
 });
 
@@ -734,7 +1368,8 @@ app.post("/api/flights", async (req, res) => {
   const fltId = req.body.id || ("FL-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const flight = {
     ...req.body,
-    id: fltId
+    id: fltId,
+    currency: req.body.currency || 'USD'
   };
   const idx = db.flights.findIndex(f => f.id === flight.id);
   if (idx >= 0) {
@@ -743,6 +1378,14 @@ app.post("/api/flights", async (req, res) => {
     db.flights.push(flight);
   }
   await saveToFirestore('flights', flight.id, flight);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Registered flight ticket: ${flight.airline} ${flight.flight_number} (${flight.passenger})`, "Flights", flight.passenger);
+  await addNotification(
+    'Flight Booking Registered',
+    `Flight ticket ${flight.airline} ${flight.flight_number} for passenger ${flight.passenger} (${flight.selling_price} ${flight.currency}) was added by ${user}.`,
+    'flight',
+    flight.id
+  );
   res.json(flight);
 });
 
@@ -754,20 +1397,36 @@ app.put("/api/flights/:id", async (req, res) => {
     idx = db.flights.findIndex(f => f.id === id);
   }
   const current = idx !== -1 ? db.flights[idx] : { id };
-  const updated = { ...current, ...req.body, id };
+  const updated = { ...current, ...req.body, id, currency: req.body.currency || current.currency || 'USD' };
   if (idx !== -1) {
     db.flights[idx] = updated;
   } else {
     db.flights.push(updated);
   }
   await saveToFirestore('flights', id, updated);
+  const user = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(user, `Updated flight ticket: ${updated.airline} ${updated.flight_number}`, "Flights", updated.passenger);
+  await addNotification(
+    'Flight Booking Updated',
+    `Flight ticket ${updated.airline} ${updated.flight_number} was updated by ${user}.`,
+    'flight',
+    id
+  );
   res.json(updated);
 });
 
 app.delete("/api/flights/:id", async (req, res) => {
   const { id } = req.params;
+  const user = (req.headers['x-acting-user'] as string) || "Administrator";
   db.flights = db.flights.filter(f => f.id !== id);
   await deleteFromFirestore('flights', id);
+  await logActivity(user, "Deleted flight ticket", "Flights", id);
+  await addNotification(
+    'Flight Booking Deleted',
+    `Flight booking #${id} was deleted by ${user}.`,
+    'flight',
+    id
+  );
   res.json({ success: true });
 });
 
