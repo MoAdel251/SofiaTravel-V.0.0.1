@@ -8,22 +8,26 @@ import {
   X, 
   Edit3, 
   Trash2, 
-  AlertTriangle 
+  AlertTriangle,
+  Ticket
 } from 'lucide-react';
 import { Hotel as HotelType } from '../types';
+import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface HotelsViewProps {
   hotels: HotelType[];
   onAddHotel: (data: Partial<HotelType>) => void;
   onUpdateHotel?: (id: string, data: Partial<HotelType>) => void;
   onDeleteHotel?: (id: string) => void;
+  onCreateVoucherForService?: (category: 'Hotel', service: HotelType) => void;
 }
 
 export function HotelsView({ 
   hotels = [], 
   onAddHotel, 
   onUpdateHotel, 
-  onDeleteHotel 
+  onDeleteHotel,
+  onCreateVoucherForService
 }: HotelsViewProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHotel, setEditingHotel] = useState<HotelType | null>(null);
@@ -180,14 +184,31 @@ export function HotelsView({
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-semibold">Contract Rate</span>
-                  <p className="text-xs font-semibold text-slate-600">${hotel.contract_price || 0} /night</p>
+                  <div className="text-xs font-semibold text-slate-600">
+                    <CurrencyHighlight amount={hotel.contract_price || 0} currency={hotel.currency || 'USD'} /> <span className="text-[10px] font-normal text-slate-500">/night</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Selling Rate</span>
-                  <p className="text-base font-extrabold text-blue-700">${hotel.selling_price || 0} <span className="text-[10px] font-normal text-slate-500">/night</span></p>
+                <div className="flex items-center gap-2">
+                  {onCreateVoucherForService && (
+                    <button
+                      type="button"
+                      onClick={() => onCreateVoucherForService('Hotel', hotel)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                      title="Issue Hotel Voucher"
+                    >
+                      <Ticket className="w-3.5 h-3.5" />
+                      <span>Issue Voucher</span>
+                    </button>
+                  )}
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Selling Rate</span>
+                    <div className="text-base font-extrabold text-blue-700">
+                      <CurrencyHighlight amount={hotel.selling_price || 0} currency={hotel.currency || 'USD'} /> <span className="text-[10px] font-normal text-slate-500">/night</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

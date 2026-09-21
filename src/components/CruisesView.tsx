@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CruiseService, CruiseCabinType, BoardBasis, Supplier } from '../types';
 import { formatCurrency } from '../utils/currency';
+import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface CruisesViewProps {
   cruises: CruiseService[];
@@ -366,15 +367,21 @@ export function CruisesView({
                   <div className="pt-2 border-t border-slate-100 grid grid-cols-3 gap-2 text-center">
                     <div className="bg-slate-50 p-2 rounded-xl">
                       <span className="text-slate-400 text-[10px] uppercase font-bold block">Cabin Cost</span>
-                      <span className="text-xs font-bold text-slate-700">{formatCurrency(c.cost_price, c.currency)}</span>
+                      <span className="text-xs font-bold text-slate-700">
+                        <CurrencyHighlight amount={c.cost_price} currency={c.currency} />
+                      </span>
                     </div>
                     <div className="bg-slate-50 p-2 rounded-xl">
                       <span className="text-slate-400 text-[10px] uppercase font-bold block">Rate / Pax</span>
-                      <span className="text-xs font-extrabold text-teal-700">{formatCurrency(c.selling_price, c.currency)}</span>
+                      <span className="text-xs font-extrabold text-teal-700">
+                        <CurrencyHighlight amount={c.selling_price} currency={c.currency} />
+                      </span>
                     </div>
                     <div className="bg-emerald-50 p-2 rounded-xl">
                       <span className="text-emerald-700 text-[10px] uppercase font-bold block">Profit</span>
-                      <span className="text-xs font-extrabold text-emerald-800">+{formatCurrency(profit, c.currency)}</span>
+                      <span className="text-xs font-extrabold text-emerald-800">
+                        <CurrencyHighlight amount={profit} currency={c.currency} prefix="+" />
+                      </span>
                     </div>
                   </div>
                 </div>

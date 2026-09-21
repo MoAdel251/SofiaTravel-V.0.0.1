@@ -20,10 +20,12 @@ import {
 } from 'lucide-react';
 import { VisaService, VisaType, VisaEntry, Supplier } from '../types';
 import { formatCurrency } from '../utils/currency';
+import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface VisasViewProps {
   visas: VisaService[];
   suppliers?: Supplier[];
+  customers?: any[];
   onAddVisa: (data: Partial<VisaService>) => void;
   onUpdateVisa: (id: string, data: Partial<VisaService>) => void;
   onDeleteVisa: (id: string) => void;
@@ -62,6 +64,7 @@ const PRESET_DOCUMENT_REQUIREMENTS = [
 export function VisasView({
   visas = [],
   suppliers = [],
+  customers = [],
   onAddVisa,
   onUpdateVisa,
   onDeleteVisa,
@@ -396,15 +399,21 @@ export function VisasView({
                   <div className="pt-2 border-t border-slate-100 grid grid-cols-3 gap-2 text-center">
                     <div className="bg-slate-50 p-2 rounded-xl">
                       <span className="text-slate-400 text-[10px] uppercase font-bold block">Embassy Fee</span>
-                      <span className="text-xs font-bold text-slate-700">{formatCurrency(v.cost_price, v.currency)}</span>
+                      <span className="text-xs font-bold text-slate-700">
+                        <CurrencyHighlight amount={v.cost_price} currency={v.currency} />
+                      </span>
                     </div>
                     <div className="bg-slate-50 p-2 rounded-xl">
                       <span className="text-slate-400 text-[10px] uppercase font-bold block">Selling Price</span>
-                      <span className="text-xs font-extrabold text-indigo-700">{formatCurrency(v.selling_price, v.currency)}</span>
+                      <span className="text-xs font-extrabold text-indigo-700">
+                        <CurrencyHighlight amount={v.selling_price} currency={v.currency} />
+                      </span>
                     </div>
                     <div className="bg-emerald-50 p-2 rounded-xl">
                       <span className="text-emerald-700 text-[10px] uppercase font-bold block">Profit</span>
-                      <span className="text-xs font-extrabold text-emerald-800">+{formatCurrency(profit, v.currency)}</span>
+                      <span className="text-xs font-extrabold text-emerald-800">
+                        <CurrencyHighlight amount={profit} currency={v.currency} prefix="+" />
+                      </span>
                     </div>
                   </div>
                 </div>

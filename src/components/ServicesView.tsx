@@ -29,6 +29,8 @@ import { DayTripsView } from './DayTripsView';
 import { FlightsView } from './FlightsView';
 import { HotelsView } from './HotelsView';
 
+import { CurrencyHighlight } from './CurrencyHighlight';
+
 interface ServicesViewProps {
   initialSubTab?: 'visas' | 'flights' | 'hotels' | 'transfers' | 'cruises' | 'tours' | 'day-trips';
   visas: VisaService[];
@@ -125,7 +127,13 @@ export function ServicesView({
             <div className="p-1.5 bg-slate-900 text-white rounded-lg">
               <Layers className="w-4 h-4" />
             </div>
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tourism Services Catalog:</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tourism Services Catalog</span>
+            <div className="hidden sm:flex items-center gap-1 ml-2 border-l border-slate-200 pl-2">
+              <span className="text-[10px] text-slate-400 font-medium">Currencies:</span>
+              <CurrencyHighlight symbolOnly currency="USD" />
+              <CurrencyHighlight symbolOnly currency="EGP" />
+              <CurrencyHighlight symbolOnly currency="EUR" />
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5 overflow-x-auto py-1">
@@ -163,6 +171,7 @@ export function ServicesView({
           <VisasView
             visas={visas}
             suppliers={suppliers}
+            customers={customers}
             onAddVisa={onAddVisa}
             onUpdateVisa={onUpdateVisa}
             onDeleteVisa={onDeleteVisa}
@@ -176,6 +185,7 @@ export function ServicesView({
             onAddFlight={onAddFlight}
             onUpdateFlight={onUpdateFlight}
             onDeleteFlight={onDeleteFlight}
+            onCreateVoucherForService={onCreateVoucherForService}
           />
         )}
 
@@ -185,6 +195,7 @@ export function ServicesView({
             onAddHotel={onAddHotel}
             onUpdateHotel={onUpdateHotel}
             onDeleteHotel={onDeleteHotel}
+            onCreateVoucherForService={onCreateVoucherForService}
           />
         )}
 

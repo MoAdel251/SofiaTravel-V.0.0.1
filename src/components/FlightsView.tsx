@@ -7,22 +7,26 @@ import {
   X, 
   Edit3, 
   Trash2, 
-  AlertTriangle 
+  AlertTriangle,
+  Ticket
 } from 'lucide-react';
 import { Flight } from '../types';
+import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface FlightsViewProps {
   flights: Flight[];
   onAddFlight: (data: Partial<Flight>) => void;
   onUpdateFlight?: (id: string, data: Partial<Flight>) => void;
   onDeleteFlight?: (id: string) => void;
+  onCreateVoucherForService?: (category: 'Flight', service: Flight) => void;
 }
 
 export function FlightsView({ 
   flights = [], 
   onAddFlight, 
   onUpdateFlight, 
-  onDeleteFlight 
+  onDeleteFlight,
+  onCreateVoucherForService
 }: FlightsViewProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingFlight, setEditingFlight] = useState<Flight | null>(null);
@@ -165,8 +169,12 @@ export function FlightsView({
                       <div className="text-[11px] text-slate-400">{fl.departure_time}</div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className="font-bold text-slate-900">${fl.selling_price || 0}</span>
-                      <span className="text-[10px] text-slate-400 block">Cost: ${fl.ticket_cost || 0}</span>
+                      <div className="font-bold text-slate-900">
+                        <CurrencyHighlight amount={fl.selling_price || 0} currency={fl.currency || 'USD'} />
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Cost: <CurrencyHighlight amount={fl.ticket_cost || 0} currency={fl.currency || 'USD'} />
+                      </div>
                     </td>
                     <td className="py-3.5 px-4">
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -180,7 +188,18 @@ export function FlightsView({
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end space-x-1">
+                      <div className="flex items-center justify-end space-x-1.5">
+                        {onCreateVoucherForService && (
+                          <button
+                            type="button"
+                            onClick={() => onCreateVoucherForService('Flight', fl)}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer mr-1"
+                            title="Issue Customer Voucher"
+                          >
+                            <Ticket className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Voucher</span>
+                          </button>
+                        )}
                         {onUpdateFlight && (
                           <button
                             onClick={() => setEditingFlight({ ...fl })}

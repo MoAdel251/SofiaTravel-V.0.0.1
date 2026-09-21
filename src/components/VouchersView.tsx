@@ -101,7 +101,8 @@ export function VouchersView({
   onUpdateVoucher,
   onDeleteVoucher,
   onSendVoucher,
-  onConvertVoucher
+  onConvertVoucher,
+  onTransferToInvoice
 }: VouchersViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -396,15 +397,21 @@ export function VouchersView({
     setSendModalVoucher(null);
   };
 
+  const [autoGenerateInvoice, setAutoGenerateInvoice] = useState<boolean>(true);
+
   const handleOpenConvert = (v: Voucher) => {
     setConvertModalVoucher(v);
     setConvertTripTitle(v.service_title || 'Confirmed Tourism Trip');
     setConvertNotes('');
+    setAutoGenerateInvoice(true);
   };
 
   const handleConfirmConvert = () => {
     if (!convertModalVoucher) return;
     onConvertVoucher(convertModalVoucher.id, convertTripTitle, convertNotes);
+    if (autoGenerateInvoice && onTransferToInvoice) {
+      onTransferToInvoice(convertModalVoucher, 'Customer');
+    }
     setConvertModalVoucher(null);
   };
 
@@ -704,8 +711,21 @@ export function VouchersView({
                         <span>Confirm & Convert</span>
                       </button>
                     ) : (
-                      <div className="px-3 py-1 bg-emerald-50 text-emerald-800 rounded-xl text-[11px] font-bold border border-emerald-200 text-center w-full">
-                        ✓ Active Trip
+                      <div className="flex flex-col gap-1.5 w-full">
+                        <div className="px-3 py-1 bg-emerald-50 text-emerald-800 rounded-xl text-[11px] font-bold border border-emerald-200 text-center">
+                          ✓ Active Trip
+                        </div>
+                        {onTransferToInvoice && (
+                          <button
+                            type="button"
+                            onClick={() => onTransferToInvoice(v, 'Customer')}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-bold border border-indigo-200 transition-all cursor-pointer w-full justify-center"
+                            title="Generate Customer Invoice in Accounting System"
+                          >
+                            <FileCheck2 className="w-3.5 h-3.5" />
+                            <span>Generate Invoice</span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1434,6 +1454,22 @@ export function VouchersView({
                   placeholder="e.g. Deposit received, driver assigned, Nile cruise cabin 304 confirmed."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs"
                 />
+              </div>
+
+              <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="autoGenerateInvoice"
+                    checked={autoGenerateInvoice}
+                    onChange={(e) => setAutoGenerateInvoice(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <label htmlFor="autoGenerateInvoice" className="text-xs font-bold text-emerald-950 cursor-pointer">
+                    Automatically generate Customer Invoice upon confirmation
+                  </label>
+                </div>
+                <FileCheck2 className="w-4 h-4 text-emerald-600" />
               </div>
             </div>
 

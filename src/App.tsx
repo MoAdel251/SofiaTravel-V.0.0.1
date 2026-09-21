@@ -1006,14 +1006,36 @@ export default function App() {
   };
 
   const handleCreateVoucherForService = (category: string, service: any) => {
+    let serviceTitle = service.trip_title || service.tour_title || service.cruise_name || service.service_title || service.hotel_name || `${service.country || ''} - ${service.visa_title || ''}`;
+    if (category === 'Flight' || service.airline) {
+      serviceTitle = `Flight Ticket: ${service.departure_airport || ''} → ${service.arrival_airport || ''} (${service.airline || ''})`;
+    } else if (category === 'Hotel' || service.hotel_name) {
+      serviceTitle = `Hotel Booking: ${service.hotel_name || ''}`;
+    }
+
+    let destination = service.destination || service.city_location || service.city || service.country || service.route_itinerary || service.dropoff_location || 'Egypt';
+    if (category === 'Flight' && service.arrival_airport) {
+      destination = service.arrival_airport;
+    }
+
+    let costPrice = Number(service.cost_price ?? service.contract_price ?? service.ticket_cost ?? service.embassy_consular_fee) || 0;
+    let sellPrice = Number(service.selling_price ?? service.agency_fee) || 0;
+
+    let inclusionsList = service.inclusions || service.required_documents || service.amenities || [];
+    if (category === 'Hotel' && service.room_types) {
+      inclusionsList = Array.isArray(inclusionsList) && inclusionsList.length > 0 ? inclusionsList : [service.room_types];
+    }
+
     handleAddVoucher({
       service_category: category as any,
-      service_title: service.trip_title || service.tour_title || service.cruise_name || service.service_title || `${service.country} - ${service.visa_title}`,
-      destination: service.destination || service.city_location || service.country || service.route_itinerary || 'Egypt',
-      cost_price: service.cost_price || 0,
-      selling_price: service.selling_price || 0,
+      service_title: serviceTitle,
+      destination: destination,
+      cost_price: costPrice,
+      selling_price: sellPrice,
       currency: service.currency || 'USD',
-      inclusions: service.inclusions || service.required_documents || service.amenities || []
+      customer_id: service.customer_id || '',
+      customer_name: service.customer_name || service.passenger || service.contact_person || '',
+      inclusions: inclusionsList
     });
     setCurrentTab('vouchers');
   };
