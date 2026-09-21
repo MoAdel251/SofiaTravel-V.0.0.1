@@ -762,8 +762,8 @@ app.post("/api/vouchers/:id/send", async (req, res) => {
   res.json(v);
 });
 
-// Voucher Workflow: Confirm and convert to Trip / Service
-app.post("/api/vouchers/:id/convert", async (req, res) => {
+// Voucher Workflow: Confirm and convert to Trip / Service (Confirm and Transfer)
+async function handleConfirmAndTransferVoucher(req: any, res: any) {
   const { id } = req.params;
   const { trip_title, notes } = req.body;
   let idx = db.vouchers.findIndex(v => v.id === id);
@@ -785,16 +785,126 @@ app.post("/api/vouchers/:id/convert", async (req, res) => {
 
   await saveToFirestore('vouchers', id, v);
   await saveToFirestore('reservations', id, v);
+
+  // 1. Generate Customer Invoice if not exists
+  const existingCustInv = db.invoices?.find(inv => inv.recipient_type === 'Customer' && (inv.notes?.includes(v.voucher_number) || inv.items?.some(i => i.item_reference_id === v.id)));
+  if (!existingCustInv) {
+    const custInvId = "INV-C-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const custInvNum = `INV-2026-${(db.invoices?.length || 0) + 1001}`;
+    const sellingPrice = Number(v.selling_price) || 0;
+    const paidAmt = Number(v.paid_amount) || 0;
+    const balDue = Math.max(0, sellingPrice - paidAmt);
+    const customerInvoice = {
+      id: custInvId,
+      invoice_number: custInvNum,
+      issue_date: new Date().toISOString().split('T')[0],
+      due_date: v.travel_date || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+      recipient_type: 'Customer',
+      customer_id: v.customer_id,
+      customer_name: v.customer_name,
+      customer_phone: v.customer_phone,
+      customer_email: v.customer_email,
+      customer_passport: v.customer_passport,
+      currency: v.currency || 'USD',
+      items: [
+        {
+          id: 'ITEM-C-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+          item_type: 'Custom',
+          item_reference_id: v.id,
+          title: v.service_title || 'Tourism Service & Voucher Item',
+          description: `Confirmed from Voucher #${v.voucher_number} - Destination: ${v.destination}`,
+          quantity: v.number_of_travelers || 1,
+          unit_price: sellingPrice / (v.number_of_travelers || 1),
+          total_price: sellingPrice
+        }
+      ],
+      subtotal: sellingPrice,
+      discount: 0,
+      tax_rate: 0,
+      tax_amount: 0,
+      total_amount: sellingPrice,
+      paid_amount: paidAmt,
+      balance_due: balDue,
+      payment_status: balDue === 0 ? 'Paid' : (paidAmt > 0 ? 'Partial' : 'Unpaid'),
+      notes: `Generated automatically upon confirming and transferring voucher #${v.voucher_number} for service "${v.service_title}".`,
+      created_by_employee: v.employee_name || 'Sofia Travel Staff',
+      manager_name: 'Ahmed Ali'
+    };
+    if (!db.invoices) db.invoices = [];
+    db.invoices.unshift(customerInvoice);
+    await saveToFirestore('invoices', custInvId, customerInvoice);
+    if (v.customer_id) {
+      const cust = db.customers?.find(c => c.id === v.customer_id || c.customer_id === v.customer_id);
+      if (cust) {
+        cust.outstanding_balance = (cust.outstanding_balance || 0) + balDue;
+        await saveToFirestore('customers', cust.id, cust);
+      }
+    }
+  }
+
+  // 2. Generate Supplier Invoice if not exists
+  const existingSupInv = db.invoices?.find(inv => inv.recipient_type === 'Supplier' && (inv.notes?.includes(v.voucher_number) || inv.items?.some(i => i.item_reference_id === v.id)));
+  if (!existingSupInv && v.cost_price && v.cost_price > 0) {
+    const supInvId = "INV-S-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const supInvNum = `BILL-2026-${(db.invoices?.length || 0) + 1002}`;
+    const costPrice = Number(v.cost_price) || 0;
+    const supplierInvoice = {
+      id: supInvId,
+      invoice_number: supInvNum,
+      issue_date: new Date().toISOString().split('T')[0],
+      due_date: v.travel_date || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+      recipient_type: 'Supplier',
+      supplier_id: v.supplier_id || 'SUP-DEFAULT',
+      supplier_name: v.supplier_name || 'Primary Supplier',
+      currency: v.currency || 'USD',
+      items: [
+        {
+          id: 'ITEM-S-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+          item_type: 'Custom',
+          item_reference_id: v.id,
+          title: `Supplier Payable for ${v.service_title}`,
+          description: `Supplier liability for confirmed voucher #${v.voucher_number} (${v.destination})`,
+          quantity: v.number_of_travelers || 1,
+          unit_price: costPrice / (v.number_of_travelers || 1),
+          total_price: costPrice
+        }
+      ],
+      subtotal: costPrice,
+      discount: 0,
+      tax_rate: 0,
+      tax_amount: 0,
+      total_amount: costPrice,
+      paid_amount: 0,
+      balance_due: costPrice,
+      payment_status: 'Unpaid',
+      notes: `Company payable invoice to supplier ${v.supplier_name || 'supplier'} for confirmed voucher #${v.voucher_number}.`,
+      created_by_employee: v.employee_name || 'Sofia Travel Staff',
+      manager_name: 'Ahmed Ali'
+    };
+    db.invoices.unshift(supplierInvoice);
+    await saveToFirestore('invoices', supInvId, supplierInvoice);
+    if (v.supplier_id) {
+      const sup = db.suppliers?.find(s => s.id === v.supplier_id);
+      if (sup) {
+        sup.outstanding_balance = (sup.outstanding_balance || 0) + costPrice;
+        await saveToFirestore('suppliers', sup.id, sup);
+      }
+    }
+  }
+
   const user = (req.headers['x-acting-user'] as string) || v.employee_name || "Staff";
-  await logActivity(user, `Confirmed & Converted voucher ${v.voucher_number} into active trip "${v.converted_trip_title}"`, "Vouchers", v.voucher_number);
+  await logActivity(user, `Confirmed & Converted voucher ${v.voucher_number} into active trip "${v.converted_trip_title}" & generated invoices`, "Vouchers", v.voucher_number);
   await addNotification(
-    'Voucher Converted to Active Trip',
-    `Voucher #${v.voucher_number} was confirmed and converted into active trip/service "${v.converted_trip_title}" for ${v.customer_name}.`,
+    'Voucher Converted & Invoices Generated',
+    `Voucher #${v.voucher_number} was confirmed and transferred. Customer and supplier invoices generated, and service saved to completed trips.`,
     'voucher',
     v.id
   );
-  res.json(v);
-});
+  res.json({ voucher: v, status: 'success' });
+}
+
+app.post("/api/vouchers/:id/convert", handleConfirmAndTransferVoucher);
+app.post("/api/vouchers/:id/convert-to-trip", handleConfirmAndTransferVoucher);
 
 // Backward compatibility for Reservations endpoints
 app.get("/api/reservations", async (req, res) => {
