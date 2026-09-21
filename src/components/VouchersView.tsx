@@ -53,7 +53,7 @@ import {
   Hotel,
   Flight
 } from '../types';
-import { formatCurrency } from '../utils/currency';
+import { formatCurrency, formatTripleCurrencyString } from '../utils/currency';
 
 interface VouchersViewProps {
   vouchers: Voucher[];
@@ -357,8 +357,14 @@ export function VouchersView({
       installmentObj = handleRecalculateInstallment(partnerName, selling, selectedPlanMonths, downPaymentAmount);
     }
 
+    const selectedCust = customers.find(c => c.id === formData.customer_id || c.customer_id === formData.customer_id);
     const payload: Partial<Voucher> = {
       ...formData,
+      customer_id: selectedCust ? (selectedCust.customer_id || selectedCust.id) : formData.customer_id,
+      customer_name: selectedCust ? (selectedCust.full_name || selectedCust.name) : formData.customer_name,
+      customer_phone: selectedCust ? selectedCust.phone : formData.customer_phone,
+      customer_email: selectedCust ? selectedCust.email : formData.customer_email,
+      customer_passport: selectedCust ? selectedCust.passport_number : formData.customer_passport,
       selling_price: selling,
       cost_price: cost,
       paid_amount: paid,
@@ -625,6 +631,9 @@ export function VouchersView({
                     <div>
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Voucher Price</span>
                       <span className="text-sm font-extrabold text-indigo-700">{formatCurrency(v.selling_price, v.currency)}</span>
+                      <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                        {formatTripleCurrencyString(v.selling_price, v.currency, settings?.exchange_rates)}
+                      </div>
                     </div>
 
                     <div>
@@ -868,12 +877,15 @@ export function VouchersView({
                   <label className="block text-xs font-bold text-slate-700 mb-1">Customer / Guest *</label>
                   <select
                     required
-                    value={formData.customer_id || ''}
+                    value={(() => {
+                      const found = customers.find(c => c.id === formData.customer_id || c.customer_id === formData.customer_id);
+                      return found ? found.id : (formData.customer_id || '');
+                    })()}
                     onChange={(e) => {
                       const c = customers.find(cust => cust.id === e.target.value || cust.customer_id === e.target.value);
                       setFormData({
                         ...formData,
-                        customer_id: c ? (c.customer_id || c.id) : e.target.value,
+                        customer_id: c ? c.id : e.target.value,
                         customer_name: c ? (c.full_name || c.name) : '',
                         customer_phone: c ? c.phone : '',
                         customer_email: c ? c.email : '',

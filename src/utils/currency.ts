@@ -109,3 +109,13 @@ export function getTripleCurrencyAmounts(
     eur: convertCurrency(amount, sourceCurrency, 'EUR', rates),
   };
 }
+
+export function formatTripleCurrencyString(
+  amount: number,
+  sourceCurrency: string = 'USD',
+  rates: ExchangeRate[] = DEFAULT_EXCHANGE_RATES
+): string {
+  const triple = getTripleCurrencyAmounts(amount, sourceCurrency, rates);
+  return `$${Math.round(triple.usd).toLocaleString()} USD / ${Math.round(triple.egp).toLocaleString()} EGP / €${Math.round(triple.eur).toLocaleString()} EUR`;
+}
+

@@ -42,7 +42,7 @@ import {
 } from '../types';
 import { SofiaLogo } from './SofiaLogo';
 import { ManagerSignature } from './ManagerSignature';
-import { formatCurrency, getCurrencySymbol, convertCurrency } from '../utils/currency';
+import { formatCurrency, getCurrencySymbol, convertCurrency, formatTripleCurrencyString } from '../utils/currency';
 
 interface InvoicesViewProps {
   invoices: Invoice[];
@@ -185,9 +185,11 @@ export function InvoicesView({
         setRecipientType('Customer');
 
         if (initialReservation.customer_id) {
-          setSelectedCustomerId(initialReservation.customer_id);
+          const found = customers.find(c => c.id === initialReservation.customer_id || c.customer_id === initialReservation.customer_id);
+          if (found) setSelectedCustomerId(found.id);
+          else setSelectedCustomerId(initialReservation.customer_id);
         } else if (initialReservation.customer_name) {
-          const found = customers.find(c => c.full_name?.toLowerCase() === initialReservation.customer_name.toLowerCase());
+          const found = customers.find(c => (c.full_name || c.name)?.toLowerCase() === initialReservation.customer_name.toLowerCase() || c.customer_id === initialReservation.customer_name);
           if (found) setSelectedCustomerId(found.id);
         }
 
@@ -790,7 +792,10 @@ export function InvoicesView({
                       </td>
 
                       <td className="py-3.5 px-4 font-bold text-slate-900">
-                        {formatCurrency(inv.total_amount, currency)}
+                        <div>{formatCurrency(inv.total_amount, currency)}</div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                          {formatTripleCurrencyString(inv.total_amount, inv.currency, settings?.exchange_rates)}
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-4 font-semibold text-emerald-600">
@@ -944,9 +949,10 @@ export function InvoicesView({
                         onChange={(e) => setSelectedCustomerId(e.target.value)}
                         className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-cyan-500 font-medium"
                       >
+                        <option value="">-- Select Registered Customer --</option>
                         {customers.map(c => (
                           <option key={c.id} value={c.id}>
-                            {c.full_name} ({c.customer_id}) • {c.customer_type} • Passport: {c.passport_number}
+                            {c.full_name || c.name || 'Customer'} (Code: {c.customer_id || c.id}) • {c.customer_type || 'Individual'} • Passport: {c.passport_number || 'N/A'}
                           </option>
                         ))}
                       </select>
@@ -1518,7 +1524,12 @@ export function InvoicesView({
                   )}
                   <div className="flex justify-between text-slate-900 font-bold border-t border-slate-200 pt-2 text-sm">
                     <span>Total Amount:</span>
-                    <span>{formatCurrency(viewInvoice.total_amount, viewInvoice.currency)}</span>
+                    <div className="text-right">
+                      <div>{formatCurrency(viewInvoice.total_amount, viewInvoice.currency)}</div>
+                      <div className="text-[10px] text-slate-500 font-mono font-normal">
+                        {formatTripleCurrencyString(viewInvoice.total_amount, viewInvoice.currency, settings?.exchange_rates)}
+                      </div>
+                    </div>
                   </div>
                   <div className="flex justify-between text-emerald-700 font-semibold">
                     <span>Amount Paid:</span>
