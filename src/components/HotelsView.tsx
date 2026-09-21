@@ -9,13 +9,17 @@ import {
   Edit3, 
   Trash2, 
   AlertTriangle,
-  Ticket
+  Ticket,
+  User,
+  Calendar,
+  CreditCard
 } from 'lucide-react';
-import { Hotel as HotelType } from '../types';
+import { Hotel as HotelType, Customer } from '../types';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface HotelsViewProps {
   hotels: HotelType[];
+  customers?: Customer[];
   onAddHotel: (data: Partial<HotelType>) => void;
   onUpdateHotel?: (id: string, data: Partial<HotelType>) => void;
   onDeleteHotel?: (id: string) => void;
@@ -24,6 +28,7 @@ interface HotelsViewProps {
 
 export function HotelsView({ 
   hotels = [], 
+  customers = [],
   onAddHotel, 
   onUpdateHotel, 
   onDeleteHotel,
@@ -47,12 +52,40 @@ export function HotelsView({
     currency: 'USD',
     check_in_time: '14:00',
     check_out_time: '12:00',
+    service_type: 'Standalone',
+    customer_id: '',
+    customer_name: '',
+    customer_phone: '',
+    customer_passport: '',
+    customer_email: '',
+    check_in_date: new Date().toISOString().split('T')[0],
+    check_out_date: new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
+    number_of_guests: 2,
+    number_of_nights: 3,
     notes: ''
   });
 
+  const handleSelectCustomer = (custId: string, targetStateSetter: (fn: (prev: any) => any) => void) => {
+    if (!custId) {
+      targetStateSetter(prev => ({ ...prev, customer_id: '', customer_name: '', customer_phone: '', customer_passport: '', customer_email: '' }));
+      return;
+    }
+    const found = customers.find(c => c.id === custId || c.customer_id === custId);
+    if (found) {
+      targetStateSetter(prev => ({
+        ...prev,
+        customer_id: found.id || found.customer_id,
+        customer_name: found.full_name || found.name,
+        customer_phone: found.phone || found.mobile || '',
+        customer_passport: found.passport_number || found.passport || '',
+        customer_email: found.email || ''
+      }));
+    }
+  };
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    onAddHotel(formData);
+    onAddHotel({ ...formData, service_type: 'Standalone' });
     setShowAddModal(false);
     setFormData({
       hotel_name: '',
@@ -68,6 +101,16 @@ export function HotelsView({
       currency: 'USD',
       check_in_time: '14:00',
       check_out_time: '12:00',
+      service_type: 'Standalone',
+      customer_id: '',
+      customer_name: '',
+      customer_phone: '',
+      customer_passport: '',
+      customer_email: '',
+      check_in_date: new Date().toISOString().split('T')[0],
+      check_out_date: new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
+      number_of_guests: 2,
+      number_of_nights: 3,
       notes: ''
     });
   };
@@ -75,7 +118,7 @@ export function HotelsView({
   const handleUpdate = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingHotel && onUpdateHotel) {
-      onUpdateHotel(editingHotel.id, editingHotel);
+      onUpdateHotel(editingHotel.id, { ...editingHotel, service_type: 'Standalone' });
       setEditingHotel(null);
     }
   };
@@ -175,8 +218,23 @@ export function HotelsView({
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1.5 text-xs text-slate-700">
                   <p><strong>Room Types:</strong> {hotel.room_types || 'Standard'}</p>
                   <p><strong>Check-in / Check-out:</strong> {hotel.check_in_time || '14:00'} / {hotel.check_out_time || '12:00'}</p>
+                  {hotel.customer_name && (
+                    <div className="pt-2 mt-2 border-t border-slate-200/80 bg-blue-50/60 p-2 rounded-lg text-blue-900 font-medium">
+                      <p className="font-bold flex items-center gap-1 text-blue-950">
+                        <User className="w-3 h-3 text-blue-600" />
+                        <span>Customer: {hotel.customer_name}</span>
+                      </p>
+                      {hotel.customer_phone && <p className="text-[11px] text-blue-700">Phone: {hotel.customer_phone}</p>}
+                      {hotel.customer_passport && <p className="text-[11px] font-mono text-blue-800">Passport: {hotel.customer_passport}</p>}
+                      {hotel.check_in_date && (
+                        <p className="text-[11px] text-blue-800 font-semibold mt-1">
+                          Dates: {hotel.check_in_date} → {hotel.check_out_date || 'N/A'}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {hotel.contact_person && (
-                    <p><strong>Contact:</strong> {hotel.contact_person} {hotel.phone ? `(${hotel.phone})` : ''}</p>
+                    <p className="pt-1"><strong>Hotel Contact:</strong> {hotel.contact_person} {hotel.phone ? `(${hotel.phone})` : ''}</p>
                   )}
                   {hotel.email && (
                     <p className="truncate"><strong>Email:</strong> {hotel.email}</p>
@@ -228,6 +286,102 @@ export function HotelsView({
             </div>
 
             <form onSubmit={handleCreate} className="space-y-4">
+              {/* Customer Info Section (One-Time Reservation Request) */}
+              <div className="bg-blue-50/80 p-4 rounded-xl border border-blue-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-900 uppercase tracking-wide flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-blue-600" />
+                    Customer Information (One-Time Reservation Request)
+                  </span>
+                  <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
+                    One-Time Service
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Select Registered Customer</label>
+                    <select
+                      value={formData.customer_id || ''}
+                      onChange={(e) => handleSelectCustomer(e.target.value, setFormData)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="">-- Direct / Walk-in / Custom Customer --</option>
+                      {customers.map(c => (
+                        <option key={c.id || c.customer_id} value={c.id || c.customer_id}>
+                          {c.full_name || c.name} ({c.phone || c.mobile || 'No phone'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Customer Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.customer_name || ''}
+                      onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
+                      placeholder="e.g. John Smith"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500 font-semibold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Customer Phone / WhatsApp</label>
+                    <input
+                      type="text"
+                      value={formData.customer_phone || ''}
+                      onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })}
+                      placeholder="+20 100 000 0000"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Passport / ID Number</label>
+                    <input
+                      type="text"
+                      value={formData.customer_passport || ''}
+                      onChange={(e) => setFormData({ ...formData, customer_passport: e.target.value })}
+                      placeholder="e.g. A12345678"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Customer Email</label>
+                    <input
+                      type="email"
+                      value={formData.customer_email || ''}
+                      onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })}
+                      placeholder="john@example.com"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Check-in Date</label>
+                    <input
+                      type="date"
+                      value={formData.check_in_date || ''}
+                      onChange={(e) => setFormData({ ...formData, check_in_date: e.target.value })}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Check-out Date</label>
+                    <input
+                      type="date"
+                      value={formData.check_out_date || ''}
+                      onChange={(e) => setFormData({ ...formData, check_out_date: e.target.value })}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Hotel Name *</label>

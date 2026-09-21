@@ -54,6 +54,7 @@ import {
   Flight
 } from '../types';
 import { formatCurrency, formatTripleCurrencyString } from '../utils/currency';
+import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface VouchersViewProps {
   vouchers: Voucher[];
@@ -408,6 +409,15 @@ export function VouchersView({
 
   const handleConfirmConvert = () => {
     if (!convertModalVoucher) return;
+    if (onUpdateVoucher) {
+      onUpdateVoucher(convertModalVoucher.id, {
+        status: 'Converted to Trip/Service',
+        reservation_status: 'Confirmed',
+        confirmed_at: new Date().toISOString(),
+        converted_at: new Date().toISOString(),
+        converted_trip_title: convertTripTitle || convertModalVoucher.service_title
+      });
+    }
     onConvertVoucher(convertModalVoucher.id, convertTripTitle, convertNotes);
     if (autoGenerateInvoice && onTransferToInvoice) {
       onTransferToInvoice(convertModalVoucher, 'Customer');
@@ -469,10 +479,31 @@ export function VouchersView({
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Voucher Volume</span>
-          <div className="text-2xl font-bold text-indigo-600 mt-1">
-            ${vouchers.reduce((acc, v) => acc + (v.selling_price || 0), 0).toLocaleString()}
-          </div>
-          <span className="text-xs text-slate-500 mt-1 block">Gross contract value</span>
+          {(() => {
+            const totalsByCurrency = vouchers.reduce((acc, v) => {
+              const curr = (v.currency || 'USD').toUpperCase();
+              acc[curr] = (acc[curr] || 0) + (Number(v.selling_price) || 0);
+              return acc;
+            }, {} as Record<string, number>);
+            const keys = Object.keys(totalsByCurrency);
+            if (keys.length === 0) {
+              return (
+                <div className="text-2xl font-bold text-indigo-600 mt-1">
+                  <CurrencyHighlight amount={0} currency="USD" />
+                </div>
+              );
+            }
+            return (
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                {keys.map(currCode => (
+                  <div key={currCode} className="text-base font-extrabold text-indigo-700 bg-indigo-50/80 px-2.5 py-1 rounded-xl border border-indigo-100 flex items-center gap-1">
+                    <CurrencyHighlight amount={totalsByCurrency[currCode]} currency={currCode} />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <span className="text-xs text-slate-500 mt-1.5 block">Gross contract value by currency</span>
         </div>
       </div>
 
@@ -708,7 +739,7 @@ export function VouchersView({
                         className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer w-full justify-center"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Confirm & Convert</span>
+                        <span>Confirm Voucher</span>
                       </button>
                     ) : (
                       <div className="flex flex-col gap-1.5 w-full">

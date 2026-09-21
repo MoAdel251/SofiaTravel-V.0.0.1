@@ -192,6 +192,7 @@ export function ServicesView({
         {activeTab === 'hotels' && (
           <HotelsView
             hotels={hotels}
+            customers={customers}
             onAddHotel={onAddHotel}
             onUpdateHotel={onUpdateHotel}
             onDeleteHotel={onDeleteHotel}

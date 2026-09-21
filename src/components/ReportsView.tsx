@@ -31,6 +31,7 @@ import {
 import { SofiaLogo } from './SofiaLogo';
 import { ManagerSignature } from './ManagerSignature';
 import { formatCurrency, convertCurrency } from '../utils/currency';
+import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface ReportsViewProps {
   reservations: Reservation[];
@@ -60,18 +61,46 @@ export function ReportsView({
   const [reportTab, setReportTab] = useState<'executive' | 'reservations' | 'hotels' | 'flights' | 'financial' | 'employees'>('executive');
   const [dateRange, setDateRange] = useState<'month' | 'quarter' | 'year' | 'all'>('month');
 
-  // Compute Core Executive Stats in 3 Currencies
+  // Group metrics by currency code
   const totalReservationsCount = reservations.length;
   const confirmedReservations = reservations.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Completed' || r.reservation_status === 'Paid');
   
-  const totalGrossSalesUSD = reservations.reduce((acc, r) => acc + (r.selling_price || 0), 0);
-  const totalCostUSD = reservations.reduce((acc, r) => acc + (r.cost_price || 0), 0);
-  const totalNetProfitUSD = Math.max(0, totalGrossSalesUSD - totalCostUSD);
+  const grossSalesByCurrency = reservations.reduce((acc, r) => {
+    const code = (r.currency || 'USD').toUpperCase();
+    acc[code] = (acc[code] || 0) + (r.selling_price || 0);
+    return acc;
+  }, {} as Record<string, number>);
 
-  const totalInvoicedUSD = invoices.reduce((acc, i) => acc + convertCurrency(i.total_amount, i.currency || 'USD', 'USD', settings?.exchange_rates), 0);
-  const totalCollectedUSD = invoices.reduce((acc, i) => acc + convertCurrency(i.paid_amount, i.currency || 'USD', 'USD', settings?.exchange_rates), 0);
-  const totalReceivableUSD = invoices.filter(i => i.recipient_type !== 'Supplier').reduce((acc, i) => acc + convertCurrency(i.balance_due, i.currency || 'USD', 'USD', settings?.exchange_rates), 0);
-  const totalPayableUSD = invoices.filter(i => i.recipient_type === 'Supplier').reduce((acc, i) => acc + convertCurrency(i.balance_due, i.currency || 'USD', 'USD', settings?.exchange_rates), 0);
+  const netProfitByCurrency = reservations.reduce((acc, r) => {
+    const code = (r.currency || 'USD').toUpperCase();
+    const profit = r.profit !== undefined ? r.profit : ((r.selling_price || 0) - (r.cost_price || 0));
+    acc[code] = (acc[code] || 0) + profit;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const collectionsByCurrency = invoices.reduce((acc, i) => {
+    const code = (i.currency || 'USD').toUpperCase();
+    acc[code] = (acc[code] || 0) + (i.paid_amount || 0);
+    return acc;
+  }, {} as Record<string, number>);
+
+  const receivablesByCurrency = invoices.filter(i => i.recipient_type !== 'Supplier').reduce((acc, i) => {
+    const code = (i.currency || 'USD').toUpperCase();
+    acc[code] = (acc[code] || 0) + (i.balance_due || 0);
+    return acc;
+  }, {} as Record<string, number>);
+
+  const payablesByCurrency = invoices.filter(i => i.recipient_type === 'Supplier').reduce((acc, i) => {
+    const code = (i.currency || 'USD').toUpperCase();
+    acc[code] = (acc[code] || 0) + (i.balance_due || 0);
+    return acc;
+  }, {} as Record<string, number>);
+
+  const formatCurrencyMap = (map: Record<string, number>) => {
+    const keys = Object.keys(map);
+    if (keys.length === 0) return 'USD 0';
+    return keys.map(k => `${k} ${map[k].toLocaleString()}`).join(' | ');
+  };
 
   // WhatsApp Manager Report Dispatcher (Requirement 12)
   const sendManagerReportWhatsApp = () => {
@@ -86,12 +115,12 @@ export function ReportsView({
       `• Registered Clients: ${customers.length}\n` +
       `• Active Suppliers/Hotels/Airlines: ${suppliers.length}\n` +
       `• Available Tour Packages: ${packages.length}\n\n` +
-      `*2. FINANCIAL PERFORMANCE (3 CURRENCIES):*\n` +
-      `• *Gross Sales:* ${formatCurrency(totalGrossSalesUSD, 'USD')} | ${formatCurrency(convertCurrency(totalGrossSalesUSD, 'USD', 'EGP', settings?.exchange_rates), 'EGP')} | ${formatCurrency(convertCurrency(totalGrossSalesUSD, 'USD', 'EUR', settings?.exchange_rates), 'EUR')}\n` +
-      `• *Operating Net Profit:* ${formatCurrency(totalNetProfitUSD, 'USD')} | ${formatCurrency(convertCurrency(totalNetProfitUSD, 'USD', 'EGP', settings?.exchange_rates), 'EGP')}\n` +
-      `• *Total Collections:* ${formatCurrency(totalCollectedUSD, 'USD')} (${formatCurrency(convertCurrency(totalCollectedUSD, 'USD', 'EGP', settings?.exchange_rates), 'EGP')})\n` +
-      `• *Customer Receivables Pending:* ${formatCurrency(totalReceivableUSD, 'USD')}\n` +
-      `• *Supplier Payables Pending:* ${formatCurrency(totalPayableUSD, 'USD')}\n\n` +
+      `*2. FINANCIAL PERFORMANCE BY CURRENCY:*\n` +
+      `• *Gross Sales:* ${formatCurrencyMap(grossSalesByCurrency)}\n` +
+      `• *Operating Net Profit:* ${formatCurrencyMap(netProfitByCurrency)}\n` +
+      `• *Total Collections:* ${formatCurrencyMap(collectionsByCurrency)}\n` +
+      `• *Customer Receivables Pending:* ${formatCurrencyMap(receivablesByCurrency)}\n` +
+      `• *Supplier Payables Pending:* ${formatCurrencyMap(payablesByCurrency)}\n\n` +
       `*3. OPERATIONAL INVENTORY HIGHLIGHTS:*\n` +
       `• Partner Hotel Contracts: ${hotels.length} verified properties\n` +
       `• Active Flight Routes: ${flights.length} scheduled sectors\n\n` +
@@ -109,17 +138,17 @@ export function ReportsView({
 
   // Export CSV Report
   const exportExecutiveCSV = () => {
-    const headers = ['Report Category,Entity / Metric,Value USD,Value EGP,Status'];
+    const headers = ['Report Category,Entity / Metric,Amounts By Currency,Status'];
     const rows = [
-      `"Financial","Gross Sales",${totalGrossSalesUSD},${convertCurrency(totalGrossSalesUSD, 'USD', 'EGP', settings?.exchange_rates)},"Audited"`,
-      `"Financial","Net Profit",${totalNetProfitUSD},${convertCurrency(totalNetProfitUSD, 'USD', 'EGP', settings?.exchange_rates)},"Audited"`,
-      `"Financial","Collections Received",${totalCollectedUSD},${convertCurrency(totalCollectedUSD, 'USD', 'EGP', settings?.exchange_rates)},"Received"`,
-      `"Financial","Client Receivables",${totalReceivableUSD},${convertCurrency(totalReceivableUSD, 'USD', 'EGP', settings?.exchange_rates)},"Pending"`,
-      `"Operations","Total Reservations",${totalReservationsCount},${totalReservationsCount},"Active"`,
-      `"Operations","Total Customers",${customers.length},${customers.length},"Active"`,
-      `"Operations","Active Tour Packages",${packages.length},${packages.length},"Inventory"`,
-      `"Operations","Partner Hotels",${hotels.length},${hotels.length},"Inventory"`,
-      `"Operations","Flight Schedules",${flights.length},${flights.length},"Inventory"`
+      `"Financial","Gross Sales","${formatCurrencyMap(grossSalesByCurrency)}","Audited"`,
+      `"Financial","Net Profit","${formatCurrencyMap(netProfitByCurrency)}","Audited"`,
+      `"Financial","Collections Received","${formatCurrencyMap(collectionsByCurrency)}","Received"`,
+      `"Financial","Client Receivables","${formatCurrencyMap(receivablesByCurrency)}","Pending"`,
+      `"Operations","Total Reservations",${totalReservationsCount},"Active"`,
+      `"Operations","Total Customers",${customers.length},"Active"`,
+      `"Operations","Active Tour Packages",${packages.length},"Inventory"`,
+      `"Operations","Partner Hotels",${hotels.length},"Inventory"`,
+      `"Operations","Flight Schedules",${flights.length},"Inventory"`
     ];
 
     const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
@@ -201,10 +230,18 @@ export function ReportsView({
                 <span>Gross Revenue</span>
                 <TrendingUp className="w-4 h-4 text-cyan-600" />
               </div>
-              <div className="text-xl font-extrabold text-slate-900">{formatCurrency(totalGrossSalesUSD, 'USD')}</div>
-              <div className="text-xs text-slate-400">
-                ≈ {formatCurrency(convertCurrency(totalGrossSalesUSD, 'USD', 'EGP', settings?.exchange_rates), 'EGP')}
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {Object.keys(grossSalesByCurrency).length === 0 ? (
+                  <span className="text-xl font-extrabold text-slate-900"><CurrencyHighlight amount={0} currency="USD" /></span>
+                ) : (
+                  Object.keys(grossSalesByCurrency).map(c => (
+                    <span key={c} className="text-sm font-extrabold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-xl">
+                      <CurrencyHighlight amount={grossSalesByCurrency[c]} currency={c} />
+                    </span>
+                  ))
+                )}
               </div>
+              <p className="text-[11px] text-slate-400">Exact booked revenue per currency</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
@@ -212,10 +249,18 @@ export function ReportsView({
                 <span>Operating Net Profit</span>
                 <DollarSign className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="text-xl font-extrabold text-emerald-600">{formatCurrency(totalNetProfitUSD, 'USD')}</div>
-              <div className="text-xs text-slate-400">
-                ≈ {formatCurrency(convertCurrency(totalNetProfitUSD, 'USD', 'EGP', settings?.exchange_rates), 'EGP')}
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {Object.keys(netProfitByCurrency).length === 0 ? (
+                  <span className="text-xl font-extrabold text-emerald-600"><CurrencyHighlight amount={0} currency="USD" /></span>
+                ) : (
+                  Object.keys(netProfitByCurrency).map(c => (
+                    <span key={c} className="text-sm font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl">
+                      <CurrencyHighlight amount={netProfitByCurrency[c]} currency={c} />
+                    </span>
+                  ))
+                )}
               </div>
+              <p className="text-[11px] text-slate-400">Net earnings per currency</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
@@ -223,10 +268,18 @@ export function ReportsView({
                 <span>Collections Received</span>
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
               </div>
-              <div className="text-xl font-extrabold text-blue-600">{formatCurrency(totalCollectedUSD, 'USD')}</div>
-              <div className="text-xs text-slate-400">
-                Total Invoiced: {formatCurrency(totalInvoicedUSD, 'USD')}
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {Object.keys(collectionsByCurrency).length === 0 ? (
+                  <span className="text-xl font-extrabold text-blue-600"><CurrencyHighlight amount={0} currency="USD" /></span>
+                ) : (
+                  Object.keys(collectionsByCurrency).map(c => (
+                    <span key={c} className="text-sm font-extrabold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-xl">
+                      <CurrencyHighlight amount={collectionsByCurrency[c]} currency={c} />
+                    </span>
+                  ))
+                )}
               </div>
+              <p className="text-[11px] text-slate-400">Collected invoice funds</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
@@ -234,10 +287,18 @@ export function ReportsView({
                 <span>Pending Receivables</span>
                 <Clock className="w-4 h-4 text-amber-600" />
               </div>
-              <div className="text-xl font-extrabold text-amber-600">{formatCurrency(totalReceivableUSD, 'USD')}</div>
-              <div className="text-xs text-slate-400">
-                Supplier Payables: {formatCurrency(totalPayableUSD, 'USD')}
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {Object.keys(receivablesByCurrency).length === 0 ? (
+                  <span className="text-xl font-extrabold text-amber-600"><CurrencyHighlight amount={0} currency="USD" /></span>
+                ) : (
+                  Object.keys(receivablesByCurrency).map(c => (
+                    <span key={c} className="text-sm font-extrabold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-xl">
+                      <CurrencyHighlight amount={receivablesByCurrency[c]} currency={c} />
+                    </span>
+                  ))
+                )}
               </div>
+              <p className="text-[11px] text-slate-400">Outstanding client balances</p>
             </div>
           </div>
 
@@ -255,7 +316,7 @@ export function ReportsView({
                 {packages.slice(0, 3).map(p => (
                   <div key={p.id} className="flex justify-between font-medium">
                     <span className="text-slate-700 truncate max-w-[180px]">{p.package_name}</span>
-                    <span className="font-bold text-slate-900">{formatCurrency(p.selling_price, 'USD')}</span>
+                    <span className="font-bold text-slate-900"><CurrencyHighlight amount={p.selling_price || 0} currency={p.currency || 'USD'} /></span>
                   </div>
                 ))}
               </div>
@@ -273,7 +334,7 @@ export function ReportsView({
                 {hotels.slice(0, 3).map(h => (
                   <div key={h.id} className="flex justify-between font-medium">
                     <span className="text-slate-700 truncate max-w-[180px]">{h.hotel_name}</span>
-                    <span className="font-bold text-purple-700">{formatCurrency(h.selling_price, 'USD')}</span>
+                    <span className="font-bold text-purple-700"><CurrencyHighlight amount={h.selling_price || 0} currency={h.currency || 'USD'} /></span>
                   </div>
                 ))}
               </div>
@@ -291,7 +352,7 @@ export function ReportsView({
                 {flights.slice(0, 3).map(f => (
                   <div key={f.id} className="flex justify-between font-medium">
                     <span className="text-slate-700 truncate max-w-[180px]">{f.airline} #{f.flight_number}</span>
-                    <span className="font-bold text-blue-700">{formatCurrency(f.selling_price, 'USD')}</span>
+                    <span className="font-bold text-blue-700"><CurrencyHighlight amount={f.selling_price || 0} currency={f.currency || 'USD'} /></span>
                   </div>
                 ))}
               </div>
@@ -323,9 +384,9 @@ export function ReportsView({
                   <td className="py-3.5 px-4 font-semibold text-slate-800">{r.customer_name}</td>
                   <td className="py-3.5 px-4 text-xs text-slate-600">{r.service_type}</td>
                   <td className="py-3.5 px-4 text-xs text-slate-500">{r.travel_date} → {r.return_date}</td>
-                  <td className="py-3.5 px-4 font-bold text-slate-900">{formatCurrency(r.selling_price, 'USD')}</td>
-                  <td className="py-3.5 px-4 text-xs text-slate-500">{formatCurrency(r.cost_price, 'USD')}</td>
-                  <td className="py-3.5 px-4 font-bold text-emerald-600">{formatCurrency(r.profit, 'USD')}</td>
+                  <td className="py-3.5 px-4 font-bold text-slate-900"><CurrencyHighlight amount={r.selling_price || 0} currency={r.currency || 'USD'} /></td>
+                  <td className="py-3.5 px-4 text-xs text-slate-500"><CurrencyHighlight amount={r.cost_price || 0} currency={r.currency || 'USD'} /></td>
+                  <td className="py-3.5 px-4 font-bold text-emerald-600"><CurrencyHighlight amount={r.profit !== undefined ? r.profit : ((r.selling_price || 0) - (r.cost_price || 0))} currency={r.currency || 'USD'} /></td>
                   <td className="py-3.5 px-4">
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                       {r.reservation_status}
@@ -358,10 +419,10 @@ export function ReportsView({
                   <td className="py-3.5 px-4 font-bold text-slate-900">{h.hotel_name}</td>
                   <td className="py-3.5 px-4 text-xs text-slate-600">{h.city}, {h.country}</td>
                   <td className="py-3.5 px-4 text-xs text-slate-600">{h.room_types}</td>
-                  <td className="py-3.5 px-4 text-xs text-slate-500">{formatCurrency(h.contract_price, 'USD')}</td>
-                  <td className="py-3.5 px-4 font-bold text-slate-900">{formatCurrency(h.selling_price, 'USD')}</td>
+                  <td className="py-3.5 px-4 text-xs text-slate-500"><CurrencyHighlight amount={h.contract_price || 0} currency={h.currency || 'USD'} /></td>
+                  <td className="py-3.5 px-4 font-bold text-slate-900"><CurrencyHighlight amount={h.selling_price || 0} currency={h.currency || 'USD'} /></td>
                   <td className="py-3.5 px-4 font-bold text-emerald-600">
-                    {formatCurrency(h.selling_price - h.contract_price, 'USD')}
+                    <CurrencyHighlight amount={(h.selling_price || 0) - (h.contract_price || 0)} currency={h.currency || 'USD'} />
                   </td>
                 </tr>
               ))}
@@ -391,8 +452,8 @@ export function ReportsView({
                   <td className="py-3.5 px-4 text-xs font-semibold text-slate-800">{f.departure_airport} → {f.arrival_airport}</td>
                   <td className="py-3.5 px-4 text-xs text-slate-600">{f.departure_date} {f.departure_time}</td>
                   <td className="py-3.5 px-4 font-mono text-xs text-cyan-700 font-bold">{f.booking_reference}</td>
-                  <td className="py-3.5 px-4 text-xs text-slate-500">{formatCurrency(f.ticket_cost, 'USD')}</td>
-                  <td className="py-3.5 px-4 font-bold text-slate-900">{formatCurrency(f.selling_price, 'USD')}</td>
+                  <td className="py-3.5 px-4 text-xs text-slate-500"><CurrencyHighlight amount={f.ticket_cost || 0} currency={f.currency || 'USD'} /></td>
+                  <td className="py-3.5 px-4 font-bold text-slate-900"><CurrencyHighlight amount={f.selling_price || 0} currency={f.currency || 'USD'} /></td>
                 </tr>
               ))}
             </tbody>
