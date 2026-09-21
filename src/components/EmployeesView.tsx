@@ -14,105 +14,106 @@ interface EmployeesViewProps {
   userPermissions?: string[];
   onAddAuditLog: (log: any) => void;
   currentUsername: string;
+  permissionRequests?: any[];
+  onApprovePermissionRequest?: (id: string) => void;
+  onRejectPermissionRequest?: (id: string, reason?: string) => void;
 }
 
 const EMPLOYEE_DRAFT_KEY = 'sofia_travel_employee_draft_v2';
 
 export const PERMISSION_GROUPS = [
   { 
-    group: 'Dashboard', 
-    permissions: [{ id: 'view_dashboard', label: 'View Dashboard' }] 
+    group: 'Dashboard & Analytics', 
+    permissions: [
+      { id: 'view_dashboard', label: 'View Main Dashboard' }
+    ] 
   },
   { 
-    group: 'Employees', 
+    group: 'Employees & Permissions', 
     permissions: [
-      { id: 'view_employees', label: 'View Employees' },
-      { id: 'add_employee', label: 'Add Employee' },
-      { id: 'edit_employee', label: 'Edit Employee' },
+      { id: 'view_employees', label: 'View Employee Roster' },
+      { id: 'add_employee', label: 'Add Employee Account' },
+      { id: 'edit_employee', label: 'Edit Employee / Permissions' },
       { id: 'delete_employee', label: 'Delete / Deactivate Employee' }
     ] 
   },
   { 
-    group: 'Customers', 
+    group: 'Customers & CRM', 
     permissions: [
-      { id: 'view_customers', label: 'View Customers' },
-      { id: 'add_customer', label: 'Add Customer' },
-      { id: 'edit_customer', label: 'Edit Customer' },
-      { id: 'delete_customer', label: 'Delete Customer' }
+      { id: 'view_customers', label: 'View Customer Profiles' },
+      { id: 'add_customer', label: 'Add New Customer' },
+      { id: 'edit_customer', label: 'Modify Customer Info' },
+      { id: 'delete_customer', label: 'Delete Customer Record' }
     ] 
   },
   { 
-    group: 'Trips / Tours', 
+    group: 'Tourism Services (All 7 Categories)', 
     permissions: [
-      { id: 'view_trips', label: 'View Trips' },
-      { id: 'add_trip', label: 'Add Trip' },
-      { id: 'edit_trip', label: 'Edit Trip' },
-      { id: 'delete_trip', label: 'Delete Trip' }
+      { id: 'view_services', label: 'View Tourism Services' },
+      { id: 'add_service', label: 'Record New Tourism Service' },
+      { id: 'edit_service', label: 'Modify Service Record' },
+      { id: 'delete_service', label: 'Delete Service Record' }
     ] 
   },
   { 
-    group: 'Bookings', 
+    group: 'Customer Vouchers & Reservations', 
     permissions: [
-      { id: 'view_bookings', label: 'View Bookings' },
-      { id: 'add_booking', label: 'Add Booking' },
-      { id: 'edit_booking', label: 'Edit Booking' },
-      { id: 'cancel_booking', label: 'Cancel Booking' },
-      { id: 'delete_booking', label: 'Delete Booking' }
+      { id: 'view_vouchers', label: 'View Vouchers & Bookings' },
+      { id: 'add_voucher', label: 'Issue / Confirm Voucher' },
+      { id: 'edit_voucher', label: 'Modify Voucher Details' },
+      { id: 'delete_voucher', label: 'Delete / Cancel Voucher' }
     ] 
   },
   { 
-    group: 'Sales', 
+    group: 'Tour Packages & Itineraries', 
     permissions: [
-      { id: 'view_sales', label: 'View Sales' },
-      { id: 'add_sale', label: 'Add Sale' },
-      { id: 'edit_sale', label: 'Edit Sale' },
-      { id: 'view_sales_reports', label: 'View Sales Reports' }
+      { id: 'view_packages', label: 'View Tour Packages' },
+      { id: 'add_package', label: 'Create New Package' },
+      { id: 'edit_package', label: 'Modify Tour Package' },
+      { id: 'delete_package', label: 'Delete Tour Package' }
     ] 
   },
   { 
-    group: 'Finance', 
+    group: 'Suppliers & Settlements', 
     permissions: [
-      { id: 'view_finance', label: 'View Finance' },
-      { id: 'add_expense', label: 'Add Expense' },
-      { id: 'edit_expense', label: 'Edit Expense' },
-      { id: 'delete_expense', label: 'Delete Expense' },
-      { id: 'view_financial_reports', label: 'View Financial Reports' }
+      { id: 'view_suppliers', label: 'View Suppliers List' },
+      { id: 'add_supplier', label: 'Add Supplier Profile' },
+      { id: 'edit_supplier', label: 'Modify Supplier Info' },
+      { id: 'delete_supplier', label: 'Delete Supplier Record' }
     ] 
   },
   { 
-    group: 'Payroll', 
+    group: 'Invoices & Billing', 
     permissions: [
-      { id: 'view_payroll', label: 'View Payroll' },
-      { id: 'add_payroll', label: 'Add Payroll' },
-      { id: 'edit_payroll', label: 'Edit Payroll' },
-      { id: 'delete_payroll', label: 'Delete Payroll' },
-      { id: 'view_payroll_reports', label: 'View Payroll Reports' }
+      { id: 'view_invoices', label: 'View All Invoices' },
+      { id: 'add_invoice', label: 'Create New Invoice' },
+      { id: 'edit_invoice', label: 'Modify Invoice' },
+      { id: 'delete_invoice', label: 'Delete Invoice' }
     ] 
   },
   { 
-    group: 'Commissions', 
+    group: 'Expenses & Finance', 
     permissions: [
-      { id: 'view_commissions', label: 'View Commissions' },
-      { id: 'add_commission', label: 'Add Commission' },
-      { id: 'edit_commission', label: 'Edit Commission' },
-      { id: 'delete_commission', label: 'Delete Commission' }
+      { id: 'view_expenses', label: 'View Financial Records' },
+      { id: 'add_expense', label: 'Record New Expense' },
+      { id: 'edit_expense', label: 'Modify Expense Record' },
+      { id: 'delete_expense', label: 'Delete Expense Record' }
     ] 
   },
   { 
-    group: 'Reports', 
+    group: 'Reports & Exporting', 
     permissions: [
-      { id: 'view_reports', label: 'View Reports' },
-      { id: 'export_reports', label: 'Export Reports' }
+      { id: 'view_reports', label: 'View Financial Reports' },
+      { id: 'export_reports', label: 'Export Reports (CSV/PDF)' }
     ] 
   },
   { 
-    group: 'System / Settings', 
+    group: 'System Settings & Bank Accounts', 
     permissions: [
-      { id: 'view_settings', label: 'View Settings' },
-      { id: 'manage_users', label: 'Manage Users' },
-      { id: 'manage_permissions', label: 'Manage Permissions' }
+      { id: 'view_settings', label: 'View System Settings' },
+      { id: 'manage_settings', label: 'Manage Bank & Exchange Rates' }
     ] 
-  },
+  }
 ];
 
 export function EmployeesView({ 
@@ -124,11 +125,16 @@ export function EmployeesView({
   userRole, 
   userPermissions = [],
   onAddAuditLog,
-  currentUsername 
+  currentUsername,
+  permissionRequests = [],
+  onApprovePermissionRequest,
+  onRejectPermissionRequest
 }: EmployeesViewProps) {
+  const [activeSubTab, setActiveSubTab] = useState<'employees' | 'approvals'>('employees');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [savedSuccessMsg, setSavedSuccessMsg] = useState<string | null>(null);
+  const [rejectionReasonMap, setRejectionReasonMap] = useState<Record<string, string>>({});
 
   // Deactivate confirmation modal
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
@@ -152,7 +158,16 @@ export function EmployeesView({
     status: 'Active' as const,
     account_status: 'Active' as const,
     permissions: [
-      'view_dashboard', 'view_customers', 'view_trips', 'view_bookings', 'view_sales'
+      'view_dashboard',
+      'view_customers', 'add_customer',
+      'view_services', 'add_service',
+      'view_vouchers', 'add_voucher',
+      'view_packages', 'add_package',
+      'view_suppliers', 'add_supplier',
+      'view_invoices', 'add_invoice',
+      'view_expenses', 'add_expense',
+      'view_reports', 'export_reports',
+      'view_settings'
     ] as string[]
   };
   
@@ -345,6 +360,7 @@ export function EmployeesView({
 
   const isAdmin = userRole === 'Administrator';
   const canManagePermissions = isAdmin || userPermissions.includes('manage_permissions');
+  const pendingCount = (permissionRequests || []).filter((r: any) => r.status === 'Pending').length;
 
   return (
     <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
@@ -355,7 +371,7 @@ export function EmployeesView({
             <span className="px-2.5 py-1 bg-cyan-50 text-cyan-700 rounded-lg text-xs font-extrabold uppercase tracking-wider">Granular RBAC</span>
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-2">Employee Management & Permission Control</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Manage staff profiles, unique employee IDs, granular access control permissions, and account security.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Manage staff profiles, unique employee IDs, granular access control permissions, and review modification/deletion requests.</p>
         </div>
         {isAdmin && (
           <button
@@ -366,6 +382,38 @@ export function EmployeesView({
             <span>Create Employee & Permissions</span>
           </button>
         )}
+      </div>
+
+      {/* TOP TAB NAVIGATION: STAFF ROSTER vs APPROVAL QUEUE */}
+      <div className="flex items-center gap-2 border-b border-slate-200">
+        <button
+          onClick={() => setActiveSubTab('employees')}
+          className={`px-5 py-3 font-bold text-xs flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeSubTab === 'employees'
+              ? 'border-cyan-600 text-cyan-700 bg-white rounded-t-xl shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Briefcase className="w-4 h-4" />
+          <span>Staff Accounts & Site-Wide Permissions ({employees.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('approvals')}
+          className={`px-5 py-3 font-bold text-xs flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeSubTab === 'approvals'
+              ? 'border-amber-600 text-amber-700 bg-white rounded-t-xl shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Shield className="w-4 h-4 text-amber-600" />
+          <span>Administrator Approval Queue</span>
+          {pendingCount > 0 && (
+            <span className="px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
+              {pendingCount} PENDING
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Unsaved Draft Alert */}
@@ -405,6 +453,124 @@ export function EmployeesView({
         </div>
       )}
 
+      {/* TAB 2: ADMINISTRATOR APPROVAL QUEUE PANEL */}
+      {activeSubTab === 'approvals' && (
+        <div className="space-y-4">
+          <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl flex items-center gap-3">
+            <Shield className="w-6 h-6 text-amber-600 shrink-0" />
+            <div>
+              <h3 className="text-sm font-black text-amber-950">Administrator Modification & Deletion Approval Requests</h3>
+              <p className="text-xs text-amber-800">
+                Non-admin employee accounts are restricted to Add-Only actions. All modification (Edit) and deletion attempts submitted across the website require Administrator review and approval with a mandatory reason.
+              </p>
+            </div>
+          </div>
+
+          {(permissionRequests || []).length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+              <Check className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+              <p className="font-bold text-sm text-slate-700">No Pending Requests</p>
+              <p className="text-xs text-slate-500">All modification and deletion requests have been reviewed.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {(permissionRequests || []).map((req: any) => {
+                const isPending = req.status === 'Pending';
+                const isApproved = req.status === 'Approved';
+                const isDelete = req.action_type === 'Delete';
+
+                return (
+                  <div 
+                    key={req.id} 
+                    className={`bg-white rounded-2xl border p-6 shadow-xs space-y-4 transition-all ${
+                      isPending ? 'border-amber-300 ring-2 ring-amber-100' : 'border-slate-200 opacity-90'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${
+                          isDelete ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {req.action_type === 'Delete' ? 'Deletion Request' : 'Modification Request'}
+                        </span>
+                        <span className="px-2.5 py-1 bg-slate-100 text-slate-800 rounded-lg text-xs font-bold">
+                          Page / Section: {req.module}
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider ${
+                          isPending ? 'bg-amber-100 text-amber-800' : isApproved ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {req.status}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-400 font-mono">
+                        Request ID: {req.id} • {req.created_at || 'Recently'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Submitted By Staff Member:</p>
+                        <p className="font-bold text-sm text-slate-900 mt-0.5">{req.employee_name} ({req.employee_role || 'Employee'})</p>
+                        <p className="text-slate-500">Target Item: <span className="font-bold text-slate-800">{req.item_name}</span> (ID: {req.item_id})</p>
+                      </div>
+
+                      {/* REASON FOR MODIFICATION / DELETION (REQUIREMENT HIGHLIGHT) */}
+                      <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200 text-amber-950 space-y-1">
+                        <p className="text-[10px] uppercase font-black tracking-wider text-amber-700 flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          Visible Reason for {req.action_type}:
+                        </p>
+                        <p className="font-bold text-xs italic text-amber-900 bg-white/70 p-2 rounded-lg border border-amber-200/60">
+                          "{req.reason || 'No specific reason entered by user.'}"
+                        </p>
+                      </div>
+                    </div>
+
+                    {req.proposed_changes && (
+                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs font-mono overflow-x-auto">
+                        <p className="text-[10px] uppercase font-bold text-slate-400 font-sans mb-1">Proposed Modification Payload:</p>
+                        <pre className="text-[11px] text-slate-700 whitespace-pre-wrap">
+                          {JSON.stringify(req.proposed_changes, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+
+                    {isPending && isAdmin && (
+                      <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+                        <input
+                          type="text"
+                          placeholder="Optional rejection reason..."
+                          value={rejectionReasonMap[req.id] || ''}
+                          onChange={(e) => setRejectionReasonMap(prev => ({ ...prev, [req.id]: e.target.value }))}
+                          className="w-full sm:w-64 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onRejectPermissionRequest && onRejectPermissionRequest(req.id, rejectionReasonMap[req.id])}
+                          className="w-full sm:w-auto px-4 py-2 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs cursor-pointer"
+                        >
+                          Reject Request
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onApprovePermissionRequest && onApprovePermissionRequest(req.id)}
+                          className="w-full sm:w-auto px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Approve & Execute {req.action_type}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 1: EMPLOYEES ROSTER LIST */}
+      {activeSubTab === 'employees' && (
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -508,6 +674,7 @@ export function EmployeesView({
           </table>
         </div>
       </div>
+      )}
 
       {/* Add / Edit Employee Modal with Granular Permissions */}
       {showAddModal && (
@@ -531,6 +698,17 @@ export function EmployeesView({
             </div>
 
             <form onSubmit={handleCreateOrUpdate} className="space-y-6 pt-4 text-xs">
+              {/* POLICY BANNER FOR FUTURE EMPLOYEE CREATION */}
+              <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 text-amber-950 rounded-2xl flex items-start gap-3">
+                <Lock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold text-xs text-amber-900">🔒 System Access Policy: Add-Only Rights for Non-Admin Accounts</p>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Employee accounts created without full Administrator privileges are granted <strong>Add/Create Only</strong> capabilities by default. Any edit, modification, or deletion attempted across all pages and services (Hotels, Flights, Invoices, Vouchers, Customers, Suppliers) will automatically submit a formal approval request to Administrators requiring a mandatory reason for review.
+                  </p>
+                </div>
+              </div>
+
               {/* Copy permissions helper */}
               {canManagePermissions && (
               <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-200 flex flex-col sm:flex-row items-center justify-between gap-3">

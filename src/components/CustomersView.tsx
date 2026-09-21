@@ -123,42 +123,40 @@ export function CustomersView({
     document.body.removeChild(link);
   };
 
-  // Helper to compute customer-specific 3-currency balance
-  const getCustomerFinancials = (cust: Customer) => {
+  // Helper to compute customer-specific currency totals from ACTUAL created invoices
+  const getCustomerFinancialsByCurrency = (cust: Customer) => {
     const custInvoices = invoices.filter(inv => inv.customer_id === cust.id || inv.customer_id === cust.customer_id);
-    let totalDueUSD = 0;
-    let totalPaidUSD = 0;
-    let balanceUSD = cust.outstanding_balance || 0;
+    const totalsByCurrency: Record<string, { total: number; paid: number; balance: number }> = {};
 
     if (custInvoices.length > 0) {
-      totalDueUSD = custInvoices.reduce((acc, i) => acc + convertCurrency(i.total_amount, i.currency || 'USD', 'USD', settings?.exchange_rates), 0);
-      totalPaidUSD = custInvoices.reduce((acc, i) => acc + convertCurrency(i.paid_amount, i.currency || 'USD', 'USD', settings?.exchange_rates), 0);
-      balanceUSD = custInvoices.reduce((acc, i) => acc + convertCurrency(i.balance_due, i.currency || 'USD', 'USD', settings?.exchange_rates), 0);
+      custInvoices.forEach(i => {
+        const curr = (i.currency || 'USD').toUpperCase();
+        if (!totalsByCurrency[curr]) {
+          totalsByCurrency[curr] = { total: 0, paid: 0, balance: 0 };
+        }
+        totalsByCurrency[curr].total += Number(i.total_amount) || 0;
+        totalsByCurrency[curr].paid += Number(i.paid_amount) || 0;
+        totalsByCurrency[curr].balance += Number(i.balance_due) || 0;
+      });
     } else {
-      totalDueUSD = balanceUSD;
+      const baseCurr = (cust.currency || 'USD').toUpperCase();
+      const bal = Number(cust.outstanding_balance) || 0;
+      totalsByCurrency[baseCurr] = {
+        total: bal,
+        paid: 0,
+        balance: bal
+      };
     }
 
-    return {
-      usd: {
-        total: totalDueUSD,
-        paid: totalPaidUSD,
-        balance: balanceUSD
-      },
-      egp: {
-        total: convertCurrency(totalDueUSD, 'USD', 'EGP', settings?.exchange_rates),
-        paid: convertCurrency(totalPaidUSD, 'USD', 'EGP', settings?.exchange_rates),
-        balance: convertCurrency(balanceUSD, 'USD', 'EGP', settings?.exchange_rates)
-      },
-      eur: {
-        total: convertCurrency(totalDueUSD, 'USD', 'EUR', settings?.exchange_rates),
-        paid: convertCurrency(totalPaidUSD, 'USD', 'EUR', settings?.exchange_rates),
-        balance: convertCurrency(balanceUSD, 'USD', 'EUR', settings?.exchange_rates)
-      }
-    };
+    return totalsByCurrency;
   };
 
   const sendStatementWhatsApp = (cust: Customer) => {
-    const financials = getCustomerFinancials(cust);
+    const finByCurr = getCustomerFinancialsByCurrency(cust);
+    const balanceLines = Object.entries(finByCurr)
+      .map(([curr, vals]) => `• ${curr}: Total Invoiced: ${formatCurrency(vals.total, curr)} | Paid: ${formatCurrency(vals.paid, curr)} | *Balance: ${formatCurrency(vals.balance, curr)}*`)
+      .join('\n');
+
     const text = encodeURIComponent(
       `*SOFIA TRAVEL - CUSTOMER ACCOUNT STATEMENT*\n` +
       `-----------------------------------------\n` +
@@ -166,10 +164,8 @@ export function CustomersView({
       `Passport: ${cust.passport_number}\n` +
       `Date: ${new Date().toLocaleDateString()}\n` +
       `-----------------------------------------\n` +
-      `*ACCOUNT BALANCES IN ALL 3 CURRENCIES:*\n` +
-      `• U.S. Dollar ($): Total Due: ${formatCurrency(financials.usd.total, 'USD')} | Paid: ${formatCurrency(financials.usd.paid, 'USD')} | *Balance: ${formatCurrency(financials.usd.balance, 'USD')}*\n` +
-      `• Egyptian Pound (EGP): Total Due: ${formatCurrency(financials.egp.total, 'EGP')} | Paid: ${formatCurrency(financials.egp.paid, 'EGP')} | *Balance: ${formatCurrency(financials.egp.balance, 'EGP')}*\n` +
-      `• Euro (€): Total Due: ${formatCurrency(financials.eur.total, 'EUR')} | Paid: ${formatCurrency(financials.eur.paid, 'EUR')} | *Balance: ${formatCurrency(financials.eur.balance, 'EUR')}*\n` +
+      `*INVOICED BALANCES BY CURRENCY:*\n` +
+      `${balanceLines}\n` +
       `-----------------------------------------\n` +
       `*Bank Wire Transfer Details:*\n` +
       `Bank: ${settings?.bank_name || 'National Bank of Egypt (NBE)'}\n` +
@@ -256,7 +252,9 @@ export function CustomersView({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredCustomers.map(cust => {
-                const fin = getCustomerFinancials(cust);
+                const finByCurr = getCustomerFinancialsByCurrency(cust);
+                const activeCurrencies = Object.entries(finByCurr);
+
                 return (
                   <tr key={cust.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3.5 px-4">
@@ -287,12 +285,17 @@ export function CustomersView({
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-amber-600 text-xs">
-                        {formatCurrency(fin.usd.balance, 'USD')}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        {formatCurrency(fin.egp.balance, 'EGP')} • {formatCurrency(fin.eur.balance, 'EUR')}
-                      </div>
+                      {activeCurrencies.length === 0 ? (
+                        <span className="text-xs text-slate-400 italic">No Invoices Created</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {activeCurrencies.map(([code, f]) => (
+                            <div key={code} className="text-xs font-bold text-amber-600">
+                              {formatCurrency(f.balance, code)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
@@ -344,9 +347,9 @@ export function CustomersView({
         </div>
       </div>
 
-      {/* 3-CURRENCY OFFICIAL CUSTOMER ACCOUNT STATEMENT MODAL */}
+      {/* OFFICIAL CUSTOMER ACCOUNT STATEMENT MODAL */}
       {statementCustomer && (() => {
-        const fin = getCustomerFinancials(statementCustomer);
+        const finByCurr = getCustomerFinancialsByCurrency(statementCustomer);
         const custInvoices = invoices.filter(inv => inv.customer_id === statementCustomer.id || inv.customer_id === statementCustomer.customer_id);
 
         return (
@@ -357,7 +360,7 @@ export function CustomersView({
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-500">Official Account Statement</span>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-100 text-cyan-800">
-                    3 Currencies (USD $, EGP, EUR €)
+                    Active Invoice Currencies
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -418,40 +421,33 @@ export function CustomersView({
                   </div>
                 </div>
 
-                {/* 3-CURRENCY BALANCES BREAKDOWN TABLE (Requirement 9) */}
+                {/* INVOICED BALANCES BREAKDOWN TABLE */}
                 <div className="space-y-2">
                   <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                    Consolidated Balances in All Three Currencies
+                    Consolidated Invoiced Balances by Currency
                   </h4>
                   <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-900 text-white font-bold uppercase tracking-wider text-[10px]">
                         <tr>
                           <th className="py-2.5 px-4">Currency</th>
-                          <th className="py-2.5 px-4 text-right">Total Amount Due</th>
+                          <th className="py-2.5 px-4 text-right">Total Invoiced Amount</th>
                           <th className="py-2.5 px-4 text-right">Total Amount Paid</th>
                           <th className="py-2.5 px-4 text-right">Outstanding Balance</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-medium">
-                        <tr className="bg-blue-50/40">
-                          <td className="py-3 px-4 font-bold text-blue-900">U.S. Dollar ($)</td>
-                          <td className="py-3 px-4 text-right">{formatCurrency(fin.usd.total, 'USD')}</td>
-                          <td className="py-3 px-4 text-right text-emerald-700">{formatCurrency(fin.usd.paid, 'USD')}</td>
-                          <td className="py-3 px-4 text-right font-bold text-amber-700">{formatCurrency(fin.usd.balance, 'USD')}</td>
-                        </tr>
-                        <tr className="bg-emerald-50/40">
-                          <td className="py-3 px-4 font-bold text-emerald-900">Egyptian Pound (EGP)</td>
-                          <td className="py-3 px-4 text-right">{formatCurrency(fin.egp.total, 'EGP')}</td>
-                          <td className="py-3 px-4 text-right text-emerald-700">{formatCurrency(fin.egp.paid, 'EGP')}</td>
-                          <td className="py-3 px-4 text-right font-bold text-amber-700">{formatCurrency(fin.egp.balance, 'EGP')}</td>
-                        </tr>
-                        <tr className="bg-purple-50/40">
-                          <td className="py-3 px-4 font-bold text-purple-900">Euro (€)</td>
-                          <td className="py-3 px-4 text-right">{formatCurrency(fin.eur.total, 'EUR')}</td>
-                          <td className="py-3 px-4 text-right text-emerald-700">{formatCurrency(fin.eur.paid, 'EUR')}</td>
-                          <td className="py-3 px-4 text-right font-bold text-amber-700">{formatCurrency(fin.eur.balance, 'EUR')}</td>
-                        </tr>
+                        {Object.entries(finByCurr).map(([curr, vals]) => (
+                          <tr key={curr} className="hover:bg-slate-50">
+                            <td className="py-3 px-4 font-bold text-cyan-900 flex items-center gap-1.5">
+                              <span className="px-2 py-0.5 rounded text-[10px] bg-cyan-100 text-cyan-800 font-black">{curr}</span>
+                              <span>{curr === 'USD' ? 'U.S. Dollar ($)' : curr === 'EGP' ? 'Egyptian Pound (EGP)' : curr === 'EUR' ? 'Euro (€)' : curr}</span>
+                            </td>
+                            <td className="py-3 px-4 text-right">{formatCurrency(vals.total, curr)}</td>
+                            <td className="py-3 px-4 text-right text-emerald-700">{formatCurrency(vals.paid, curr)}</td>
+                            <td className="py-3 px-4 text-right font-bold text-amber-700">{formatCurrency(vals.balance, curr)}</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>

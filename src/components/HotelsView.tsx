@@ -76,8 +76,8 @@ export function HotelsView({
         ...prev,
         customer_id: found.id || found.customer_id,
         customer_name: found.full_name || found.name,
-        customer_phone: found.phone || found.mobile || '',
-        customer_passport: found.passport_number || found.passport || '',
+        customer_phone: found.phone || '',
+        customer_passport: found.passport_number || '',
         customer_email: found.email || ''
       }));
     }
@@ -309,7 +309,7 @@ export function HotelsView({
                       <option value="">-- Direct / Walk-in / Custom Customer --</option>
                       {customers.map(c => (
                         <option key={c.id || c.customer_id} value={c.id || c.customer_id}>
-                          {c.full_name || c.name} ({c.phone || c.mobile || 'No phone'})
+                          {c.full_name || c.name} ({c.phone || 'No phone'})
                         </option>
                       ))}
                     </select>

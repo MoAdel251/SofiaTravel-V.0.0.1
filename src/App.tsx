@@ -1967,6 +1967,9 @@ export default function App() {
               userPermissions={currentUserPermissions}
               onAddAuditLog={handleAddAuditLog}
               currentUsername={currentUsername}
+              permissionRequests={permissionRequests}
+              onApprovePermissionRequest={handleApprovePermissionRequest}
+              onRejectPermissionRequest={handleRejectPermissionRequest}
             />
           )}
           {currentTab === 'calendar' && (

@@ -384,6 +384,11 @@ export interface Hotel {
   service_type?: 'Standalone' | 'Package';
   customer_id?: string;
   customer_name?: string;
+  customer_phone?: string;
+  customer_passport?: string;
+  customer_email?: string;
+  check_in_date?: string;
+  check_out_date?: string;
   payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
   paid_amount?: number;
 }
