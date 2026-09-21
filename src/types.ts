@@ -196,6 +196,11 @@ export interface VisaService {
   submission_method: 'Online E-Visa' | 'Embassy In-Person' | 'Visa on Arrival' | 'Authorized Center (VFS/TLS)';
   notes?: string;
   status: 'Active' | 'Suspended';
+  service_type?: 'Standalone' | 'Package';
+  customer_id?: string;
+  customer_name?: string;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
+  paid_amount?: number;
 }
 
 export type VehicleType = 'Sedan / Limousine (1-3 Pax)' | 'SUV / Minivan (1-6 Pax)' | 'HiAce Van (1-14 Pax)' | 'Coaster Minibus (1-24 Pax)' | 'Coach Bus (1-50 Pax)';
@@ -223,6 +228,11 @@ export interface TransferService {
   amenities: string[];
   notes?: string;
   status: 'Active' | 'Inactive';
+  service_type?: 'Standalone' | 'Package';
+  customer_id?: string;
+  customer_name?: string;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
+  paid_amount?: number;
 }
 
 export type CruiseCategory = 'Nile Cruise (Luxor - Aswan)' | 'Lake Nasser Cruise' | 'Red Sea Yacht Charter' | 'Dahabiya Luxury Sail' | 'Mediterranean Sea Cruise' | string;
@@ -255,6 +265,11 @@ export interface CruiseService {
   guide_included?: boolean;
   notes?: string;
   status: 'Active' | 'Seasonal' | 'Sold Out';
+  service_type?: 'Standalone' | 'Package';
+  customer_id?: string;
+  customer_name?: string;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
+  paid_amount?: number;
 }
 
 export type TourType = 'Cultural & Historical' | 'Desert Safari & Camping' | 'Religious & Heritage' | 'Adventure & Trekking' | 'Eco & Nature' | 'Classic Roundtrip';
@@ -284,6 +299,11 @@ export interface TourService {
   exclusions?: string[];
   notes?: string;
   status: 'Active' | 'Seasonal' | 'Draft';
+  service_type?: 'Standalone' | 'Package';
+  customer_id?: string;
+  customer_name?: string;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
+  paid_amount?: number;
 }
 
 export interface DayTripService {
@@ -308,6 +328,11 @@ export interface DayTripService {
   schedule_description?: string;
   notes?: string;
   status: 'Active' | 'Inactive';
+  service_type?: 'Standalone' | 'Package';
+  customer_id?: string;
+  customer_name?: string;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
+  paid_amount?: number;
 }
 
 export type PackageStatus = 'Draft' | 'Available' | 'Fully Booked' | 'Closed' | 'Cancelled';
@@ -356,6 +381,11 @@ export interface Hotel {
   check_in_time: string;
   check_out_time: string;
   notes: string;
+  service_type?: 'Standalone' | 'Package';
+  customer_id?: string;
+  customer_name?: string;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
+  paid_amount?: number;
 }
 
 export type FlightStatus = 'Reserved' | 'Confirmed' | 'Ticketed' | 'Cancelled' | 'Completed';
@@ -378,6 +408,11 @@ export interface Flight {
   currency: string;
   status: FlightStatus;
   ticket_document_url?: string;
+  service_type?: 'Standalone' | 'Package';
+  customer_id?: string;
+  customer_name?: string;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Paid';
+  paid_amount?: number;
 }
 
 export type SupplierType = 
@@ -756,33 +791,5 @@ export interface Invoice {
   created_by_employee?: string;
 }
 
-export type AttendanceStatus = 'Present' | 'Late' | 'Absent' | 'Leave' | 'Holiday' | 'Day Off';
 
-export interface AttendanceRecord {
-  id: string;
-  attendance_id: string;
-  employee_id: string;
-  employee_name: string;
-  date: string;
-  check_in_time?: string;
-  check_out_time?: string;
-  status: AttendanceStatus;
-  late_minutes: number;
-  early_departure_minutes: number;
-  total_working_hours: string;
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AttendanceSettings {
-  official_check_in: string;
-  official_check_out: string;
-  grace_period_minutes: number;
-  required_working_hours: number;
-  working_days: string[];
-  weekend_days: string[];
-  absence_deduction_type: 'No Deduction' | 'Deduct Daily Rate' | 'Custom Amount';
-  late_deduction_type: 'No Deduction' | 'Per Minute' | 'Per Late Day' | 'Custom Rule';
-}
 

@@ -97,7 +97,7 @@ export function InvoicesView({
   const [dueDate, setDueDate] = useState<string>(
     new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
-  const [invoiceCurrency, setInvoiceCurrency] = useState<string>('USD');
+  const [invoiceCurrency, setInvoiceCurrency] = useState<string>('EGP');
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [discount, setDiscount] = useState<number>(0);
   const [taxRate, setTaxRate] = useState<number>(0);
@@ -486,7 +486,7 @@ export function InvoicesView({
     return matchesSearch && matchesStatus && matchesRecipient;
   });
 
-  // Calculate Triple Currency Totals for TOP SCREEN BANNER (Requirement 5)
+  // Calculate Currency Totals for Actual Invoice Records ONLY
   // Currencies: USD ($), EGP (EGP), EUR (€)
   const calculateCurrencyTotals = (targetCur: 'USD' | 'EGP' | 'EUR') => {
     let totalInv = 0;
@@ -494,10 +494,13 @@ export function InvoicesView({
     let totalPending = 0;
 
     invoices.forEach(inv => {
-      const invCur = inv.currency || 'USD';
-      totalInv += convertCurrency(inv.total_amount || 0, invCur, targetCur, settings.exchange_rates);
-      totalPaid += convertCurrency(inv.paid_amount || 0, invCur, targetCur, settings.exchange_rates);
-      totalPending += convertCurrency(inv.balance_due || 0, invCur, targetCur, settings.exchange_rates);
+      let invCur = (inv.currency || 'EGP').toUpperCase();
+      if (invCur === '$') invCur = 'USD';
+      if (invCur === targetCur) {
+        totalInv += Number(inv.total_amount || 0);
+        totalPaid += Number(inv.paid_amount || 0);
+        totalPending += Number(inv.balance_due || 0);
+      }
     });
 
     return { totalInv, totalPaid, totalPending };

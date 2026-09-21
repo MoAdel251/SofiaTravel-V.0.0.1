@@ -42,6 +42,7 @@ interface ServicesViewProps {
   settings?: any;
   packages?: any[];
   currentCurrency?: string;
+  customers?: any[];
   onAddVisa: (data: Partial<VisaService>) => void;
   onUpdateVisa: (id: string, data: Partial<VisaService>) => void;
   onDeleteVisa: (id: string) => void;
@@ -56,13 +57,13 @@ interface ServicesViewProps {
   onDeleteTransfer: (id: string) => void;
   onAddCruise: (data: Partial<CruiseService>) => void;
   onUpdateCruise: (id: string, data: Partial<CruiseService>) => void;
-  onDeleteCruise: (id: string) => void;
+  onDeleteCruise?: (id: string) => void;
   onAddTour: (data: Partial<TourService>) => void;
   onUpdateTour: (id: string, data: Partial<TourService>) => void;
-  onDeleteTour: (id: string) => void;
+  onDeleteTour?: (id: string) => void;
   onAddDayTrip: (data: Partial<DayTripService>) => void;
   onUpdateDayTrip: (id: string, data: Partial<DayTripService>) => void;
-  onDeleteDayTrip: (id: string) => void;
+  onDeleteDayTrip?: (id: string) => void;
   onCreateVoucherForService: (category: any, service: any) => void;
 }
 
@@ -79,6 +80,7 @@ export function ServicesView({
   settings,
   packages,
   currentCurrency,
+  customers = [],
   onAddVisa,
   onUpdateVisa,
   onDeleteVisa,
@@ -93,13 +95,13 @@ export function ServicesView({
   onDeleteTransfer,
   onAddCruise,
   onUpdateCruise,
-  onDeleteCruise,
+  onDeleteCruise = () => {},
   onAddTour,
   onUpdateTour,
-  onDeleteTour,
+  onDeleteTour = () => {},
   onAddDayTrip,
   onUpdateDayTrip,
-  onDeleteDayTrip,
+  onDeleteDayTrip = () => {},
   onCreateVoucherForService
 }: ServicesViewProps) {
   const [activeTab, setActiveTab] = useState<'visas' | 'flights' | 'hotels' | 'transfers' | 'cruises' | 'tours' | 'day-trips'>(initialSubTab);

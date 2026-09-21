@@ -1764,6 +1764,13 @@ export default function App() {
               invoices={invoices}
               reservations={reservations}
               settings={settings}
+              visas={visas}
+              flights={flights}
+              hotels={hotels}
+              transfers={transfers}
+              cruises={cruises}
+              tours={tours}
+              dayTrips={dayTrips}
               onAddCustomer={handleAddCustomer}
               onUpdateCustomer={handleUpdateCustomer}
               onDeleteCustomer={handleDeleteCustomer}
@@ -1816,6 +1823,7 @@ export default function App() {
               packages={packages}
               settings={settings}
               currentCurrency={currentCurrency}
+              customers={customers}
               onAddVisa={handleAddVisa}
               onUpdateVisa={handleUpdateVisa}
               onDeleteVisa={handleDeleteVisa}

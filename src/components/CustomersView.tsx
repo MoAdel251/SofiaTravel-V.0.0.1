@@ -30,6 +30,13 @@ interface CustomersViewProps {
   invoices?: Invoice[];
   reservations?: Reservation[];
   settings?: CompanySettings;
+  visas?: any[];
+  flights?: any[];
+  hotels?: any[];
+  transfers?: any[];
+  cruises?: any[];
+  tours?: any[];
+  dayTrips?: any[];
   onAddCustomer: (data: Partial<Customer>) => void;
   onUpdateCustomer: (id: string, data: Partial<Customer>) => void;
   onDeleteCustomer: (id: string) => void;
@@ -40,6 +47,13 @@ export function CustomersView({
   invoices = [], 
   reservations = [], 
   settings, 
+  visas = [],
+  flights = [],
+  hotels = [],
+  transfers = [],
+  cruises = [],
+  tours = [],
+  dayTrips = [],
   onAddCustomer, 
   onUpdateCustomer, 
   onDeleteCustomer 
@@ -560,6 +574,55 @@ export function CustomersView({
                 <p><strong>WhatsApp:</strong> {selectedCustomer.whatsapp_number}</p>
                 <p><strong>Email:</strong> {selectedCustomer.email}</p>
                 <p><strong>Address:</strong> {selectedCustomer.address}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-slate-900 flex items-center justify-between">
+                <span>Customer Services & Bookings (Standalone / Package)</span>
+                <span className="text-xs bg-cyan-50 text-cyan-700 px-2 py-0.5 rounded-full font-semibold">
+                  {[
+                    ...visas.filter(v => v.customer_id === selectedCustomer?.id || v.customer_name === selectedCustomer?.full_name),
+                    ...flights.filter(f => f.customer_id === selectedCustomer?.id || f.customer_name === selectedCustomer?.full_name || f.passenger === selectedCustomer?.full_name),
+                    ...hotels.filter(h => h.customer_id === selectedCustomer?.id || h.customer_name === selectedCustomer?.full_name),
+                    ...transfers.filter(t => t.customer_id === selectedCustomer?.id || t.customer_name === selectedCustomer?.full_name),
+                    ...cruises.filter(c => c.customer_id === selectedCustomer?.id || c.customer_name === selectedCustomer?.full_name),
+                    ...tours.filter(tr => tr.customer_id === selectedCustomer?.id || tr.customer_name === selectedCustomer?.full_name),
+                    ...dayTrips.filter(dt => dt.customer_id === selectedCustomer?.id || dt.customer_name === selectedCustomer?.full_name)
+                  ].length} Services
+                </span>
+              </h4>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {(() => {
+                  const custServices = [
+                    ...visas.filter(v => v.customer_id === selectedCustomer?.id || v.customer_name === selectedCustomer?.full_name).map(v => ({ title: v.visa_title || v.country, category: 'Visa', type: v.service_type || 'Standalone', price: v.selling_price, currency: v.currency, status: v.status })),
+                    ...flights.filter(f => f.customer_id === selectedCustomer?.id || f.customer_name === selectedCustomer?.full_name || f.passenger === selectedCustomer?.full_name).map(f => ({ title: `${f.departure_airport} → ${f.arrival_airport} (${f.airline})`, category: 'Flight', type: f.service_type || 'Standalone', price: f.selling_price, currency: f.currency, status: f.status })),
+                    ...hotels.filter(h => h.customer_id === selectedCustomer?.id || h.customer_name === selectedCustomer?.full_name).map(h => ({ title: h.hotel_name, category: 'Hotel', type: h.service_type || 'Standalone', price: h.selling_price, currency: h.currency, status: 'Active' })),
+                    ...transfers.filter(t => t.customer_id === selectedCustomer?.id || t.customer_name === selectedCustomer?.full_name).map(t => ({ title: t.service_title, category: 'Transfer', type: t.service_type || 'Standalone', price: t.selling_price, currency: t.currency, status: t.status })),
+                    ...cruises.filter(c => c.customer_id === selectedCustomer?.id || c.customer_name === selectedCustomer?.full_name).map(c => ({ title: c.cruise_name, category: 'Cruise', type: c.service_type || 'Standalone', price: c.selling_price, currency: c.currency, status: c.status })),
+                    ...tours.filter(tr => tr.customer_id === selectedCustomer?.id || tr.customer_name === selectedCustomer?.full_name).map(tr => ({ title: tr.tour_title, category: 'Tour', type: tr.service_type || 'Standalone', price: tr.selling_price, currency: tr.currency, status: tr.status })),
+                    ...dayTrips.filter(dt => dt.customer_id === selectedCustomer?.id || dt.customer_name === selectedCustomer?.full_name).map(dt => ({ title: dt.trip_title, category: 'Day Trip', type: dt.service_type || 'Standalone', price: dt.selling_price, currency: dt.currency, status: dt.status }))
+                  ];
+                  if (custServices.length === 0) {
+                    return <p className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-slate-200">No services booked for this customer yet.</p>;
+                  }
+                  return custServices.map((srv, idx) => (
+                    <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-slate-900 flex items-center gap-2">
+                          <span>{srv.title}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${srv.type === 'Standalone' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                            {srv.type} Service ({srv.category})
+                          </span>
+                        </div>
+                        <p className="text-slate-500 mt-0.5">Status: {srv.status}</p>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-slate-900">{formatCurrency(srv.price, srv.currency)}</div>
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
 
