@@ -3,7 +3,7 @@ import {
   Search, Bell, Sparkles, Globe, Shield, ChevronDown, Check, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, BookmarkCheck, Compass, Plane, Hotel, Truck, FileText, 
   Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
-  Ticket, Layers, FileCheck2, Car, Ship, Sun
+  Ticket, Layers, FileCheck2, Car, Ship, Sun, MessageCircle, Instagram
 } from 'lucide-react';
 import { UserRole, NotificationItem } from '../types';
 import { getCurrencySymbol } from '../utils/currency';
@@ -78,6 +78,7 @@ export function Navbar({
     { id: 'services', label: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_trips' },
     { id: 'permission-requests', label: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
     { id: 'customers', label: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
+    { id: 'customer-inquiries', label: 'Customer Inquiries', icon: MessageCircle, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
     { id: 'suppliers', label: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
     { id: 'invoices', label: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_sales' },
     { id: 'packages', label: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
@@ -152,7 +153,22 @@ export function Navbar({
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-2 sm:gap-4 shrink-0 justify-end">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 justify-end">
+          {/* Company Instagram Page Link */}
+          <a
+            href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-900/80 via-pink-900/80 to-rose-900/80 hover:from-purple-800 hover:to-rose-800 border border-pink-500/40 rounded-xl text-[11px] font-bold text-pink-200 transition-all shadow-xs cursor-pointer shrink-0 group"
+            title="Visit Company Instagram Page (https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)"
+          >
+            <Instagram className="w-3.5 h-3.5 text-pink-400 group-hover:scale-110 transition-transform shrink-0" />
+            <span>Instagram</span>
+            <span className="text-[10px] text-pink-300/90 font-normal truncate max-w-[280px]">
+              (https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)
+            </span>
+          </a>
+
           {/* Live System Clock */}
           <LiveClock />
           

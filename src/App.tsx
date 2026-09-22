@@ -23,6 +23,7 @@ import { FinancePayrollView } from './components/FinancePayrollView';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { LoginModal } from './components/LoginModal';
+import { CustomerInquiriesView } from './components/CustomerInquiriesView';
 import { PermissionRequestsView } from './components/PermissionRequestsView';
 import { PermissionModal } from './components/PermissionModal';
 import { 
@@ -54,7 +55,8 @@ import {
   TransferService,
   CruiseService,
   TourService,
-  DayTripService
+  DayTripService,
+  CustomerInquiry
 } from './types';
 import { dataService } from './services/dataService';
 
@@ -92,6 +94,7 @@ export default function App() {
   // Data states
   const [stats, setStats] = useState<any>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerInquiries, setCustomerInquiries] = useState<CustomerInquiry[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [visas, setVisas] = useState<VisaService[]>([]);
@@ -122,7 +125,8 @@ export default function App() {
     phone: "+20 2 25750000",
     whatsapp: "+20 100 123 4567",
     email: "operations@sofiatravel.com",
-    website: "https://www.sofiatravel.com",
+    website: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
+    instagram_url: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
     tax_number: "TR-98765",
     default_currency: "EGP",
     invoice_prefix: "INV-",
@@ -184,7 +188,8 @@ export default function App() {
         payrollRes,
         advRes,
         commRes,
-        fAuditRes
+        fAuditRes,
+        inqRes
       ] = await Promise.all([
         fetch('/api/dashboard-stats?t=' + Date.now()).then(r => r.json()).catch(() => null),
         dataService.getCollection<Customer>('customers', '/api/customers', customers),
@@ -213,10 +218,12 @@ export default function App() {
         dataService.getCollection<PayrollRecord>('payroll_records', '/api/payroll-records', payrollRecords),
         dataService.getCollection<EmployeeAdvance>('employee_advances', '/api/employee-advances', advances),
         dataService.getCollection<CommissionRecord>('commission_records', '/api/commission-records', commissions),
-        dataService.getCollection<FinanceAuditLog>('finance_audit_logs', '/api/finance-audit-logs', financeAuditLogs)
+        dataService.getCollection<FinanceAuditLog>('finance_audit_logs', '/api/finance-audit-logs', financeAuditLogs),
+        dataService.getCollection<CustomerInquiry>('customer_inquiries', '/api/customer-inquiries', customerInquiries)
       ]);
 
       setCustomers(custRes || []);
+      setCustomerInquiries(inqRes || []);
       setReservations(resvRes || []);
       setVouchers(vouchRes || []);
       setVisas(visaRes || []);
@@ -555,6 +562,136 @@ export default function App() {
     }
     setCustomers(prev => prev.filter(c => c.id !== id));
     await dataService.deleteDocument('customers', id, `/api/customers/${id}`);
+    fetchAllData();
+  };
+
+  const handleLogCustomerCommunication = async (
+    customerId: string, 
+    communication: { employee_name: string; channel: string; notes: string; outcome?: string; date?: string }
+  ) => {
+    try {
+      const res = await fetch(`/api/customers/${customerId}/log-communication`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': communication.employee_name || currentUsername
+        },
+        body: JSON.stringify(communication)
+      });
+      if (res.ok) {
+        const updatedCust = await res.json();
+        setCustomers(prev => prev.map(c => c.id === customerId ? updatedCust : c));
+        fetchAllData();
+      }
+    } catch (err) {
+      console.error("Failed to log customer communication:", err);
+    }
+  };
+
+  // ---------------- Customer Inquiries Handlers ----------------
+  const handleSaveInquiry = async (inquiryData: Partial<CustomerInquiry>) => {
+    const isEdit = Boolean(inquiryData.id);
+    const inqId = inquiryData.id || ("INQ-" + Math.random().toString(36).substring(2, 8).toUpperCase());
+    const now = new Date().toISOString();
+
+    if (isEdit && !isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Edit',
+        moduleName: 'Customer Inquiries',
+        itemId: inquiryData.id!,
+        itemName: inquiryData.name || inquiryData.id!,
+        proposedChanges: inquiryData
+      });
+      return;
+    }
+
+    const savedInquiry: CustomerInquiry = {
+      id: inqId,
+      inquiry_code: inquiryData.inquiry_code || ("INQ-2026-" + Math.floor(1000 + Math.random() * 9000)),
+      name: inquiryData.name || "Inquiring Prospect",
+      gender: inquiryData.gender || "Male",
+      phone: inquiryData.phone || "",
+      inquiry_source: inquiryData.inquiry_source || "WhatsApp",
+      inquired_service: inquiryData.inquired_service || "General Inquiry",
+      assigned_representative: inquiryData.assigned_representative || currentUsername,
+      status: inquiryData.status || "New Inquiry",
+      priority: inquiryData.priority || "Medium",
+      created_at: inquiryData.created_at || now,
+      last_updated: now,
+      follow_up_history: inquiryData.follow_up_history || [],
+      ...inquiryData
+    };
+
+    if (isEdit) {
+      setCustomerInquiries(prev => prev.map(i => i.id === inqId ? savedInquiry : i));
+      await dataService.saveDocument('customer_inquiries', inqId, savedInquiry, `/api/customer-inquiries/${inqId}`, 'PUT');
+    } else {
+      setCustomerInquiries(prev => [savedInquiry, ...prev]);
+      await dataService.saveDocument('customer_inquiries', inqId, savedInquiry, '/api/customer-inquiries', 'POST');
+    }
+    fetchAllData();
+  };
+
+  const handleDeleteInquiry = async (id: string, name: string) => {
+    if (!isAuthorizedToDirectlyModify) {
+      setPermissionModalState({
+        isOpen: true,
+        actionType: 'Delete',
+        moduleName: 'Customer Inquiries',
+        itemId: id,
+        itemName: name || id
+      });
+      return;
+    }
+    setCustomerInquiries(prev => prev.filter(i => i.id !== id));
+    await dataService.deleteDocument('customer_inquiries', id, `/api/customer-inquiries/${id}`);
+    fetchAllData();
+  };
+
+  const handleLogFollowUp = async (inquiryId: string, followUp: { representative_name: string; channel: string; outcome: string; notes: string; next_followup_date?: string; new_status?: any }) => {
+    try {
+      const res = await fetch(`/api/customer-inquiries/${inquiryId}/follow-up`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': currentUsername
+        },
+        body: JSON.stringify(followUp)
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setCustomerInquiries(prev => prev.map(i => i.id === inquiryId ? updated : i));
+      }
+    } catch (e) {
+      console.error("Error logging follow-up:", e);
+    }
+    fetchAllData();
+  };
+
+  const handleConvertToCustomer = async (inquiry: CustomerInquiry) => {
+    try {
+      const res = await fetch(`/api/customer-inquiries/${inquiry.id}/convert`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': currentUsername
+        },
+        body: JSON.stringify(inquiry)
+      });
+      if (res.ok) {
+        const result = await res.json();
+        if (result.customer) {
+          setCustomers(prev => [result.customer, ...prev]);
+        }
+        if (result.inquiry) {
+          setCustomerInquiries(prev => prev.map(i => i.id === inquiry.id ? result.inquiry : i));
+        }
+        alert(`Successfully converted ${inquiry.name} to registered customer (${result.customer?.customer_id || 'CRM'})!`);
+      }
+    } catch (e) {
+      console.error("Error converting inquiry to customer:", e);
+    }
     fetchAllData();
   };
 
@@ -1785,6 +1922,12 @@ export default function App() {
               customers={customers}
               invoices={invoices}
               reservations={reservations}
+              vouchers={vouchers}
+              customerPayments={customerPayments}
+              customerInquiries={customerInquiries}
+              employees={employees}
+              activityLogs={activityLogs}
+              currentUsername={currentUsername}
               settings={settings}
               visas={visas}
               flights={flights}
@@ -1796,6 +1939,32 @@ export default function App() {
               onAddCustomer={handleAddCustomer}
               onUpdateCustomer={handleUpdateCustomer}
               onDeleteCustomer={handleDeleteCustomer}
+              onLogCommunication={handleLogCustomerCommunication}
+            />
+          )}
+
+          {currentTab === 'customer-inquiries' && (
+            <CustomerInquiriesView
+              inquiries={customerInquiries}
+              employees={employees}
+              customers={customers}
+              userRole={userRole}
+              userPermissions={currentUserPermissions}
+              currentUser={currentUsername}
+              onSaveInquiry={handleSaveInquiry}
+              onDeleteInquiry={handleDeleteInquiry}
+              onLogFollowUp={handleLogFollowUp}
+              onConvertToCustomer={handleConvertToCustomer}
+              onRequestApproval={(action, item, module) => {
+                setPermissionModalState({
+                  isOpen: true,
+                  actionType: action,
+                  moduleName: module || 'Customer Inquiries',
+                  itemId: item.id,
+                  itemName: item.name || item.id,
+                  proposedChanges: action === 'Edit' ? item : undefined
+                });
+              }}
             />
           )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink } from 'lucide-react';
 import { CompanySettings, UserRole, InstallmentPartnerConfig, InstallmentPlanRule } from '../types';
 
 interface SettingsViewProps {
@@ -277,6 +277,35 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
                 onChange={(e) => handleFieldChange({ website: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">Official Instagram Page</label>
+                {formData.instagram_url && (
+                  <a
+                    href={formData.instagram_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-pink-600 hover:text-pink-800 font-bold flex items-center gap-1"
+                  >
+                    <span>Test Link</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={formData.instagram_url || 'https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=='}
+                  onChange={(e) => handleFieldChange({ instagram_url: e.target.value })}
+                  placeholder="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-sm focus:outline-none focus:border-pink-500 focus:bg-white font-mono text-xs text-pink-900"
+                />
+                <Instagram className="w-4 h-4 text-pink-600 absolute left-3 top-3 pointer-events-none" />
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Link in parentheses: <span className="font-semibold text-slate-700">(https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)</span>
+              </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Customer Service Phone</label>

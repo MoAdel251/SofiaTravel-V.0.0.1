@@ -1223,7 +1223,13 @@ export function VouchersView({
                     <span className="text-xl font-black text-slate-900 tracking-tight">{settings?.company_name || 'Sofia Travel'}</span>
                   </div>
                   <p className="text-xs text-slate-500">{settings?.address || '124 Tahrir Square, Cairo, Egypt'}</p>
-                  <p className="text-xs text-slate-500">Tel: {settings?.phone || '+20 2 25750000'} | Web: {settings?.website || 'www.sofiatravel.com'}</p>
+                  <p className="text-xs text-slate-500">Tel: {settings?.phone || '+20 2 25750000'} | Email: {settings?.email || 'operations@sofiatravel.com'}</p>
+                  <p className="text-xs text-slate-600 font-medium flex items-center gap-1">
+                    <span>Instagram Page:</span>
+                    <a href={settings?.instagram_url || 'https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=='} target="_blank" rel="noopener noreferrer" className="text-pink-600 underline font-bold">
+                      (https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)
+                    </a>
+                  </p>
                 </div>
 
                 <div className="text-right">

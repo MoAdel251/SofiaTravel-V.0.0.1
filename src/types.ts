@@ -10,6 +10,56 @@ export interface User {
 
 export type CustomerType = 'Individual' | 'Family' | 'Corporate' | 'Travel Agent' | 'Partner';
 
+export type InquirySource = 'WhatsApp' | 'Instagram' | 'Facebook' | 'Website' | 'Phone Call' | 'Walk-in' | 'Other';
+export type InquiryStatus = 'New Inquiry' | 'Under Follow-up' | 'Price Quoted' | 'Awaiting Response' | 'Not Interested / Postponed' | 'Converted to Customer';
+
+export interface InquiryFollowUp {
+  id: string;
+  date: string;
+  representative_name: string;
+  channel: 'WhatsApp' | 'Instagram' | 'Phone' | 'Email' | 'In-Person';
+  outcome: string;
+  notes: string;
+}
+
+export interface CustomerInquiry {
+  id: string;
+  inquiry_code: string;
+  name: string;
+  gender: 'Male' | 'Female';
+  phone: string;
+  email?: string;
+  inquiry_source: InquirySource;
+  social_handle?: string;
+  inquired_service: string;
+  service_category?: string;
+  destination?: string;
+  travel_date?: string;
+  estimated_travelers?: number;
+  budget?: string;
+  assigned_representative: string;
+  assigned_rep_id?: string;
+  status: InquiryStatus;
+  priority: 'High' | 'Medium' | 'Low';
+  next_followup_date?: string;
+  notes?: string;
+  last_updated: string;
+  created_at: string;
+  created_by?: string;
+  converted_to_customer_id?: string;
+  converted_at?: string;
+  follow_up_history?: InquiryFollowUp[];
+}
+
+export interface CustomerCommunication {
+  id: string;
+  date: string;
+  employee_name: string;
+  channel: 'WhatsApp' | 'Phone' | 'Email' | 'In-Person' | 'Instagram' | string;
+  notes: string;
+  outcome?: string;
+}
+
 export interface Customer {
   id: string;
   customer_id: string;
@@ -28,6 +78,11 @@ export interface Customer {
   registration_date: string;
   outstanding_balance: number;
   currency: string;
+  last_communicated_by?: string;
+  last_communicated_date?: string;
+  last_communication_notes?: string;
+  assigned_employee?: string;
+  communications_history?: CustomerCommunication[];
 }
 
 export type ServiceType = 
@@ -606,6 +661,7 @@ export interface Employee {
   id: string;
   employee_id: string;
   name: string;
+  full_name?: string;
   phone: string;
   email: string;
   position: EmployeePosition;
@@ -711,6 +767,7 @@ export interface CompanySettings {
   whatsapp: string;
   email: string;
   website: string;
+  instagram_url?: string;
   tax_number: string;
   bank_name?: string;
   bank_account_number?: string;

@@ -1418,6 +1418,7 @@ export function InvoicesView({
                   <p className="text-xs text-slate-500 mt-2 max-w-xs">{settings.address}</p>
                   <p className="text-xs text-slate-500">Tel: {settings.phone} • WhatsApp: {settings.whatsapp}</p>
                   <p className="text-xs text-slate-500">Email: {settings.email} • TRN: {settings.tax_number}</p>
+                  <p className="text-xs text-slate-600 font-medium">Instagram: <a href={settings.instagram_url || "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="} target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:text-pink-800 underline font-semibold">(https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)</a></p>
                 </div>
 
                 <div className="text-left sm:text-right">

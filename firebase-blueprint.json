@@ -21,6 +21,36 @@
       },
       "required": ["id", "full_name"]
     },
+    "CustomerInquiry": {
+      "title": "CustomerInquiry",
+      "description": "Inquiring prospect who contacted via Instagram or WhatsApp before booking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "inquiry_code": { "type": "string" },
+        "name": { "type": "string" },
+        "gender": { "type": "string", "enum": ["Male", "Female"] },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "inquiry_source": { "type": "string", "enum": ["WhatsApp", "Instagram", "Facebook", "Website", "Phone Call", "Walk-in", "Other"] },
+        "social_handle": { "type": "string" },
+        "inquired_service": { "type": "string" },
+        "service_category": { "type": "string" },
+        "destination": { "type": "string" },
+        "travel_date": { "type": "string" },
+        "estimated_travelers": { "type": "number" },
+        "budget": { "type": "string" },
+        "assigned_representative": { "type": "string" },
+        "assigned_rep_id": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "next_followup_date": { "type": "string" },
+        "notes": { "type": "string" },
+        "last_updated": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "name", "gender", "phone", "last_updated"]
+    },
     "Reservation": {
       "title": "Reservation",
       "description": "Booking and reservation record",
@@ -347,6 +377,10 @@
     "/settings/{settingId}": {
       "schema": "CompanySettings",
       "description": "Company settings collection"
+    },
+    "/customer_inquiries/{inquiryId}": {
+      "schema": "CustomerInquiry",
+      "description": "Customer inquiries and leads from Instagram and WhatsApp"
     }
   }
 }

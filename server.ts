@@ -173,7 +173,8 @@ let db = {
   payroll_records: [],
   employee_advances: [],
   commission_records: [],
-  finance_audit_logs: []
+  finance_audit_logs: [],
+  customer_inquiries: []
 };
 
 async function getCollectionDocs(collectionName: string): Promise<any[]> {
@@ -230,7 +231,7 @@ async function loadFromFirestore() {
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs"
+    "finance_audit_logs", "customer_inquiries"
   ];
   try {
     console.log("Loading persistent data from Firestore...");
@@ -259,7 +260,7 @@ async function wipeAllFirestoreTestData() {
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs"
+    "finance_audit_logs", "customer_inquiries"
   ];
   console.log("Admin action: Wiping operational test data from Firestore (preserving employee accounts)...");
   for (const col of collections) {
@@ -445,7 +446,9 @@ app.post("/api/permission-requests/:id/approve", async (req, res) => {
     'Documents': 'documents',
     'Expenses': 'expenses',
     'Customer Payments': 'customer_payments',
-    'Supplier Payments': 'supplier_payments'
+    'Supplier Payments': 'supplier_payments',
+    'Customer Inquiries': 'customer_inquiries',
+    'Inquiries': 'customer_inquiries'
   };
 
   const targetCol = colMap[request.module];
@@ -587,12 +590,227 @@ app.put("/api/customers/:id", async (req, res) => {
   res.json(updated);
 });
 
+app.post("/api/customers/:id/log-communication", async (req, res) => {
+  const { id } = req.params;
+  const { employee_name, channel, notes, outcome, date } = req.body;
+  const actingUser = employee_name || (req.headers['x-acting-user'] as string) || "Staff";
+  const now = date || new Date().toISOString();
+
+  let idx = db.customers.findIndex((c: any) => c.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('customers');
+    idx = db.customers.findIndex((c: any) => c.id === id);
+  }
+
+  if (idx !== -1) {
+    const cust = db.customers[idx];
+    const commEntry = {
+      id: "COMM-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
+      date: now,
+      employee_name: actingUser,
+      channel: channel || "Phone Call",
+      notes: notes || "Direct communication with client",
+      outcome: outcome || "Information logged"
+    };
+
+    cust.last_communicated_by = actingUser;
+    cust.last_communicated_date = now;
+    cust.last_communication_notes = notes;
+    cust.communications_history = [commEntry, ...(cust.communications_history || [])];
+
+    await saveToFirestore('customers', id, cust);
+    await logActivity(actingUser, `Communicated with client ${cust.full_name} via ${channel || 'phone'}`, "Customers", cust.customer_id);
+    return res.json(cust);
+  }
+
+  res.status(404).json({ error: "Customer not found" });
+});
+
 app.delete("/api/customers/:id", async (req, res) => {
   const { id } = req.params;
   db.customers = db.customers.filter(c => c.id !== id);
   await logActivity("Administrator", "Deleted customer", "Customers", id);
   await deleteFromFirestore('customers', id);
   res.json({ success: true });
+});
+
+// Customer Inquiries (Potential customers inquiring via Instagram, WhatsApp, etc. before booking)
+app.get("/api/customer-inquiries", async (req, res) => {
+  const inquiries = await getCollectionDocs('customer_inquiries');
+  res.json(inquiries);
+});
+
+app.post("/api/customer-inquiries", async (req, res) => {
+  const inqId = req.body.id || ("INQ-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const now = new Date().toISOString();
+  const newInquiry = {
+    inquiry_code: req.body.inquiry_code || ("INQ-2026-" + Math.floor(1000 + Math.random() * 9000)),
+    name: req.body.name || "Inquiring Prospect",
+    gender: req.body.gender || "Male",
+    phone: req.body.phone || "",
+    inquiry_source: req.body.inquiry_source || "WhatsApp",
+    inquired_service: req.body.inquired_service || "General Inquiry",
+    assigned_representative: req.body.assigned_representative || "Sales Team",
+    status: req.body.status || "New Inquiry",
+    priority: req.body.priority || "Medium",
+    created_at: req.body.created_at || now,
+    last_updated: now,
+    follow_up_history: req.body.follow_up_history || [],
+    ...req.body,
+    id: inqId
+  };
+
+  const idx = (db.customer_inquiries || []).findIndex((i: any) => i.id === newInquiry.id);
+  if (!db.customer_inquiries) db.customer_inquiries = [];
+  if (idx >= 0) {
+    db.customer_inquiries[idx] = newInquiry;
+  } else {
+    db.customer_inquiries.unshift(newInquiry);
+  }
+
+  const actingUser = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(actingUser, `Recorded new inquiry from ${newInquiry.name} via ${newInquiry.inquiry_source}`, "Customer Inquiries", newInquiry.inquiry_code);
+  await saveToFirestore('customer_inquiries', newInquiry.id, newInquiry);
+  res.json(newInquiry);
+});
+
+app.put("/api/customer-inquiries/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!db.customer_inquiries) db.customer_inquiries = [];
+  let idx = db.customer_inquiries.findIndex((i: any) => i.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('customer_inquiries');
+    idx = db.customer_inquiries.findIndex((i: any) => i.id === id);
+  }
+
+  const current = idx !== -1 ? db.customer_inquiries[idx] : { id };
+  const updated = {
+    ...current,
+    ...req.body,
+    id,
+    last_updated: new Date().toISOString()
+  };
+
+  if (idx !== -1) {
+    db.customer_inquiries[idx] = updated;
+  } else {
+    db.customer_inquiries.push(updated);
+  }
+
+  const actingUser = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(actingUser, `Updated inquiry for ${updated.name || id}`, "Customer Inquiries", updated.inquiry_code || id);
+  await saveToFirestore('customer_inquiries', id, updated);
+  res.json(updated);
+});
+
+app.delete("/api/customer-inquiries/:id", async (req, res) => {
+  const { id } = req.params;
+  if (db.customer_inquiries) {
+    db.customer_inquiries = db.customer_inquiries.filter((i: any) => i.id !== id);
+  }
+  const actingUser = (req.headers['x-acting-user'] as string) || "Administrator";
+  await logActivity(actingUser, "Deleted customer inquiry record", "Customer Inquiries", id);
+  await deleteFromFirestore('customer_inquiries', id);
+  res.json({ success: true });
+});
+
+// Log a follow-up interaction
+app.post("/api/customer-inquiries/:id/follow-up", async (req, res) => {
+  const { id } = req.params;
+  const { representative_name, channel, outcome, notes, next_followup_date, new_status } = req.body;
+  if (!db.customer_inquiries) db.customer_inquiries = [];
+  let idx = db.customer_inquiries.findIndex((i: any) => i.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('customer_inquiries');
+    idx = db.customer_inquiries.findIndex((i: any) => i.id === id);
+  }
+  if (idx === -1) return res.status(404).json({ error: "Inquiry not found" });
+
+  const current = db.customer_inquiries[idx];
+  const now = new Date().toISOString();
+  const followUpItem = {
+    id: "FU-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
+    date: now,
+    representative_name: representative_name || "Representative",
+    channel: channel || "WhatsApp",
+    outcome: outcome || "Contacted",
+    notes: notes || ""
+  };
+
+  const updatedHistory = Array.isArray(current.follow_up_history) ? [...current.follow_up_history, followUpItem] : [followUpItem];
+  const updated = {
+    ...current,
+    follow_up_history: updatedHistory,
+    status: new_status || current.status,
+    next_followup_date: next_followup_date !== undefined ? next_followup_date : current.next_followup_date,
+    last_updated: now
+  };
+
+  db.customer_inquiries[idx] = updated;
+  await logActivity(representative_name || "Staff", `Logged follow-up with inquiring prospect ${updated.name}`, "Customer Inquiries", updated.inquiry_code);
+  await saveToFirestore('customer_inquiries', id, updated);
+  res.json(updated);
+});
+
+// Convert an inquiry into a booked/registered client in the Customers directory
+app.post("/api/customer-inquiries/:id/convert", async (req, res) => {
+  const { id } = req.params;
+  if (!db.customer_inquiries) db.customer_inquiries = [];
+  let idx = db.customer_inquiries.findIndex((i: any) => i.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('customer_inquiries');
+    idx = db.customer_inquiries.findIndex((i: any) => i.id === id);
+  }
+  if (idx === -1) return res.status(404).json({ error: "Inquiry not found" });
+
+  const inquiry = db.customer_inquiries[idx];
+  const newCustomerId = "CUST-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+  const customerNumber = "C-" + Math.floor(1000 + Math.random() * 9000);
+  const now = new Date().toISOString();
+
+  const newCustomer = {
+    id: newCustomerId,
+    customer_id: customerNumber,
+    full_name: inquiry.name,
+    name: inquiry.name,
+    gender: inquiry.gender || "Male",
+    phone: inquiry.phone || "",
+    whatsapp_number: inquiry.phone || "",
+    email: inquiry.email || "",
+    passport_number: req.body.passport_number || "",
+    nationality: req.body.nationality || "Egyptian",
+    date_of_birth: req.body.date_of_birth || "",
+    address: req.body.address || "",
+    notes: `Converted from inquiry ${inquiry.inquiry_code} (Source: ${inquiry.inquiry_source}, Inquired for: ${inquiry.inquired_service}). ${inquiry.notes || ''}`,
+    customer_type: "Individual",
+    registration_date: now.split('T')[0],
+    outstanding_balance: 0,
+    currency: "USD"
+  };
+
+  if (!db.customers) db.customers = [];
+  db.customers.unshift(newCustomer);
+  await saveToFirestore('customers', newCustomer.id, newCustomer);
+
+  // Update inquiry status
+  const updatedInquiry = {
+    ...inquiry,
+    status: "Converted to Customer",
+    converted_to_customer_id: newCustomer.id,
+    converted_at: now,
+    last_updated: now
+  };
+  db.customer_inquiries[idx] = updatedInquiry;
+  await saveToFirestore('customer_inquiries', id, updatedInquiry);
+
+  const actingUser = (req.headers['x-acting-user'] as string) || "Staff";
+  await logActivity(actingUser, `Converted inquiry ${inquiry.inquiry_code} (${inquiry.name}) to acquired Customer ${customerNumber}`, "Customer Inquiries", customerNumber);
+
+  res.json({
+    success: true,
+    customer: newCustomer,
+    inquiry: updatedInquiry
+  });
 });
 
 // Vouchers & Reservations
