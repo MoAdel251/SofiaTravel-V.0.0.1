@@ -18,7 +18,7 @@ import {
   ChevronRight,
   ShieldCheck
 } from 'lucide-react';
-import { VisaService, VisaType, VisaEntry, Supplier } from '../types';
+import { VisaService, VisaType, VisaEntry, Supplier, UserRole } from '../types';
 import { formatCurrency } from '../utils/currency';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
@@ -26,6 +26,7 @@ interface VisasViewProps {
   visas: VisaService[];
   suppliers?: Supplier[];
   customers?: any[];
+  userRole?: UserRole;
   onAddVisa: (data: Partial<VisaService>) => void;
   onUpdateVisa: (id: string, data: Partial<VisaService>) => void;
   onDeleteVisa: (id: string) => void;
@@ -65,6 +66,7 @@ export function VisasView({
   visas = [],
   suppliers = [],
   customers = [],
+  userRole = 'Administrator',
   onAddVisa,
   onUpdateVisa,
   onDeleteVisa,
@@ -424,16 +426,38 @@ export function VisasView({
                     <button
                       type="button"
                       onClick={() => handleOpenEdit(v)}
-                      className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
-                      title="Edit Visa Service"
+                      className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                        userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                          ? 'text-slate-500 hover:text-indigo-600 hover:bg-white'
+                          : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                      }`}
+                      title={
+                        userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                          ? "Edit Visa Service"
+                          : "Request Admin Permission to Edit Visa Service (Requires Stated Reason)"
+                      }
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDeleteConfirmId(v.id)}
-                      className="p-2 text-slate-500 hover:text-rose-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
-                      title="Delete Visa Service"
+                      onClick={() => {
+                        if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
+                          onDeleteVisa(v.id);
+                        } else {
+                          setDeleteConfirmId(v.id);
+                        }
+                      }}
+                      className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                        userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                          ? 'text-slate-500 hover:text-rose-600 hover:bg-white'
+                          : 'text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200'
+                      }`}
+                      title={
+                        userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                          ? "Delete Visa Service"
+                          : "Request Admin Permission to Delete Visa Service (Requires Stated Reason)"
+                      }
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

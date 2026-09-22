@@ -10,11 +10,12 @@ import {
   AlertTriangle,
   Ticket
 } from 'lucide-react';
-import { Flight } from '../types';
+import { Flight, UserRole } from '../types';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface FlightsViewProps {
   flights: Flight[];
+  userRole?: UserRole;
   onAddFlight: (data: Partial<Flight>) => void;
   onUpdateFlight?: (id: string, data: Partial<Flight>) => void;
   onDeleteFlight?: (id: string) => void;

@@ -1406,20 +1406,82 @@ export function CustomerInquiriesView({
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  onClick={() => handleOpenWhatsApp(viewingInquiry.phone, viewingInquiry.name, viewingInquiry.inquired_service)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  Chat on WhatsApp
-                </button>
-                <button
-                  onClick={() => setViewingInquiry(null)}
-                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
-                >
-                  Close
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
+                <div className="flex items-center gap-2">
+                  {!canEdit || !isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const inq = viewingInquiry;
+                        setViewingInquiry(null);
+                        onRequestApproval?.('Edit', inq, 'Customer Inquiries');
+                      }}
+                      className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                      title="Request Admin Approval to Edit Inquiry"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Request Edit Permission</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const inq = viewingInquiry;
+                        setViewingInquiry(null);
+                        handleOpenEditModal(inq);
+                      }}
+                      className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit Inquiry</span>
+                    </button>
+                  )}
+
+                  {!canDelete || !isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const inq = viewingInquiry;
+                        setViewingInquiry(null);
+                        onRequestApproval?.('Delete', inq, 'Customer Inquiries');
+                      }}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                      title="Request Admin Approval to Delete Inquiry"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Request Delete Permission</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const inq = viewingInquiry;
+                        setViewingInquiry(null);
+                        handleDeleteClick(inq);
+                      }}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Inquiry</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleOpenWhatsApp(viewingInquiry.phone, viewingInquiry.name, viewingInquiry.inquired_service)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Chat on WhatsApp
+                  </button>
+                  <button
+                    onClick={() => setViewingInquiry(null)}
+                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>

@@ -19,13 +19,14 @@ import {
   AlertCircle,
   Navigation
 } from 'lucide-react';
-import { TransferService, VehicleType, Supplier } from '../types';
+import { TransferService, VehicleType, Supplier, UserRole } from '../types';
 import { formatCurrency } from '../utils/currency';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface TransfersViewProps {
   transfers: TransferService[];
   suppliers?: Supplier[];
+  userRole?: UserRole;
   onAddTransfer: (data: Partial<TransferService>) => void;
   onUpdateTransfer: (id: string, data: Partial<TransferService>) => void;
   onDeleteTransfer: (id: string) => void;

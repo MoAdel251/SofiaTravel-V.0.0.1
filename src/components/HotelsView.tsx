@@ -14,12 +14,13 @@ import {
   Calendar,
   CreditCard
 } from 'lucide-react';
-import { Hotel as HotelType, Customer } from '../types';
+import { Hotel as HotelType, Customer, UserRole } from '../types';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface HotelsViewProps {
   hotels: HotelType[];
   customers?: Customer[];
+  userRole?: UserRole;
   onAddHotel: (data: Partial<HotelType>) => void;
   onUpdateHotel?: (id: string, data: Partial<HotelType>) => void;
   onDeleteHotel?: (id: string) => void;

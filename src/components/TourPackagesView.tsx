@@ -15,10 +15,11 @@ import {
   Trash2,
   AlertTriangle
 } from 'lucide-react';
-import { TourPackage } from '../types';
+import { TourPackage, UserRole } from '../types';
 
 interface TourPackagesViewProps {
   packages: TourPackage[];
+  userRole?: UserRole;
   onAddPackage: (data: Partial<TourPackage>) => void;
   onUpdatePackage?: (id: string, data: Partial<TourPackage>) => void;
   onDeletePackage?: (id: string) => void;
@@ -36,6 +37,7 @@ const PRESET_PACKAGE_IMAGES = [
 
 export function TourPackagesView({ 
   packages = [], 
+  userRole = 'Administrator',
   onAddPackage, 
   onUpdatePackage, 
   onDeletePackage, 
@@ -198,18 +200,46 @@ export function TourPackagesView({
                   <div className="absolute top-3 left-3 flex items-center gap-1.5">
                     {onUpdatePackage && (
                       <button
-                        onClick={() => setEditingPackage({ ...pkg })}
-                        className="p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-cyan-600 rounded-lg shadow-sm backdrop-blur-xs transition-colors cursor-pointer"
-                        title="Edit Trip / Tour Package"
+                        onClick={() => {
+                          if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
+                            onUpdatePackage(pkg.id, pkg);
+                          } else {
+                            setEditingPackage({ ...pkg });
+                          }
+                        }}
+                        className={`p-2 rounded-lg shadow-xs backdrop-blur-xs transition-colors cursor-pointer ${
+                          userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                            ? 'bg-white/90 hover:bg-white text-slate-700 hover:text-cyan-600'
+                            : 'bg-amber-500/90 hover:bg-amber-600 text-white font-bold'
+                        }`}
+                        title={
+                          userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                            ? "Edit Trip / Itinerary Package"
+                            : "Request Admin Permission to Edit Itinerary (Requires Stated Reason)"
+                        }
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                     )}
                     {onDeletePackage && (
                       <button
-                        onClick={() => setDeleteConfirmPkg(pkg)}
-                        className="p-2 bg-white/90 hover:bg-rose-50 text-slate-700 hover:text-rose-600 rounded-lg shadow-sm backdrop-blur-xs transition-colors cursor-pointer"
-                        title="Delete Trip / Tour Package"
+                        onClick={() => {
+                          if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
+                            onDeletePackage(pkg.id);
+                          } else {
+                            setDeleteConfirmPkg(pkg);
+                          }
+                        }}
+                        className={`p-2 rounded-lg shadow-xs backdrop-blur-xs transition-colors cursor-pointer ${
+                          userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                            ? 'bg-white/90 hover:bg-rose-50 text-slate-700 hover:text-rose-600'
+                            : 'bg-rose-600/90 hover:bg-rose-700 text-white font-bold'
+                        }`}
+                        title={
+                          userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                            ? "Delete Trip / Itinerary Package"
+                            : "Request Admin Permission to Delete Itinerary (Requires Stated Reason)"
+                        }
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

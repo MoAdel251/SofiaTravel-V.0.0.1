@@ -17,13 +17,14 @@ import {
   Sparkles,
   ShieldCheck
 } from 'lucide-react';
-import { DayTripService, DayTripCategory, Supplier } from '../types';
+import { DayTripService, DayTripCategory, Supplier, UserRole } from '../types';
 import { formatCurrency } from '../utils/currency';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface DayTripsViewProps {
   dayTrips: DayTripService[];
   suppliers?: Supplier[];
+  userRole?: UserRole;
   onAddDayTrip: (data: Partial<DayTripService>) => void;
   onUpdateDayTrip: (id: string, data: Partial<DayTripService>) => void;
   onDeleteDayTrip: (id: string) => void;

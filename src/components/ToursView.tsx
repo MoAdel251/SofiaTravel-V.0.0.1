@@ -19,13 +19,14 @@ import {
   AlertCircle,
   FileText
 } from 'lucide-react';
-import { TourService, TourStyle, Supplier } from '../types';
+import { TourService, TourStyle, Supplier, UserRole } from '../types';
 import { formatCurrency } from '../utils/currency';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface ToursViewProps {
   tours: TourService[];
   suppliers?: Supplier[];
+  userRole?: UserRole;
   onAddTour: (data: Partial<TourService>) => void;
   onUpdateTour: (id: string, data: Partial<TourService>) => void;
   onDeleteTour: (id: string) => void;

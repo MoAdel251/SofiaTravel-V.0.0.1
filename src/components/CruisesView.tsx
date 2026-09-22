@@ -18,13 +18,14 @@ import {
   Ticket, 
   AlertCircle 
 } from 'lucide-react';
-import { CruiseService, CruiseCabinType, BoardBasis, Supplier } from '../types';
+import { CruiseService, CruiseCabinType, BoardBasis, Supplier, UserRole } from '../types';
 import { formatCurrency } from '../utils/currency';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface CruisesViewProps {
   cruises: CruiseService[];
   suppliers?: Supplier[];
+  userRole?: UserRole;
   onAddCruise: (data: Partial<CruiseService>) => void;
   onUpdateCruise: (id: string, data: Partial<CruiseService>) => void;
   onDeleteCruise: (id: string) => void;

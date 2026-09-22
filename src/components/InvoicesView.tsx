@@ -13,6 +13,7 @@ import {
   AlertCircle, 
   Trash2, 
   Eye, 
+  Edit3,
   X, 
   Plane, 
   Hotel as HotelIcon, 
@@ -851,14 +852,51 @@ export function InvoicesView({
                               <CreditCard className="w-4 h-4" />
                             </button>
                           )}
+                          {/* Edit Invoice Button */}
                           <button
                             onClick={() => {
-                              if (window.confirm(`Are you sure you want to delete invoice ${inv.invoice_number}?`)) {
+                              // If employee without direct permission, call onUpdateInvoice to trigger PermissionModal
+                              if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
+                                onUpdateInvoice(inv.id, inv);
+                              } else {
+                                setViewInvoice(inv);
+                              }
+                            }}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                                ? 'hover:bg-blue-50 text-blue-600'
+                                : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                            }`}
+                            title={
+                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                                ? "View / Edit Invoice"
+                                : "Request Admin Permission to Edit Invoice (Requires Stated Reason)"
+                            }
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+
+                          {/* Delete Invoice Button */}
+                          <button
+                            onClick={() => {
+                              if (userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant') {
+                                if (window.confirm(`Are you sure you want to delete invoice ${inv.invoice_number}?`)) {
+                                  onDeleteInvoice(inv.id);
+                                }
+                              } else {
                                 onDeleteInvoice(inv.id);
                               }
                             }}
-                            className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors cursor-pointer"
-                            title="Delete Invoice"
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                                ? 'hover:bg-rose-50 text-rose-600'
+                                : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                            }`}
+                            title={
+                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
+                                ? "Delete Invoice"
+                                : "Request Admin Permission to Delete Invoice (Requires Stated Reason)"
+                            }
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

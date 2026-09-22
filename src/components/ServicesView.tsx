@@ -33,6 +33,7 @@ import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface ServicesViewProps {
   initialSubTab?: 'visas' | 'flights' | 'hotels' | 'transfers' | 'cruises' | 'tours' | 'day-trips';
+  userRole?: any;
   visas: VisaService[];
   flights?: Flight[];
   hotels?: Hotel[];
@@ -71,6 +72,7 @@ interface ServicesViewProps {
 
 export function ServicesView({
   initialSubTab = 'visas',
+  userRole = 'Administrator',
   visas = [],
   flights = [],
   hotels = [],
@@ -172,6 +174,7 @@ export function ServicesView({
             visas={visas}
             suppliers={suppliers}
             customers={customers}
+            userRole={userRole}
             onAddVisa={onAddVisa}
             onUpdateVisa={onUpdateVisa}
             onDeleteVisa={onDeleteVisa}
@@ -182,6 +185,7 @@ export function ServicesView({
         {activeTab === 'flights' && (
           <FlightsView
             flights={flights}
+            userRole={userRole}
             onAddFlight={onAddFlight}
             onUpdateFlight={onUpdateFlight}
             onDeleteFlight={onDeleteFlight}
@@ -193,6 +197,7 @@ export function ServicesView({
           <HotelsView
             hotels={hotels}
             customers={customers}
+            userRole={userRole}
             onAddHotel={onAddHotel}
             onUpdateHotel={onUpdateHotel}
             onDeleteHotel={onDeleteHotel}
@@ -204,6 +209,7 @@ export function ServicesView({
           <TransfersView
             transfers={transfers}
             suppliers={suppliers}
+            userRole={userRole}
             onAddTransfer={onAddTransfer}
             onUpdateTransfer={onUpdateTransfer}
             onDeleteTransfer={onDeleteTransfer}
@@ -215,6 +221,7 @@ export function ServicesView({
           <CruisesView
             cruises={cruises}
             suppliers={suppliers}
+            userRole={userRole}
             onAddCruise={onAddCruise}
             onUpdateCruise={onUpdateCruise}
             onDeleteCruise={onDeleteCruise}
@@ -226,6 +233,7 @@ export function ServicesView({
           <ToursView
             tours={tours}
             suppliers={suppliers}
+            userRole={userRole}
             onAddTour={onAddTour}
             onUpdateTour={onUpdateTour}
             onDeleteTour={onDeleteTour}
@@ -237,6 +245,7 @@ export function ServicesView({
           <DayTripsView
             dayTrips={dayTrips}
             suppliers={suppliers}
+            userRole={userRole}
             onAddDayTrip={onAddDayTrip}
             onUpdateDayTrip={onUpdateDayTrip}
             onDeleteDayTrip={onDeleteDayTrip}

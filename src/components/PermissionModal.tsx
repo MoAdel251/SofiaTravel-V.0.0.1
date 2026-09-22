@@ -112,11 +112,14 @@ export function PermissionModal({
               </div>
             </div>
 
-            <div className="flex items-start space-x-2 text-[11px] text-amber-700 bg-amber-50 p-3 rounded-xl border border-amber-200">
+            <div className="flex items-start space-x-2 text-[11px] text-amber-800 bg-amber-50 p-3.5 rounded-xl border border-amber-200 shadow-2xs">
               <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
-              <span>
-                As an employee, direct edits and deletions require supervisor review. Please state a clear reason below.
-              </span>
+              <div className="space-y-0.5">
+                <p className="font-bold">Administrator Approval Required</p>
+                <p className="text-amber-700 leading-normal">
+                  Permissions to edit or delete records are granted on a <strong>one-time basis</strong> upon approval by an Administrator. Please state a clear, specific reason below for review.
+                </p>
+              </div>
             </div>
 
             <div>
