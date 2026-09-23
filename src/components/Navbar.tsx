@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { UserRole, NotificationItem } from '../types';
 import { getCurrencySymbol } from '../utils/currency';
+import { PWAInstallButton } from './PWAInstallButton';
 
 function LiveClock() {
   const [time, setTime] = useState(new Date());
@@ -40,6 +41,8 @@ interface NavbarProps {
   username: string;
   companyName: string;
   onLogout: () => void;
+  isMobileMenuOpen?: boolean;
+  setIsMobileMenuOpen?: (open: boolean) => void;
 }
 
 export function Navbar({
@@ -57,10 +60,18 @@ export function Navbar({
   setCurrentTab,
   username,
   companyName,
-  onLogout
+  onLogout,
+  isMobileMenuOpen,
+  setIsMobileMenuOpen
 }: NavbarProps) {
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [internalMobileOpen, setInternalMobileOpen] = useState(false);
+
+  const mobileMenuOpen = isMobileMenuOpen !== undefined ? isMobileMenuOpen : internalMobileOpen;
+  const setMobileMenuOpen = (val: boolean) => {
+    if (setIsMobileMenuOpen) setIsMobileMenuOpen(val);
+    setInternalMobileOpen(val);
+  };
 
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -153,7 +164,10 @@ export function Navbar({
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0 justify-end">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 justify-end">
+          {/* PWA Mobile App Install Button */}
+          <PWAInstallButton variant="header" companyName={companyName} />
+
           {/* Company Instagram Page Link */}
           <a
             href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
@@ -326,30 +340,93 @@ export function Navbar({
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" 
             onClick={() => setMobileMenuOpen(false)} 
           />
-          <div className="relative z-10 w-72 max-w-[80vw] bg-slate-900 text-white h-full flex flex-col p-4 shadow-2xl overflow-y-auto">
+          <div className="relative z-10 w-80 max-w-[85vw] bg-slate-900 text-white h-full flex flex-col p-4 shadow-2xl overflow-y-auto pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center font-bold text-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center font-bold text-white shadow-md shadow-blue-500/30">
                   <Globe2 className="w-4 h-4" />
                 </div>
-                <span className="font-bold text-sm">{companyName}</span>
+                <div>
+                  <span className="font-bold text-sm tracking-tight">{companyName}</span>
+                  <p className="text-[10px] text-blue-400 font-semibold">Travel Management OS</p>
+                </div>
               </div>
               <button
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg"
+                className="p-2 text-slate-400 hover:text-white rounded-xl bg-slate-800/80 hover:bg-slate-800 cursor-pointer"
+                aria-label="Close Navigation"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="py-3 border-b border-slate-800 space-y-1">
-              <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wider px-2">User Profile</div>
-              <div className="px-2 py-1 text-xs text-slate-200 font-semibold">{username}</div>
-              <div className="px-2 text-[10px] text-blue-400 font-bold mb-2">{userRole}</div>
+            {/* PWA Mobile Install Banner inside Drawer */}
+            <div className="py-3 border-b border-slate-800">
+              <PWAInstallButton variant="drawer" companyName={companyName} />
             </div>
 
-            <div className="py-4 space-y-1 flex-1">
-              <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wider px-2 mb-2">Navigation Menu</div>
+            {/* User Profile Summary */}
+            <div className="py-3 border-b border-slate-800 space-y-1">
+              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1">Active User</div>
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-slate-800 text-blue-400 flex items-center justify-center font-bold text-xs border border-slate-700">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-200 font-bold">{username}</p>
+                    <p className="text-[10px] text-blue-400 font-semibold">{userRole}</p>
+                  </div>
+                </div>
+                {/* Cloud live indicator */}
+                <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Cloud Live</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Currency Selector for Mobile */}
+            <div className="py-3 border-b border-slate-800">
+              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1 mb-2">Display Currency</div>
+              <div className="grid grid-cols-5 gap-1">
+                {['USD', 'EUR', 'EGP', 'SAR', 'GBP'].map((curr) => (
+                  <button
+                    key={curr}
+                    onClick={() => setCurrentCurrency(curr)}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      currentCurrency === curr
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {curr}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Official Instagram Page Link on Mobile */}
+            <div className="py-3 border-b border-slate-800">
+              <a
+                href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-purple-900/60 via-pink-900/60 to-rose-900/60 border border-pink-500/40 text-pink-200 hover:text-white text-xs font-bold transition-all shadow-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <Instagram className="w-4 h-4 text-pink-400 shrink-0" />
+                  <span>Company Instagram Page</span>
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+              </a>
+            </div>
+
+            {/* Navigation Menu List */}
+            <div className="py-3 space-y-1 flex-1">
+              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1 mb-2">
+                System Modules ({filteredItems.length})
+              </div>
               {filteredItems.map(item => {
                 const Icon = item.icon;
                 const isActive = currentTab === item.id;
@@ -360,16 +437,16 @@ export function Navbar({
                       setCurrentTab(item.id);
                       setMobileMenuOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
-                      isActive ? 'bg-blue-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors min-h-[42px] cursor-pointer ${
+                      isActive ? 'bg-blue-600 text-white font-bold shadow-xs' : 'text-slate-300 hover:bg-slate-800 active:bg-slate-750'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Icon className="w-4 h-4" />
-                      <span>{item.label}</span>
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{item.label}</span>
                     </div>
                     {item.badge !== undefined && item.badge > 0 && (
-                      <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-bold">
+                      <span className="px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-bold shrink-0">
                         {item.badge}
                       </span>
                     )}
@@ -378,16 +455,16 @@ export function Navbar({
               })}
             </div>
 
-            <div className="pt-4 border-t border-slate-800">
+            <div className="pt-3 border-t border-slate-800 space-y-2">
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onLogout();
                 }}
-                className="w-full flex items-center justify-center gap-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 py-2.5 rounded-xl text-xs font-bold"
+                className="w-full flex items-center justify-center gap-2 bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/30 text-rose-400 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
               >
                 <LogOut className="w-4 h-4" />
-                <span>Sign Out</span>
+                <span>Sign Out of Account</span>
               </button>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download } from 'lucide-react';
 import { CompanySettings, UserRole, InstallmentPartnerConfig, InstallmentPlanRule } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface SettingsViewProps {
   settings: CompanySettings;
@@ -566,6 +567,49 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Mobile & Desktop App Installation (PWA) */}
+        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 rounded-2xl border border-blue-500/30 p-6 text-white space-y-4 shadow-xl">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-700/80">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 p-0.5 shadow-lg shadow-blue-500/30 flex items-center justify-center shrink-0">
+                <Smartphone className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>Mobile & Desktop App Installation</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold uppercase tracking-wider">
+                    Android & iOS
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-300">Install Sofia Travel OS directly onto any smartphone, tablet, or PC as a standalone application.</p>
+              </div>
+            </div>
+            <div className="w-full sm:w-auto">
+              <PWAInstallButton variant="header" companyName={formData.company_name} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60">
+              <p className="font-bold text-emerald-400 mb-1">📱 Android Devices</p>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                Open in Chrome or Edge, click "Install App" or tap the 3 dots menu and select "Install app".
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60">
+              <p className="font-bold text-blue-400 mb-1">🍎 Apple iOS (iPhone/iPad)</p>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                Open in Safari, tap the Share button at the bottom, and tap "Add to Home Screen".
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60">
+              <p className="font-bold text-cyan-400 mb-1">💻 Windows & Mac</p>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                Click the install icon in the URL bar to launch Sofia Travel in its own fast desktop window.
+              </p>
+            </div>
           </div>
         </div>
 

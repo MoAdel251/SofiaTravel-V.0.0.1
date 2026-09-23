@@ -429,26 +429,26 @@ export function VouchersView({
   };
 
   return (
-    <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
+    <div className="p-3 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 bg-slate-50 min-h-screen max-w-full overflow-x-hidden">
       {/* Top Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
-              <Ticket className="w-6 h-6" />
+            <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs shrink-0">
+              <Ticket className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Customer Vouchers & Service Issuance</h1>
-              <p className="text-sm text-slate-500">Create branded travel vouchers, send to clients, support ValU / TRU installment plans, and convert vouchers to trips.</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Customer Vouchers & Service Issuance</h1>
+              <p className="text-xs sm:text-sm text-slate-500">Create branded travel vouchers, send to clients, support ValU / TRU installment plans, and convert vouchers to trips.</p>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
           <button
             type="button"
             onClick={handleOpenAdd}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Create New Voucher</span>
@@ -788,8 +788,8 @@ export function VouchersView({
 
       {/* Modal: Add / Edit Voucher */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 my-8">
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-slate-200 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-600 text-white rounded-xl">

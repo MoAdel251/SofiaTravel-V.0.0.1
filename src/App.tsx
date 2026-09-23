@@ -26,6 +26,9 @@ import { LoginModal } from './components/LoginModal';
 import { CustomerInquiriesView } from './components/CustomerInquiriesView';
 import { PermissionRequestsView } from './components/PermissionRequestsView';
 import { PermissionModal } from './components/PermissionModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { MobileQuickActionModal } from './components/MobileQuickActionModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { 
   UserRole, 
   Customer, 
@@ -1876,8 +1879,36 @@ export default function App() {
     } catch {}
   };
 
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+
+  const handleSelectQuickAdd = (actionKey: string) => {
+    switch (actionKey) {
+      case 'new-voucher':
+        setCurrentTab('vouchers');
+        break;
+      case 'new-inquiry':
+        setCurrentTab('customer-inquiries');
+        break;
+      case 'new-service':
+        setCurrentTab('services');
+        break;
+      case 'new-customer':
+        setCurrentTab('customers');
+        break;
+      case 'new-invoice':
+        setCurrentTab('invoices');
+        break;
+      case 'new-package':
+        setCurrentTab('packages');
+        break;
+      default:
+        break;
+    }
+  };
+
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans flex-col">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans flex-col w-full max-w-full">
       {!isAuthenticated && (
         <LoginModal employees={employees}
           onLogin={handleLogin}
@@ -1901,10 +1932,12 @@ export default function App() {
         username={currentUsername}
         companyName={settings.company_name}
         onLogout={handleLogout}
+        isMobileMenuOpen={isMobileMenuOpen}
+        setIsMobileMenuOpen={setIsMobileMenuOpen}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        <main className="flex-1">
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto w-full max-w-full">
+        <main className="flex-1 pb-20 lg:pb-6 w-full max-w-full overflow-x-hidden">
           {currentTab === 'dashboard' && <DashboardView stats={stats} currentCurrency={currentCurrency} />}
 
           {currentTab === 'permission-requests' && (
@@ -2250,6 +2283,27 @@ export default function App() {
           )
         }
       />
+
+      {/* Mobile Bottom Navigation Bar (Android & iOS Ergonomic Access) */}
+      <MobileBottomNav
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        pendingPermissionCount={permissionRequests.filter(r => r.status === 'Pending').length}
+        onOpenQuickAdd={() => setIsQuickAddOpen(true)}
+        onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+        userRole={userRole}
+      />
+
+      {/* Quick Add Modal from Bottom Nav */}
+      <MobileQuickActionModal
+        isOpen={isQuickAddOpen}
+        onClose={() => setIsQuickAddOpen(false)}
+        onSelectAction={handleSelectQuickAdd}
+        userRole={userRole}
+      />
+
+      {/* Cloud Connectivity and Offline Indicator */}
+      <OfflineIndicator />
     </div>
   );
 }
