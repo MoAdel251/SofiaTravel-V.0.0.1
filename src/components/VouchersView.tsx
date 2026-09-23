@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { downloadElementAsPDF } from '../utils/pdfGenerator';
 import { 
   Ticket, 
   Search, 
@@ -388,16 +389,50 @@ export function VouchersView({
     setShowAddModal(false);
   };
 
+  const handleDirectWhatsAppShare = (v: Voucher) => {
+    const phone = (v.customer_phone || '').replace(/[^0-9]/g, '');
+    const matchedCust = customers.find(c => c.id === v.customer_id || c.customer_id === v.customer_id || c.full_name === v.customer_name || c.name === v.customer_name);
+    const custCode = matchedCust?.customer_id || v.customer_id;
+    
+    const text = encodeURIComponent(
+      `✈️ *SOFIA TRAVEL - OFFICIAL TRAVEL VOUCHER & COUPON*\n` +
+      `-----------------------------------------\n` +
+      `*Voucher Code:* ${v.voucher_number || v.reservation_id}\n` +
+      `*Customer:* ${v.customer_name || 'Valued Client'}${custCode ? ` (Code: ${custCode})` : ''}\n` +
+      `*Service:* ${v.service_title}\n` +
+      `*Category:* ${v.service_category}\n` +
+      `*Destination:* ${v.destination}\n` +
+      `*Travel Date:* ${v.travel_date}${v.return_date ? ` to ${v.return_date}` : ''}\n` +
+      `*Travelers:* ${v.number_of_travelers || 1} Person(s)\n` +
+      `*Valid Until:* ${v.valid_until || 'N/A'}\n` +
+      `-----------------------------------------\n` +
+      `${v.inclusions && v.inclusions.length > 0 ? `*Confirmed Inclusions:*\n${v.inclusions.map(i => `• ${i}`).join('\n')}\n-----------------------------------------\n` : ''}` +
+      `📞 *Sofia Travel Hotline:* ${settings?.whatsapp || settings?.phone || '+20 100 123 4567'}\n` +
+      `🌐 *Official Website:* ${settings?.website || 'https://www.sofiatravel.com'}\n\n` +
+      `Thank you for traveling with Sofia Travel!`
+    );
+
+    const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+    window.open(url, '_blank');
+  };
+
   const handleOpenSend = (v: Voucher) => {
     setSendModalVoucher(v);
     setSendChannel('WhatsApp');
     const matched = customers.find(c => c.id === v.customer_id || c.customer_id === v.customer_id || c.full_name === v.customer_name || c.name === v.customer_name);
     const code = matched?.customer_id || v.customer_id;
-    setCustomSendNote(`Dear ${v.customer_name || 'Valued Customer'}${code ? ` (Customer Code: ${code})` : ''}, please find attached your confirmed Sofia Travel voucher #${v.voucher_number} for "${v.service_title}". Total: ${formatCurrency(v.selling_price, v.currency)}. Have a memorable journey!`);
+    setCustomSendNote(`✈️ SOFIA TRAVEL - OFFICIAL TRAVEL VOUCHER\nDear ${v.customer_name || 'Valued Customer'}${code ? ` (Customer Code: ${code})` : ''},\n\nPlease find your confirmed Sofia Travel voucher #${v.voucher_number || v.reservation_id} for "${v.service_title}".\nTravel Date: ${v.travel_date}\nValid Until: ${v.valid_until || 'N/A'}\n\nThank you for choosing Sofia Travel!`);
   };
 
   const handleConfirmSend = () => {
     if (!sendModalVoucher) return;
+    if (sendChannel === 'WhatsApp') {
+      const phone = (sendModalVoucher.customer_phone || '').replace(/[^0-9]/g, '');
+      const url = phone 
+        ? `https://wa.me/${phone}?text=${encodeURIComponent(customSendNote)}`
+        : `https://wa.me/?text=${encodeURIComponent(customSendNote)}`;
+      window.open(url, '_blank');
+    }
     onSendVoucher(sendModalVoucher.id, sendChannel, customSendNote);
     setSendModalVoucher(null);
   };
@@ -701,9 +736,18 @@ export function VouchersView({
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
+                        onClick={() => handleDirectWhatsAppShare(v)}
+                        className="p-2 text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors cursor-pointer border border-emerald-200/80"
+                        title="Send Coupon / Voucher via WhatsApp"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => setPreviewVoucher(v)}
                         className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-                        title="View & Print Voucher"
+                        title="View, Print & Download PDF"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -1231,16 +1275,41 @@ export function VouchersView({
                 </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDirectWhatsAppShare(previewVoucher)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  title="Send Coupon / Voucher via WhatsApp"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Send via WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => downloadElementAsPDF({
+                    elementId: 'voucher-a4-preview-card',
+                    filename: `Sofia_Travel_Voucher_${previewVoucher.voucher_number || 'VCH'}.pdf`
+                  })}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  title="Download Voucher as PDF file"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => window.print()}
                   className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  title="Print A4 Sheet"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Print Voucher</span>
+                  <span className="hidden sm:inline">Print A4 Sheet</span>
                   <span className="sm:hidden">Print</span>
                 </button>
+
                 <button
                   type="button"
                   onClick={() => setPreviewVoucher(null)}
@@ -1252,8 +1321,8 @@ export function VouchersView({
               </div>
             </div>
 
-            {/* Printable Branded Voucher Layout */}
-            <div className="border-2 border-indigo-600 rounded-2xl p-4 sm:p-6 bg-white space-y-6 relative overflow-hidden">
+            {/* Printable Branded Voucher Layout (Scaled for A4 Paper) */}
+            <div id="voucher-a4-preview-card" className="printable-a4 avoid-page-break border-2 border-indigo-600 rounded-2xl p-4 sm:p-6 bg-white space-y-5 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-0" />
 
               {/* Company & Voucher Header */}

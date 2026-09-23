@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { downloadElementAsPDF } from '../utils/pdfGenerator';
 import { 
   FileText, 
   Plus, 
@@ -1423,32 +1424,46 @@ export function InvoicesView({
                   {viewInvoice.payment_status}
                 </span>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => shareWhatsApp(viewInvoice)}
                   className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer"
+                  title="Share Invoice via WhatsApp"
                 >
                   <MessageCircle className="w-3.5 h-3.5" />
-                  <span>WhatsApp</span>
+                  <span>Send via WhatsApp</span>
+                </button>
+                <button
+                  onClick={() => downloadElementAsPDF({
+                    elementId: 'invoice-a4-preview-card',
+                    filename: `Sofia_Travel_Invoice_${viewInvoice.invoice_number || 'INV'}.pdf`
+                  })}
+                  className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+                  title="Download Invoice as PDF file"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
                 </button>
                 <button
                   onClick={() => window.print()}
-                  className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold cursor-pointer"
+                  className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer"
+                  title="Print A4 Sheet"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Print / PDF</span>
+                  <span>Print A4</span>
                 </button>
                 <button
                   onClick={() => setViewInvoice(null)}
                   className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg"
+                  title="Close Invoice"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* PRINTABLE INVOICE CONTENT */}
-            <div className="pt-6 space-y-6">
+            {/* PRINTABLE INVOICE CONTENT (Scaled for A4 Paper) */}
+            <div id="invoice-a4-preview-card" className="printable-a4 avoid-page-break pt-4 space-y-6">
               {/* Header with Sofia Logo & Company Info */}
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6 pb-6 border-b-2 border-slate-900">
                 <div>

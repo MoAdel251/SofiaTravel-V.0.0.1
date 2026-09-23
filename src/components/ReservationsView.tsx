@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { downloadElementAsPDF } from '../utils/pdfGenerator';
 import { 
   BookmarkCheck, 
   Search, 
@@ -24,7 +25,8 @@ import {
   Info,
   Clock,
   AlertTriangle,
-  Send
+  Send,
+  Download
 } from 'lucide-react';
 import { 
   Reservation, 
@@ -871,7 +873,7 @@ export function ReservationsView({
               </button>
             </div>
 
-            <div className="space-y-4 text-xs text-slate-700">
+            <div id="reservation-a4-preview-card" className="printable-a4 avoid-page-break space-y-4 text-xs text-slate-700 p-2">
               <div className="flex justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
                 <div>
                   <p className="font-semibold text-slate-900">Reservation ID:</p>
@@ -905,13 +907,34 @@ export function ReservationsView({
               </div>
             </div>
 
-            <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200">
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-4 border-t border-slate-200">
+              <button
+                onClick={() => {
+                  const phone = (confirmationModalRes.customer_phone || '').replace(/[^0-9]/g, '');
+                  const text = encodeURIComponent(`✈️ *SOFIA TRAVEL - BOOKING CONFIRMATION*\nReservation #: ${confirmationModalRes.reservation_id}\nCustomer: ${confirmationModalRes.customer_name}\nDestination: ${confirmationModalRes.destination}\nTravel Date: ${confirmationModalRes.travel_date}\nStatus: ${confirmationModalRes.reservation_status}\n\nThank you for choosing Sofia Travel!`);
+                  window.open(phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`, '_blank');
+                }}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>Send via WhatsApp</span>
+              </button>
+              <button
+                onClick={() => downloadElementAsPDF({
+                  elementId: 'reservation-a4-preview-card',
+                  filename: `Sofia_Travel_Confirmation_${confirmationModalRes.reservation_id}.pdf`
+                })}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download PDF</span>
+              </button>
               <button
                 onClick={() => window.print()}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-medium flex items-center space-x-2"
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-medium flex items-center space-x-1.5 cursor-pointer"
               >
-                <Printer className="w-4 h-4" />
-                <span>Print Voucher</span>
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print A4</span>
               </button>
             </div>
           </div>

@@ -48,4 +48,92 @@ html, body {
   scrollbar-color: #cbd5e1 #f1f5f9;
 }
 
+/* ==========================================
+   A4 PRINT PREVIEW & PDF STYLES
+   ========================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm 8mm 10mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide screen elements during printing */
+  .print\:hidden,
+  header,
+  nav,
+  aside,
+  .no-print,
+  button,
+  .modal-toolbar {
+    display: none !important;
+  }
+
+  /* Reset modal backdrop containers for printing */
+  .fixed.inset-0 {
+    position: static !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  .fixed.inset-0 > div {
+    position: static !important;
+    max-height: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  /* Printable A4 Container */
+  .printable-a4 {
+    width: 100% !important;
+    max-width: 190mm !important;
+    margin: 0 auto !important;
+    padding: 10px !important;
+    box-shadow: none !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    background: #ffffff !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Ensure text contrast is crisp */
+  h1, h2, h3, h4, p, span, td, th {
+    color: #0f172a !important;
+  }
+
+  .text-slate-500, .text-slate-400 {
+    color: #475569 !important;
+  }
+
+  /* Prevent page cuts inside critical card blocks */
+  .avoid-page-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+
+
 
