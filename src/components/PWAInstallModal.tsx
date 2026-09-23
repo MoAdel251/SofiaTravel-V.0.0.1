@@ -70,11 +70,11 @@ export function PWAInstallModal({
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 p-0.5 shadow-xl shadow-blue-500/20 shrink-0">
               <div className="w-full h-full bg-slate-900 rounded-[14px] flex items-center justify-center overflow-hidden">
                 <img 
-                  src="/icon.svg" 
-                  alt="Sofia Travel App" 
-                  className="w-10 h-10 object-contain drop-shadow" 
+                  src="/sofia-logo.png" 
+                  alt="Sofia Travel App Logo" 
+                  className="w-11 h-11 object-contain rounded-xl p-0.5 bg-white" 
                   onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
+                    (e.currentTarget as HTMLImageElement).src = '/sofia-logo.svg';
                   }}
                 />
               </div>

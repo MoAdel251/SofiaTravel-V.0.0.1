@@ -236,8 +236,36 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
           <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
             <Building2 className="w-5 h-5 text-cyan-600" />
             <div>
-              <h2 className="text-base font-bold text-slate-900">Company Profile & Contact Information</h2>
-              <p className="text-xs text-slate-500">Appears on invoices, vouchers, receipts, and customer statements.</p>
+              <h2 className="text-base font-bold text-slate-900">Company Profile & Official Branding</h2>
+              <p className="text-xs text-slate-500">Appears on invoices, vouchers, receipts, web app header, and mobile app.</p>
+            </div>
+          </div>
+
+          {/* Official Brand Logo Card */}
+          <div className="p-4 bg-linear-to-r from-slate-900 to-slate-950 rounded-2xl text-white flex flex-col sm:flex-row items-center justify-between gap-4 border border-slate-800 shadow-md">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 bg-white rounded-2xl p-1.5 flex items-center justify-center shrink-0 shadow-lg">
+                <img 
+                  src="/sofia-logo.png" 
+                  alt="Sofia Travel Official Logo" 
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+                  }}
+                />
+              </div>
+              <div>
+                <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-md text-[10px] font-black uppercase tracking-wider inline-block mb-1">
+                  Active Brand Asset
+                </span>
+                <h3 className="text-base font-extrabold tracking-wide uppercase">Official Sofia Travel Logo</h3>
+                <p className="text-xs text-slate-300 mt-0.5">Cyan S-curve flight ribbon with lavender airplane & serif typography</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-[11px] text-cyan-300 font-semibold bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-700 shrink-0">
+              <Check className="w-4 h-4 text-emerald-400" />
+              <span>Deployed to Web, Mobile, Vouchers & Invoices</span>
             </div>
           </div>
 

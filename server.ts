@@ -77,7 +77,7 @@ const firestoreDb = firestoreDatabaseId ? getFirestore(firebaseApp, firestoreDat
 let db = {
   settings: {
     company_name: "Sofia Travel",
-    logo: "✈️",
+    logo: "/sofia-logo.png",
     address: "124 Tahrir Square, Cairo, Egypt",
     phone: "+20 2 25750000",
     whatsapp: "+20 100 123 4567",

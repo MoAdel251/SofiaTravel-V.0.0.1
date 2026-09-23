@@ -139,12 +139,19 @@ export function Navbar({
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
           
-          <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-blue-600/30">
-            <Globe2 className="w-4 h-4 sm:w-5 sm:h-5" />
+          <div className="flex items-center gap-2">
+            <img 
+              src="/sofia-logo.png" 
+              alt="Sofia Travel" 
+              className="w-8 h-8 sm:w-9 sm:h-9 object-contain rounded-xl p-0.5 bg-white shadow-md shadow-cyan-500/20 border border-slate-700 shrink-0"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+              }}
+            />
+            <span className="font-bold text-sm sm:text-base tracking-tight truncate max-w-[120px] sm:max-w-none">
+              {companyName} <span className="text-cyan-400 font-extrabold">OS</span>
+            </span>
           </div>
-          <span className="font-bold text-sm sm:text-base tracking-tight truncate max-w-[120px] sm:max-w-none">
-            {companyName} <span className="text-blue-400">OS</span>
-          </span>
         </div>
 
         {/* Search Bar Trigger */}
@@ -343,12 +350,17 @@ export function Navbar({
           <div className="relative z-10 w-80 max-w-[85vw] bg-slate-900 text-white h-full flex flex-col p-4 shadow-2xl overflow-y-auto pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center font-bold text-white shadow-md shadow-blue-500/30">
-                  <Globe2 className="w-4 h-4" />
-                </div>
+                <img 
+                  src="/sofia-logo.png" 
+                  alt="Sofia Travel" 
+                  className="w-9 h-9 object-contain rounded-xl p-0.5 bg-white shadow-md shadow-cyan-500/20 border border-slate-700 shrink-0"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+                  }}
+                />
                 <div>
                   <span className="font-bold text-sm tracking-tight">{companyName}</span>
-                  <p className="text-[10px] text-blue-400 font-semibold">Travel Management OS</p>
+                  <p className="text-[10px] text-cyan-400 font-semibold">Travel Management OS</p>
                 </div>
               </div>
               <button

@@ -82,13 +82,18 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-300">
         {/* Header */}
-        <div className="bg-gradient-to-br from-slate-900 to-blue-950 p-6 text-white text-center relative overflow-hidden">
-          <div className="w-14 h-14 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-blue-600/40 mb-3">
-            <Plane className="w-7 h-7 text-white" />
-          </div>
-          <h2 className="text-xl font-extrabold tracking-tight">{companyName}</h2>
-          <p className="text-xs text-blue-300 mt-1 uppercase font-semibold tracking-wider">Cloud Enterprise Management Portal</p>
-          <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl"></div>
+        <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950 p-6 text-white text-center relative overflow-hidden">
+          <img 
+            src="/sofia-logo.png" 
+            alt="Sofia Travel" 
+            className="w-16 h-16 object-contain bg-white rounded-2xl mx-auto p-1.5 shadow-xl shadow-cyan-500/20 border border-slate-700/80 mb-3"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+            }}
+          />
+          <h2 className="text-xl font-extrabold tracking-tight uppercase">{companyName}</h2>
+          <p className="text-xs text-cyan-300 mt-1 uppercase font-semibold tracking-wider">Cloud Enterprise Management Portal</p>
+          <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl"></div>
         </div>
 
         {/* Form Body */}

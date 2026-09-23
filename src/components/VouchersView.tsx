@@ -1259,9 +1259,19 @@ export function VouchersView({
               {/* Company & Voucher Header */}
               <div className="flex justify-between items-start relative z-10">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">{settings?.logo || '✈️'}</span>
-                    <span className="text-xl font-black text-slate-900 tracking-tight">{settings?.company_name || 'Sofia Travel'}</span>
+                  <div className="flex items-center gap-3">
+                    <img 
+                      src="/sofia-logo.png" 
+                      alt="Sofia Travel" 
+                      className="h-12 w-auto object-contain rounded-xl p-1 bg-white border border-slate-200 shadow-xs"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+                      }}
+                    />
+                    <div>
+                      <span className="text-xl font-black text-slate-900 tracking-tight block uppercase">{settings?.company_name || 'Sofia Travel'}</span>
+                      <span className="text-[10px] font-bold text-cyan-700 tracking-widest uppercase">Official Booking Voucher</span>
+                    </div>
                   </div>
                   <p className="text-xs text-slate-500">{settings?.address || '124 Tahrir Square, Cairo, Egypt'}</p>
                   <p className="text-xs text-slate-500">Tel: {settings?.phone || '+20 2 25750000'} | Email: {settings?.email || 'operations@sofiatravel.com'}</p>
