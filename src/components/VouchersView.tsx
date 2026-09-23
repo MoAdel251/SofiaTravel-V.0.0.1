@@ -20,6 +20,7 @@ import {
   CreditCard, 
   FileCheck2, 
   ArrowRight, 
+  ArrowLeft,
   Layers, 
   Building2, 
   Globe2, 
@@ -1206,24 +1207,45 @@ export function VouchersView({
 
       {/* Modal: View & Print Branded Voucher */}
       {previewVoucher && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-8 shadow-2xl border border-slate-200 my-8 space-y-6">
+        <div 
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in overflow-y-auto cursor-pointer"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPreviewVoucher(null);
+          }}
+        >
+          <div 
+            className="bg-white rounded-3xl max-w-3xl w-full p-4 sm:p-8 shadow-2xl border border-slate-200 my-auto max-h-[92vh] overflow-y-auto space-y-4 sm:space-y-6 cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header / Actions toolbar */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 print:hidden">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Official Customer Voucher Preview</span>
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 print:hidden gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewVoucher(null)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  title="Close Voucher Preview"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Return to Vouchers</span>
+                </button>
+              </div>
+
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Print Voucher</span>
+                  <span className="hidden sm:inline">Print Voucher</span>
+                  <span className="sm:hidden">Print</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setPreviewVoucher(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                  className="p-2 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                  title="Close Voucher"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1231,7 +1253,7 @@ export function VouchersView({
             </div>
 
             {/* Printable Branded Voucher Layout */}
-            <div className="border-2 border-indigo-600 rounded-2xl p-6 bg-white space-y-6 relative overflow-hidden">
+            <div className="border-2 border-indigo-600 rounded-2xl p-4 sm:p-6 bg-white space-y-6 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-0" />
 
               {/* Company & Voucher Header */}
@@ -1359,6 +1381,29 @@ export function VouchersView({
               {/* Terms & Footer */}
               <div className="pt-2 border-t border-slate-100 text-[10px] text-slate-400 text-center leading-tight">
                 Please present this voucher upon arrival. For 24/7 assistance or changes, contact Sofia Travel Operations at {settings?.whatsapp || '+20 100 123 4567'}.
+              </div>
+            </div>
+
+            {/* Bottom Footer Actions (Close & Return) */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 print:hidden">
+              <button
+                type="button"
+                onClick={() => setPreviewVoucher(null)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Close Voucher & Return to List</span>
+              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Print Voucher</span>
+                </button>
               </div>
             </div>
           </div>
