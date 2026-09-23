@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { downloadElementAsPDF } from '../utils/pdfGenerator';
+import { printElement } from '../utils/printHelper';
 import { 
   FileText, 
   Plus, 
@@ -1445,12 +1446,12 @@ export function InvoicesView({
                   <span>Download PDF</span>
                 </button>
                 <button
-                  onClick={() => window.print()}
-                  className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer"
-                  title="Print A4 Sheet"
+                  onClick={() => printElement('invoice-a4-preview-card', `Sofia_Travel_Invoice_${viewInvoice.invoice_number || 'INV'}`)}
+                  className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+                  title="Print Invoice on A4 Paper"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Print A4</span>
+                  <span>Print A4 Invoice</span>
                 </button>
                 <button
                   onClick={() => setViewInvoice(null)}

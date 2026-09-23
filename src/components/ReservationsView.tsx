@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { downloadElementAsPDF } from '../utils/pdfGenerator';
+import { printElement } from '../utils/printHelper';
 import { 
   BookmarkCheck, 
   Search, 
@@ -930,11 +931,11 @@ export function ReservationsView({
                 <span>Download PDF</span>
               </button>
               <button
-                onClick={() => window.print()}
-                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-medium flex items-center space-x-1.5 cursor-pointer"
+                onClick={() => printElement('reservation-a4-preview-card', `Sofia_Travel_Confirmation_${confirmationModalRes.reservation_id}`)}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-medium flex items-center space-x-1.5 cursor-pointer shadow-xs"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span>Print A4</span>
+                <span>Print A4 Voucher</span>
               </button>
             </div>
           </div>

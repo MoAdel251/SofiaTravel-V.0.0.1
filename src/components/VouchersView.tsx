@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { downloadElementAsPDF } from '../utils/pdfGenerator';
+import { printElement } from '../utils/printHelper';
 import { 
   Ticket, 
   Search, 
@@ -1301,13 +1302,13 @@ export function VouchersView({
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                  title="Print A4 Sheet"
+                  onClick={() => printElement('voucher-a4-preview-card', `Sofia_Travel_Voucher_${previewVoucher.voucher_number || 'VCH'}`)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
+                  title="Print Voucher on A4 Paper"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Print A4 Sheet</span>
-                  <span className="sm:hidden">Print</span>
+                  <span className="hidden sm:inline">Print A4 Voucher</span>
+                  <span className="sm:hidden">Print A4</span>
                 </button>
 
                 <button
