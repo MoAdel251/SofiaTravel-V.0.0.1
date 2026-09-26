@@ -8,6 +8,7 @@ import {
 import { UserRole, NotificationItem } from '../types';
 import { getCurrencySymbol } from '../utils/currency';
 import { PWAInstallButton } from './PWAInstallButton';
+import { useLanguage } from '../context/LanguageContext';
 
 function LiveClock() {
   const [time, setTime] = useState(new Date());
@@ -64,6 +65,7 @@ export function Navbar({
   isMobileMenuOpen,
   setIsMobileMenuOpen
 }: NavbarProps) {
+  const { language, setLanguage, toggleLanguage, t } = useLanguage();
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [internalMobileOpen, setInternalMobileOpen] = useState(false);
 
@@ -84,24 +86,24 @@ export function Navbar({
   };
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
-    { id: 'vouchers', label: 'Customer Vouchers', icon: Ticket, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
-    { id: 'services', label: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_trips' },
-    { id: 'permission-requests', label: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
-    { id: 'customers', label: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
-    { id: 'customer-inquiries', label: 'Customer Inquiries', icon: MessageCircle, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
-    { id: 'suppliers', label: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
-    { id: 'invoices', label: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_sales' },
-    { id: 'packages', label: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
-    { id: 'employees', label: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
-    { id: 'calendar', label: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
-    { id: 'tasks', label: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'documents', label: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: 'view_reports' },
-    { id: 'finance-payroll', label: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'], perm: ['view_finance', 'view_payroll'] },
-    { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
-    { id: 'settings', label: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'], perm: 'view_settings' },
-    { id: 'activity-log', label: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: 'view_settings' }
+    { id: 'dashboard', labelKey: 'nav_dashboard', defaultLabel: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'vouchers', labelKey: 'nav_vouchers', defaultLabel: 'Customer Vouchers', icon: Ticket, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
+    { id: 'services', labelKey: 'nav_services', defaultLabel: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_trips' },
+    { id: 'permission-requests', labelKey: 'nav_approval_requests', defaultLabel: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
+    { id: 'customers', labelKey: 'nav_customers', defaultLabel: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
+    { id: 'customer-inquiries', labelKey: 'nav_customer_inquiries', defaultLabel: 'Customer Inquiries', icon: MessageCircle, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
+    { id: 'suppliers', labelKey: 'nav_suppliers', defaultLabel: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
+    { id: 'invoices', labelKey: 'nav_invoices', defaultLabel: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_sales' },
+    { id: 'packages', labelKey: 'nav_packages', defaultLabel: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
+    { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
+    { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'reports', labelKey: 'nav_reports', defaultLabel: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: 'view_reports' },
+    { id: 'finance-payroll', labelKey: 'nav_finance_payroll', defaultLabel: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'], perm: ['view_finance', 'view_payroll'] },
+    { id: 'notifications', labelKey: 'nav_notifications', defaultLabel: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'settings', labelKey: 'nav_settings', defaultLabel: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'], perm: 'view_settings' },
+    { id: 'activity-log', labelKey: 'nav_audit_log', defaultLabel: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: 'view_settings' }
   ];
 
   const filteredItems = menuItems.filter(item => {
@@ -172,6 +174,16 @@ export function Navbar({
 
         {/* Right Controls */}
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 justify-end">
+          {/* Language Switcher Button */}
+          <button
+            onClick={toggleLanguage}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-900 to-blue-900 hover:from-cyan-800 hover:to-blue-800 border border-cyan-400/50 rounded-xl text-xs font-bold text-cyan-200 transition-all shadow-xs cursor-pointer shrink-0"
+            title={language === 'en' ? 'تغيير اللغة إلى العربية' : 'Switch language to English'}
+          >
+            <Globe2 className="w-4 h-4 text-cyan-300 shrink-0" />
+            <span className="font-extrabold">{language === 'en' ? 'العربية' : 'English'}</span>
+          </button>
+
           {/* PWA Mobile App Install Button */}
           <PWAInstallButton variant="header" companyName={companyName} />
 
@@ -328,7 +340,7 @@ export function Navbar({
                 }`}
               >
                 <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <span>{t(item.labelKey) || item.defaultLabel}</span>
                 {item.badge !== undefined && item.badge > 0 && (
                   <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-bold">
                     {item.badge}
@@ -398,6 +410,35 @@ export function Navbar({
               </div>
             </div>
 
+            {/* Language Switcher for Mobile */}
+            <div className="py-3 border-b border-slate-800">
+              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1 mb-2">
+                {t('language')}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setLanguage('en')}
+                  className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    language === 'en'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  English
+                </button>
+                <button
+                  onClick={() => setLanguage('ar')}
+                  className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    language === 'ar'
+                      ? 'bg-cyan-600 text-white shadow-xs'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  العربية
+                </button>
+              </div>
+            </div>
+
             {/* Currency Selector for Mobile */}
             <div className="py-3 border-b border-slate-800">
               <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1 mb-2">Display Currency</div>
@@ -455,7 +496,7 @@ export function Navbar({
                   >
                     <div className="flex items-center gap-2.5">
                       <Icon className="w-4 h-4 shrink-0" />
-                      <span className="truncate">{item.label}</span>
+                      <span className="truncate">{t(item.labelKey) || item.defaultLabel}</span>
                     </div>
                     {item.badge !== undefined && item.badge > 0 && (
                       <span className="px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-bold shrink-0">

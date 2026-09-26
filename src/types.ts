@@ -83,6 +83,7 @@ export interface Customer {
   last_communication_notes?: string;
   assigned_employee?: string;
   communications_history?: CustomerCommunication[];
+  file_number?: string;
 }
 
 export type ServiceType = 
@@ -218,6 +219,7 @@ export interface Voucher {
   customer_invoice_number?: string;
   supplier_invoice_id?: string;
   supplier_invoice_number?: string;
+  file_number?: string;
 }
 
 export interface Reservation extends Voucher {
@@ -851,6 +853,7 @@ export interface Invoice {
   terms?: string;
   manager_name?: string;
   created_by_employee?: string;
+  file_number?: string;
 }
 
 

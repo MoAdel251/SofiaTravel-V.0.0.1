@@ -558,9 +558,13 @@ export default function App() {
   const handleAddInvoice = async (data: Partial<Invoice>) => {
     const newId = "INV-" + Math.random().toString(36).substring(2, 7).toUpperCase();
     const invCount = (invoices?.length || 0) + 1001;
+    const linkedVoucher = data.reservation_id ? vouchers.find(v => v.id === data.reservation_id || v.reservation_id === data.reservation_id) : null;
+    const linkedCust = data.customer_id ? customers.find(c => c.id === data.customer_id || c.customer_id === data.customer_id) : null;
+    const derivedFileNum = data.file_number || linkedVoucher?.file_number || linkedCust?.file_number || `FILE-2026-${String(invCount).padStart(4, '0')}`;
     const newInvoice: Invoice = {
       id: newId,
       invoice_number: data.invoice_number || `INV-2026-${invCount}`,
+      file_number: derivedFileNum,
       issue_date: data.issue_date || new Date().toISOString().split('T')[0],
       due_date: data.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       currency: data.currency || "USD",
@@ -574,8 +578,8 @@ export default function App() {
       balance_due: data.balance_due || 0,
       payment_status: data.payment_status || "Unpaid",
       manager_name: data.manager_name || currentUsername || "Admin",
-      customer_id: data.customer_id || "",
-      customer_name: data.customer_name || "",
+      customer_id: data.customer_id || linkedVoucher?.customer_id || "",
+      customer_name: data.customer_name || linkedVoucher?.customer_name || "",
       recipient_type: data.recipient_type || "Customer",
       ...data
     };
@@ -643,9 +647,11 @@ export default function App() {
   const handleAddCustomer = async (data: Partial<Customer>) => {
     const newId = "CUST-" + Math.random().toString(36).substring(2, 7).toUpperCase();
     const custCount = (customers?.length || 0) + 101;
+    const fileNum = data.file_number || `FILE-2026-${String(custCount + 900).padStart(4, '0')}`;
     const newCust: Customer = {
       id: newId,
       customer_id: `C-${custCount}`,
+      file_number: fileNum,
       full_name: data.full_name || "New Client",
       passport_number: data.passport_number || "",
       nationality: data.nationality || "Egyptian",
@@ -843,10 +849,13 @@ export default function App() {
     const costPrice = Number(data.cost_price) || 0;
     const paidAmt = Number(data.paid_amount) || 0;
     const vchPrefix = settings?.voucher_prefix || 'VCH-2026-';
+    const linkedCust = data.customer_id ? customers.find(c => c.id === data.customer_id || c.customer_id === data.customer_id) : null;
+    const fileNum = data.file_number || linkedCust?.file_number || `FILE-2026-${String(vchCount + 900).padStart(4, '0')}`;
 
     const newVoucher: Voucher = {
       id: newId,
       voucher_number: data.voucher_number || `${vchPrefix}${vchCount}`,
+      file_number: fileNum,
       reservation_id: data.reservation_id || `${vchPrefix}${vchCount}`,
       customer_id: data.customer_id || '',
       customer_name: data.customer_name || 'Valued Client',
@@ -2284,6 +2293,7 @@ export default function App() {
               hotels={hotels}
               flights={flights}
               reservations={reservations}
+              vouchers={vouchers}
               initialReservation={selectedReservationForInvoice}
               onClearInitialReservation={() => setSelectedReservationForInvoice(null)}
               settings={settings}

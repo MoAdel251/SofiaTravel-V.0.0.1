@@ -42,6 +42,7 @@ import {
   Hotel, 
   Flight, 
   Reservation,
+  Voucher,
   UserRole, 
   CompanySettings 
 } from '../types';
@@ -57,6 +58,7 @@ interface InvoicesViewProps {
   hotels: Hotel[];
   flights: Flight[];
   reservations?: Reservation[];
+  vouchers?: Voucher[];
   initialReservation?: any;
   onClearInitialReservation?: () => void;
   settings: CompanySettings;
@@ -76,6 +78,7 @@ export function InvoicesView({
   hotels,
   flights,
   reservations = [],
+  vouchers = [],
   initialReservation = null,
   onClearInitialReservation,
   settings,
@@ -97,7 +100,8 @@ export function InvoicesView({
 
   // Helper filter for deleted items (Ensures deleted entities never appear in dropdown options)
   const isNotDeleted = (item: any) => {
-    if (!item || !item.id) return false;
+    if (!item) return false;
+    if (!item.id && !item.voucher_number && !item.reservation_id) return false;
     if (item.is_deleted || item.deleted) return false;
     if (item.status === 'Deleted' || item.reservation_status === 'Deleted' || item.payment_status === 'Deleted') return false;
     return true;
@@ -108,7 +112,43 @@ export function InvoicesView({
   const validPackages = packages.filter(isNotDeleted);
   const validHotels = hotels.filter(isNotDeleted);
   const validFlights = flights.filter(isNotDeleted);
-  const validReservations = reservations.filter(isNotDeleted);
+
+  // Combine vouchers and reservations, filter out deleted items
+  const rawVouchers = [...(vouchers || []), ...(reservations || [])].filter(isNotDeleted);
+
+  // Deduplicate vouchers by unique ID or voucher_number / reservation_id
+  const voucherMap = new Map<string, any>();
+  rawVouchers.forEach(v => {
+    const key = v.id || v.voucher_number || v.reservation_id;
+    if (key && !voucherMap.has(key)) {
+      voucherMap.set(key, v);
+    }
+  });
+  const uniqueVouchers = Array.from(voucherMap.values());
+
+  // Extract numeric digits for automatic descending sorting by voucher number
+  const extractVoucherNumber = (v: any): number => {
+    const numStr = String(v.voucher_number || v.reservation_id || v.id || '');
+    const matches = numStr.match(/\d+/g);
+    if (matches && matches.length > 0) {
+      return parseInt(matches.join(''), 10);
+    }
+    return 0;
+  };
+
+  // Sort actually created vouchers automatically in descending order by voucher number
+  const validVouchers = uniqueVouchers.sort((a, b) => {
+    const numA = extractVoucherNumber(a);
+    const numB = extractVoucherNumber(b);
+    if (numA !== numB) {
+      return numB - numA; // Descending order (highest voucher numbers first)
+    }
+    const strA = String(a.voucher_number || a.reservation_id || a.id || '');
+    const strB = String(b.voucher_number || b.reservation_id || b.id || '');
+    return strB.localeCompare(strA, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
+  const validReservations = validVouchers; // Alias for backward compatibility
 
   // Form State for creating new invoice
   const [recipientType, setRecipientType] = useState<'Customer' | 'Supplier'>('Customer');
@@ -133,8 +173,9 @@ export function InvoicesView({
   const [selectedPackageId, setSelectedPackageId] = useState<string>('');
   const [selectedHotelId, setSelectedHotelId] = useState<string>('');
   const [selectedFlightId, setSelectedFlightId] = useState<string>('');
+  const [selectedVoucherId, setSelectedVoucherId] = useState<string>('');
   const [selectedReservationId, setSelectedReservationId] = useState<string>('');
-  const [transferredFromRes, setTransferredFromRes] = useState<Reservation | null>(null);
+  const [transferredFromRes, setTransferredFromRes] = useState<any | null>(null);
 
   // Auto-fill and transfer data when initialReservation is passed
   useEffect(() => {
@@ -302,75 +343,147 @@ export function InvoicesView({
     setSelectedFlightId('');
   };
 
-  // Quick Add Item from Reservation
-  const handleAddReservationItem = (resId: string) => {
-    const res = validReservations.find(r => r.id === resId || r.reservation_id === resId);
-    if (!res) return;
+  // Handle dynamic recipient type change (Customer vs Supplier Invoice)
+  const handleRecipientTypeChange = (newType: 'Customer' | 'Supplier') => {
+    setRecipientType(newType);
 
-    // Check if an invoice of current recipientType already exists for this reservation
+    if (transferredFromRes) {
+      const v = transferredFromRes;
+      const vNum = v.voucher_number || v.reservation_id || v.id;
+      const qty = Number(v.number_of_travelers) || 1;
+      const isSupp = newType === 'Supplier';
+      const itemTotal = isSupp ? (Number(v.cost_price) || 0) : (Number(v.selling_price) || 0);
+      const unitPrice = qty > 0 ? itemTotal / qty : itemTotal;
+      const sCat = v.service_category || v.service_type || 'Travel Service';
+
+      setItems(prevItems => {
+        if (prevItems.length === 0) return prevItems;
+        return prevItems.map(item => {
+          if (item.item_reference_id === vNum || item.title.includes(vNum) || item.description.includes(vNum)) {
+            return {
+              ...item,
+              title: isSupp
+                ? `${sCat} - ${v.destination} (Supplier Net Price / Cost)`
+                : `${sCat} - ${v.destination}`,
+              description: isSupp
+                ? `Voucher #${vNum} • Payable to: ${v.supplier_name || 'Supplier'} • Net Price: ${itemTotal} ${v.currency || 'USD'} • Travelers: ${qty}`
+                : `Voucher #${vNum} • Customer: ${v.customer_name || 'Client'} • Travelers: ${qty}`,
+              unit_price: Math.round(unitPrice * 100) / 100,
+              total_price: itemTotal
+            };
+          }
+          return item;
+        });
+      });
+
+      if (isSupp) {
+        if (v.supplier_id) {
+          setSelectedSupplierId(v.supplier_id);
+        } else if (v.supplier_name) {
+          const suppFound = validSuppliers.find(s => s.supplier_name?.toLowerCase() === v.supplier_name?.toLowerCase());
+          if (suppFound) setSelectedSupplierId(suppFound.id);
+        }
+        setNotes(`Supplier invoice payable at net price (${itemTotal} ${v.currency || 'USD'}) for Voucher #${vNum}. Counted as company liabilities.`);
+        setTerms(`Company payment obligation payable to supplier at entered net contract price.`);
+      } else {
+        if (v.customer_id) {
+          const custFound = validCustomers.find(c => c.id === v.customer_id || c.customer_id === v.customer_id);
+          if (custFound) setSelectedCustomerId(custFound.id);
+        }
+        setPaidAmount(Number(v.paid_amount) || 0);
+        setNotes(`Customer sales invoice for Voucher #${vNum} (${v.destination}). Thank you for choosing Sofia Travel!`);
+      }
+    }
+  };
+
+  // Quick Add Item from Actually Created Voucher
+  const handleAddVoucherItem = (vId: string) => {
+    const voucher = validVouchers.find(v => v.id === vId || v.voucher_number === vId || v.reservation_id === vId);
+    if (!voucher) return;
+
+    const isSupp = recipientType === 'Supplier';
+    const vNum = voucher.voucher_number || voucher.reservation_id || voucher.id;
+
+    // Check duplicate invoice prevention
     const existingCustInv = invoices.find(inv => 
-      (inv.reservation_id === res.id || inv.reservation_id === res.reservation_id || res.customer_invoice_id === inv.id || res.customer_invoice_number === inv.invoice_number) &&
+      (inv.reservation_id === voucher.id || inv.reservation_id === voucher.reservation_id || voucher.customer_invoice_id === inv.id || voucher.customer_invoice_number === inv.invoice_number) &&
       (inv.recipient_type === 'Customer' || (!inv.recipient_type && !inv.supplier_id))
     );
     const existingSuppInv = invoices.find(inv => 
-      (inv.reservation_id === res.id || inv.reservation_id === res.reservation_id || res.supplier_invoice_id === inv.id || res.supplier_invoice_number === inv.invoice_number) &&
+      (inv.reservation_id === voucher.id || inv.reservation_id === voucher.reservation_id || voucher.supplier_invoice_id === inv.id || voucher.supplier_invoice_number === inv.invoice_number) &&
       (inv.recipient_type === 'Supplier' || (inv.supplier_id && !inv.customer_id))
     );
 
     if (recipientType === 'Customer' && existingCustInv) {
-      alert(`⚠️ Duplicate Invoice Prevention:\nA Customer Invoice (#${existingCustInv.invoice_number}) has already been generated for Reservation #${res.reservation_id}.\nTo prevent billing the customer twice, duplicate customer invoice creation is blocked.`);
+      alert(`⚠️ Duplicate Invoice Prevention:\nA Customer Invoice (#${existingCustInv.invoice_number}) has already been generated for Voucher #${vNum}.\nTo prevent billing the customer twice, duplicate customer invoice creation is blocked.`);
+      setSelectedVoucherId('');
       setSelectedReservationId('');
       return;
     }
 
     if (recipientType === 'Supplier' && existingSuppInv) {
-      alert(`⚠️ Duplicate Liability Prevention:\nA Supplier Liability Invoice (#${existingSuppInv.invoice_number}) has already been generated for Reservation #${res.reservation_id}.\nTo prevent recording duplicate payment liabilities, duplicate supplier invoice creation is blocked.`);
+      alert(`⚠️ Duplicate Liability Prevention:\nA Supplier Liability Invoice (#${existingSuppInv.invoice_number}) has already been generated for Voucher #${vNum}.\nTo prevent recording duplicate payment liabilities, duplicate supplier invoice creation is blocked.`);
+      setSelectedVoucherId('');
       setSelectedReservationId('');
       return;
     }
 
-    setTransferredFromRes(res);
+    setTransferredFromRes(voucher);
 
-    const qty = Number(res.number_of_travelers) || 1;
-    // For Supplier invoices, the amount payable to supplier is the cost_price! For Customer invoices, it's selling_price.
-    const isSupp = recipientType === 'Supplier';
-    const itemTotal = isSupp ? (Number(res.cost_price) || 0) : (Number(res.selling_price) || 0);
+    const qty = Number(voucher.number_of_travelers) || 1;
+    // For Supplier invoices, the unit/item price is the ENTERED NET PRICE (cost_price). For Customer invoices, it's selling_price.
+    const itemTotal = isSupp ? (Number(voucher.cost_price) || 0) : (Number(voucher.selling_price) || 0);
     const unitPrice = qty > 0 ? itemTotal / qty : itemTotal;
 
-    let resCurrency = res.currency || '$';
-    if (resCurrency === 'USD') resCurrency = '$';
-    else if (resCurrency.toUpperCase() === 'EGP') resCurrency = 'EGP';
-    else if (resCurrency.toUpperCase() === 'EUR') resCurrency = 'EUR';
-    setInvoiceCurrency(resCurrency);
+    let vCurrency = voucher.currency || 'USD';
+    if (vCurrency === '$') vCurrency = 'USD';
+    else if (vCurrency.toUpperCase() === 'EGP') vCurrency = 'EGP';
+    else if (vCurrency.toUpperCase() === 'EUR') vCurrency = 'EUR';
+    setInvoiceCurrency(vCurrency);
+
+    const sCat = voucher.service_category || (voucher as any).service_type || 'Travel Service';
 
     const newItem: InvoiceItem = {
       id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
       item_type: 'Custom',
-      item_reference_id: res.reservation_id || res.id,
+      item_reference_id: vNum,
       title: isSupp
-        ? `${res.service_type} - ${res.destination} (Supplier Cost / Payable Liability)`
-        : `${res.service_type} - ${res.destination}`,
+        ? `${sCat} - ${voucher.destination} (Supplier Net Cost / Payable)`
+        : `${sCat} - ${voucher.destination}`,
       description: isSupp
-        ? `Reservation #${res.reservation_id} • Payable to: ${res.supplier_name || 'Supplier'} • Company Payment Liability • Travelers: ${qty} • Travel: ${res.travel_date} to ${res.return_date}`
-        : `Reservation #${res.reservation_id} • Customer: ${res.customer_name || 'Client'} • Travelers: ${qty} • Travel: ${res.travel_date} to ${res.return_date}`,
+        ? `Voucher #${vNum} • Payable to: ${voucher.supplier_name || 'Supplier'} • Net Price: ${itemTotal} ${vCurrency} • Travelers: ${qty} • Travel: ${voucher.travel_date || 'N/A'}`
+        : `Voucher #${vNum} • Customer: ${voucher.customer_name || 'Client'} • Travelers: ${qty} • Travel: ${voucher.travel_date || 'N/A'}`,
       quantity: qty,
       unit_price: Math.round(unitPrice * 100) / 100,
       total_price: itemTotal
     };
 
     setItems(prev => [...prev, newItem]);
+
     if (isSupp) {
-      if (res.supplier_id) setSelectedSupplierId(res.supplier_id);
-      setNotes(`Supplier invoice payable to ${res.supplier_name || 'supplier'} for Reservation #${res.reservation_id}. Counted as company liabilities and payment obligations.`);
-      setTerms(`Company payment obligation payable to supplier within agreed contractual settlement terms.`);
+      if (voucher.supplier_id) {
+        setSelectedSupplierId(voucher.supplier_id);
+      } else if (voucher.supplier_name) {
+        const suppFound = validSuppliers.find(s => s.supplier_name?.toLowerCase() === voucher.supplier_name?.toLowerCase());
+        if (suppFound) setSelectedSupplierId(suppFound.id);
+      }
+      setNotes(`Supplier invoice payable at net price (${itemTotal} ${vCurrency}) for Voucher #${vNum} (${voucher.destination}). Counted as company liabilities.`);
+      setTerms(`Company payment obligation payable to supplier at entered net contract price.`);
     } else {
-      if (res.customer_id) setSelectedCustomerId(res.customer_id);
-      setPaidAmount(Number(res.paid_amount) || 0);
-      setNotes(`Customer sales invoice for Reservation #${res.reservation_id} (${res.destination}).`);
+      if (voucher.customer_id) {
+        const custFound = validCustomers.find(c => c.id === voucher.customer_id || c.customer_id === voucher.customer_id);
+        if (custFound) setSelectedCustomerId(custFound.id);
+        else setSelectedCustomerId(voucher.customer_id);
+      }
+      setPaidAmount(Number(voucher.paid_amount) || 0);
+      setNotes(`Customer invoice for Voucher #${vNum} (${voucher.destination}). Thank you for choosing Sofia Travel!`);
     }
 
+    setSelectedVoucherId('');
     setSelectedReservationId('');
   };
+
+  const handleAddReservationItem = handleAddVoucherItem; // Alias for backward compatibility
 
   // Add Custom Item
   const handleAddCustomItem = () => {
@@ -446,12 +559,13 @@ export function InvoicesView({
     const invoiceData: Partial<Invoice> = {
       recipient_type: recipientType,
       reservation_id: linkedResId,
-      customer_id: recipientType === 'Customer' ? (customer?.customer_id || customer?.id || selectedCustomerId) : undefined,
-      customer_name: recipientType === 'Customer' ? (customer?.full_name || customer?.name || editingInvoice?.customer_name) : undefined,
-      customer_email: recipientType === 'Customer' ? customer?.email : undefined,
-      customer_phone: recipientType === 'Customer' ? customer?.phone : undefined,
-      customer_address: recipientType === 'Customer' ? customer?.address : undefined,
-      customer_passport: recipientType === 'Customer' ? customer?.passport_number : undefined,
+      customer_id: customer?.customer_id || customer?.id || selectedCustomerId || transferredFromRes?.customer_id || editingInvoice?.customer_id || undefined,
+      customer_name: customer?.full_name || customer?.name || transferredFromRes?.customer_name || editingInvoice?.customer_name || undefined,
+      customer_email: customer?.email || transferredFromRes?.customer_email || editingInvoice?.customer_email || undefined,
+      customer_phone: customer?.phone || transferredFromRes?.customer_phone || editingInvoice?.customer_phone || undefined,
+      customer_address: customer?.address || editingInvoice?.customer_address || undefined,
+      customer_passport: customer?.passport_number || transferredFromRes?.customer_passport || editingInvoice?.customer_passport || undefined,
+      file_number: customer?.file_number || transferredFromRes?.file_number || editingInvoice?.file_number || undefined,
       supplier_id: recipientType === 'Supplier' ? (supplier?.id || selectedSupplierId) : undefined,
       supplier_name: recipientType === 'Supplier' ? (supplier?.supplier_name || editingInvoice?.supplier_name) : undefined,
       supplier_email: recipientType === 'Supplier' ? supplier?.email : undefined,
@@ -901,6 +1015,11 @@ export function InvoicesView({
                                   Res #{inv.reservation_id}
                                 </span>
                               )}
+                              {inv.file_number && (
+                                <span className="text-[10px] font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                  File #: {inv.file_number}
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-slate-500 mt-0.5">
                               {inv.customer_phone || inv.customer_email || 'Direct Client'} 
@@ -1090,6 +1209,19 @@ export function InvoicesView({
                             <div className="text-[11px] text-purple-800 font-semibold mt-0.5">
                               Company Payable Obligation • {inv.supplier_phone || inv.supplier_email || 'Direct Vendor'}
                             </div>
+                            {inv.customer_name && (
+                              <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[11px] font-bold text-cyan-900 bg-cyan-50 border border-cyan-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                  <User className="w-3 h-3 text-cyan-600" />
+                                  <span>Customer: <strong>{inv.customer_name}</strong></span>
+                                </span>
+                                {inv.file_number && (
+                                  <span className="text-[10px] font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                    File #: {inv.file_number}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
 
                           <td className="py-3.5 px-4 text-xs text-slate-600">
@@ -1224,7 +1356,7 @@ export function InvoicesView({
                   <div className="flex items-center bg-slate-200/80 p-1 rounded-lg text-xs font-bold">
                     <button
                       type="button"
-                      onClick={() => setRecipientType('Customer')}
+                      onClick={() => handleRecipientTypeChange('Customer')}
                       className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
                         recipientType === 'Customer' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:text-slate-900'
                       }`}
@@ -1233,7 +1365,7 @@ export function InvoicesView({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRecipientType('Supplier')}
+                      onClick={() => handleRecipientTypeChange('Supplier')}
                       className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
                         recipientType === 'Supplier' ? 'bg-purple-600 text-white' : 'text-slate-600 hover:text-slate-900'
                       }`}
@@ -1282,21 +1414,39 @@ export function InvoicesView({
                       </select>
                     </div>
                   ) : (
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Select Supplier *</label>
-                      <select
-                        required
-                        value={selectedSupplierId}
-                        onChange={(e) => setSelectedSupplierId(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-cyan-500 font-medium"
-                      >
-                        {validSuppliers.map(s => (
-                          <option key={s.id} value={s.id}>
-                            {s.supplier_name} • {s.type} • Contact: {s.contact_person}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Select Supplier *</label>
+                        <select
+                          required
+                          value={selectedSupplierId}
+                          onChange={(e) => setSelectedSupplierId(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-cyan-500 font-medium"
+                        >
+                          <option value="">-- Select Supplier --</option>
+                          {validSuppliers.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.supplier_name} • {s.type}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Associated Customer / Client Dossier</label>
+                        <select
+                          value={selectedCustomerId}
+                          onChange={(e) => setSelectedCustomerId(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-cyan-500 font-medium"
+                        >
+                          <option value="">-- Select Associated Customer --</option>
+                          {validCustomers.map(c => (
+                            <option key={c.id} value={c.id}>
+                              {c.full_name || c.name || 'Customer'} (Code: {c.customer_id || c.id})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
                   )}
 
                   <div>
@@ -1346,24 +1496,31 @@ export function InvoicesView({
                   <span>One-Click Auto-Populate from Reservations & Inventory</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Reservation Dropdown */}
+                  {/* Created Voucher Dropdown */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Add from Reservation</label>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      {recipientType === 'Supplier' ? 'Add Voucher (Net Price)' : 'Add Voucher (Selling Price)'}
+                    </label>
                     <select
-                      value={selectedReservationId}
+                      value={selectedVoucherId}
                       onChange={(e) => {
-                        if (e.target.value) handleAddReservationItem(e.target.value);
+                        if (e.target.value) handleAddVoucherItem(e.target.value);
                       }}
                       className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
-                      <option value="">-- Choose Reservation --</option>
-                      {validReservations.map(r => {
+                      <option value="">-- Choose Created Voucher --</option>
+                      {validVouchers.map(v => {
+                        const vNum = v.voucher_number || v.reservation_id || v.id;
+                        const vCost = Number(v.cost_price || 0);
+                        const vSell = Number(v.selling_price || 0);
+                        const vCur = v.currency || 'USD';
+
                         const hasCust = invoices.some(inv => 
-                          (inv.reservation_id === r.id || inv.reservation_id === r.reservation_id || r.customer_invoice_id === inv.id || r.customer_invoice_number === inv.invoice_number) &&
+                          (inv.reservation_id === v.id || inv.reservation_id === v.reservation_id || v.customer_invoice_id === inv.id || v.customer_invoice_number === inv.invoice_number) &&
                           (inv.recipient_type === 'Customer' || (!inv.recipient_type && !inv.supplier_id))
                         );
                         const hasSupp = invoices.some(inv => 
-                          (inv.reservation_id === r.id || inv.reservation_id === r.reservation_id || r.supplier_invoice_id === inv.id || r.supplier_invoice_number === inv.invoice_number) &&
+                          (inv.reservation_id === v.id || inv.reservation_id === v.reservation_id || v.supplier_invoice_id === inv.id || v.supplier_invoice_number === inv.invoice_number) &&
                           (inv.recipient_type === 'Supplier' || (inv.supplier_id && !inv.customer_id))
                         );
                         const statusTag = hasCust && hasSupp 
@@ -1374,9 +1531,11 @@ export function InvoicesView({
                               ? ' [Supp Invoiced]' 
                               : ' [No Invoice]';
 
+                        const sCat = v.service_category || (v as any).service_type || 'Service';
+
                         return (
-                          <option key={r.id} value={r.id}>
-                            #{r.reservation_id} - {r.customer_name || 'Client'} ({r.destination}){statusTag}
+                          <option key={v.id} value={v.id}>
+                            #{vNum} - {v.customer_name || 'Client'} ({sCat}) • Net: {formatCurrency(vCost, vCur)} | Sell: {formatCurrency(vSell, vCur)}{statusTag}
                           </option>
                         );
                       })}
@@ -1779,6 +1938,18 @@ export function InvoicesView({
                   <p className="font-bold text-sm text-slate-900 mt-1">
                     {viewInvoice.recipient_type === 'Supplier' ? viewInvoice.supplier_name : viewInvoice.customer_name}
                   </p>
+                  {viewInvoice.recipient_type === 'Supplier' && viewInvoice.customer_name && (
+                    <div className="mt-2 p-2 bg-cyan-50 border border-cyan-200 rounded-lg space-y-0.5">
+                      <p className="text-[10px] uppercase font-bold text-cyan-800">Associated Client / Customer Name:</p>
+                      <p className="text-xs font-black text-cyan-950">{viewInvoice.customer_name}</p>
+                      {viewInvoice.file_number && (
+                        <p className="text-[10px] text-cyan-700 font-mono font-bold">File Number: {viewInvoice.file_number}</p>
+                      )}
+                    </div>
+                  )}
+                  {viewInvoice.file_number && viewInvoice.recipient_type !== 'Supplier' && (
+                    <p className="text-xs font-mono font-bold text-slate-700 mt-1">File #: {viewInvoice.file_number}</p>
+                  )}
                   {viewInvoice.recipient_type !== 'Supplier' && (() => {
                     const matched = validCustomers.find(c => c.id === viewInvoice.customer_id || c.customer_id === viewInvoice.customer_id || c.full_name === viewInvoice.customer_name);
                     const code = matched?.customer_id || viewInvoice.customer_id;
