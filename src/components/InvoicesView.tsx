@@ -90,6 +90,7 @@ export function InvoicesView({
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [activeSectionTab, setActiveSectionTab] = useState<'All' | 'Customer' | 'Supplier'>('All');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const [paymentModalInvoice, setPaymentModalInvoice] = useState<Invoice | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
@@ -400,7 +401,34 @@ export function InvoicesView({
     setItems(items.filter((_, i) => i !== index));
   };
 
-  // Handle Form Submit
+  // Open Edit Modal with Pre-populated Invoice Data
+  const handleOpenEditModal = (inv: Invoice) => {
+    setEditingInvoice(inv);
+    const rType = inv.recipient_type || (inv.supplier_id ? 'Supplier' : 'Customer');
+    setRecipientType(rType);
+
+    if (rType === 'Customer') {
+      const cust = validCustomers.find(c => c.id === inv.customer_id || c.customer_id === inv.customer_id || c.full_name === inv.customer_name);
+      setSelectedCustomerId(cust?.id || inv.customer_id || validCustomers[0]?.id || '');
+    } else {
+      const supp = validSuppliers.find(s => s.id === inv.supplier_id || s.supplier_name === inv.supplier_name);
+      setSelectedSupplierId(supp?.id || inv.supplier_id || validSuppliers[0]?.id || '');
+    }
+
+    setIssueDate(inv.issue_date || new Date().toISOString().split('T')[0]);
+    setDueDate(inv.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+    setInvoiceCurrency(inv.currency || 'EGP');
+    setItems(inv.items ? JSON.parse(JSON.stringify(inv.items)) : []);
+    setDiscount(inv.discount || 0);
+    setTaxRate(inv.tax_rate || 0);
+    setPaidAmount(inv.paid_amount || 0);
+    setPaymentMethod(inv.payment_method || 'Bank Transfer');
+    setNotes(inv.notes || '');
+    setTerms(inv.terms || '');
+    setShowCreateModal(true);
+  };
+
+  // Handle Form Submit (Create or Edit)
   const handleCreateInvoice = (e: React.FormEvent) => {
     e.preventDefault();
     if (items.length === 0) {
@@ -413,19 +441,19 @@ export function InvoicesView({
 
     const payment_status = balanceDue <= 0 ? 'Paid' : paidAmount > 0 ? 'Partially Paid' : 'Unpaid';
 
-    const linkedResId = transferredFromRes?.id || transferredFromRes?.reservation_id || undefined;
+    const linkedResId = transferredFromRes?.id || transferredFromRes?.reservation_id || editingInvoice?.reservation_id || undefined;
 
     const invoiceData: Partial<Invoice> = {
       recipient_type: recipientType,
       reservation_id: linkedResId,
-      customer_id: recipientType === 'Customer' ? (customer?.customer_id || customer?.id) : undefined,
-      customer_name: recipientType === 'Customer' ? (customer?.full_name || customer?.name) : undefined,
+      customer_id: recipientType === 'Customer' ? (customer?.customer_id || customer?.id || selectedCustomerId) : undefined,
+      customer_name: recipientType === 'Customer' ? (customer?.full_name || customer?.name || editingInvoice?.customer_name) : undefined,
       customer_email: recipientType === 'Customer' ? customer?.email : undefined,
       customer_phone: recipientType === 'Customer' ? customer?.phone : undefined,
       customer_address: recipientType === 'Customer' ? customer?.address : undefined,
       customer_passport: recipientType === 'Customer' ? customer?.passport_number : undefined,
-      supplier_id: recipientType === 'Supplier' ? supplier?.id : undefined,
-      supplier_name: recipientType === 'Supplier' ? supplier?.supplier_name : undefined,
+      supplier_id: recipientType === 'Supplier' ? (supplier?.id || selectedSupplierId) : undefined,
+      supplier_name: recipientType === 'Supplier' ? (supplier?.supplier_name || editingInvoice?.supplier_name) : undefined,
       supplier_email: recipientType === 'Supplier' ? supplier?.email : undefined,
       supplier_phone: recipientType === 'Supplier' ? supplier?.phone : undefined,
       supplier_type: recipientType === 'Supplier' ? supplier?.type : undefined,
@@ -444,11 +472,15 @@ export function InvoicesView({
       payment_method: paymentMethod as any,
       notes: notes || (recipientType === 'Supplier' ? `Payable to supplier ${supplier?.supplier_name || ''}. Counted as company liabilities and payment obligations.` : undefined),
       terms: terms || (recipientType === 'Supplier' ? `Company payment obligation payable to supplier according to contractual terms.` : undefined),
-      manager_name: "Ahmed Ali",
-      created_by_employee: userRole === 'Administrator' ? 'IT (Admin)' : 'Staff'
+      manager_name: editingInvoice?.manager_name || "Ahmed Ali",
+      created_by_employee: editingInvoice?.created_by_employee || (userRole === 'Administrator' ? 'IT (Admin)' : 'Staff')
     };
 
-    onAddInvoice(invoiceData);
+    if (editingInvoice) {
+      onUpdateInvoice(editingInvoice.id, invoiceData);
+    } else {
+      onAddInvoice(invoiceData);
+    }
 
     if (transferredFromRes && onUpdateReservation) {
       if (recipientType === 'Supplier') {
@@ -465,6 +497,7 @@ export function InvoicesView({
     setShowCreateModal(false);
 
     // Reset Form
+    setEditingInvoice(null);
     setTransferredFromRes(null);
     setItems([]);
     setDiscount(0);
@@ -596,7 +629,14 @@ export function InvoicesView({
         <div className="flex items-center space-x-3">
           <button
             onClick={() => {
+              setEditingInvoice(null);
+              setTransferredFromRes(null);
               setRecipientType('Customer');
+              setSelectedCustomerId(validCustomers[0]?.id || '');
+              setItems([]);
+              setDiscount(0);
+              setTaxRate(0);
+              setPaidAmount(0);
               setShowCreateModal(true);
             }}
             className="flex items-center space-x-2 bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-cyan-600/20 transition-all cursor-pointer"
@@ -607,7 +647,14 @@ export function InvoicesView({
 
           <button
             onClick={() => {
+              setEditingInvoice(null);
+              setTransferredFromRes(null);
               setRecipientType('Supplier');
+              setSelectedSupplierId(validSuppliers[0]?.id || '');
+              setItems([]);
+              setDiscount(0);
+              setTaxRate(0);
+              setPaidAmount(0);
               setShowCreateModal(true);
             }}
             className="flex items-center space-x-2 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-purple-600/20 transition-all cursor-pointer"
@@ -927,13 +974,7 @@ export function InvoicesView({
                                 </button>
                               )}
                               <button
-                                onClick={() => {
-                                  if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
-                                    onUpdateInvoice(inv.id, inv);
-                                  } else {
-                                    setViewInvoice(inv);
-                                  }
-                                }}
+                                onClick={() => handleOpenEditModal(inv)}
                                 className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors cursor-pointer"
                                 title="Edit Customer Invoice"
                               >
@@ -1117,13 +1158,7 @@ export function InvoicesView({
                                 </button>
                               )}
                               <button
-                                onClick={() => {
-                                  if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
-                                    onUpdateInvoice(inv.id, inv);
-                                  } else {
-                                    setViewInvoice(inv);
-                                  }
-                                }}
+                                onClick={() => handleOpenEditModal(inv)}
                                 className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors cursor-pointer"
                                 title="Edit Supplier Invoice"
                               >
@@ -1164,9 +1199,17 @@ export function InvoicesView({
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <FileText className="w-5 h-5 text-cyan-600" />
-                <span>Create New Invoice / Bill</span>
+                <span>{editingInvoice ? `Edit Invoice #${editingInvoice.invoice_number}` : 'Create New Invoice / Bill'}</span>
               </h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600">
+              <button 
+                type="button"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingInvoice(null);
+                  setTransferredFromRes(null);
+                }} 
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1575,6 +1618,7 @@ export function InvoicesView({
                   type="button"
                   onClick={() => {
                     setShowCreateModal(false);
+                    setEditingInvoice(null);
                     setTransferredFromRes(null);
                   }}
                   className="px-5 py-2.5 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 cursor-pointer"
@@ -1586,7 +1630,7 @@ export function InvoicesView({
                   className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 cursor-pointer flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirm & Issue Invoice</span>
+                  <span>{editingInvoice ? 'Save & Update Invoice' : 'Confirm & Issue Invoice'}</span>
                 </button>
               </div>
             </form>
