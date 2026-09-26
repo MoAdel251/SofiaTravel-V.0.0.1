@@ -113,6 +113,8 @@ export function CustomerInquiriesView({
 
   const [saving, setSaving] = useState(false);
 
+  const validEmployees = employees.filter(emp => emp && emp.id && !(emp as any).is_deleted && !(emp as any).deleted && (emp as any).status !== 'Deleted' && emp.status !== 'Inactive');
+
   // Handle open create modal
   const handleOpenCreateModal = () => {
     setEditingInquiry(null);
@@ -932,7 +934,7 @@ export function CustomerInquiriesView({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 font-bold"
                   >
                     <option value="">-- Select Staff Member --</option>
-                    {employees.map(emp => (
+                    {validEmployees.map(emp => (
                       <option key={emp.id} value={emp.name || emp.full_name}>
                         {emp.name || emp.full_name} ({emp.position || 'Staff'})
                       </option>

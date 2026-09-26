@@ -1268,7 +1268,7 @@ export function FinancePayrollView({
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
                 >
                   <option value="">-- Select Employee --</option>
-                  {employees.map(emp => (
+                  {employees.filter(emp => emp && emp.id && !(emp as any).is_deleted && !(emp as any).deleted && (emp as any).status !== 'Deleted' && emp.status !== 'Inactive').map(emp => (
                     <option key={emp.id} value={emp.id}>{emp.name} ({emp.position})</option>
                   ))}
                 </select>
@@ -1343,7 +1343,7 @@ export function FinancePayrollView({
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
                 >
                   <option value="">-- Select Employee --</option>
-                  {employees.map(emp => (
+                  {employees.filter(emp => emp && emp.id && !(emp as any).is_deleted && !(emp as any).deleted && (emp as any).status !== 'Deleted' && emp.status !== 'Inactive').map(emp => (
                     <option key={emp.id} value={emp.id}>{emp.name}</option>
                   ))}
                 </select>

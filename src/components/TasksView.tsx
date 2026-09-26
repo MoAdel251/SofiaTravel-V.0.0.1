@@ -282,7 +282,7 @@ export function TasksView({
                   onChange={(e) => setFormData({ ...formData, assigned_employee_id: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus:border-cyan-500"
                 >
-                  {employees.map(e => (
+                  {employees.filter(e => e && e.id && !(e as any).is_deleted && !(e as any).deleted && (e as any).status !== 'Deleted' && e.status !== 'Inactive').map(e => (
                     <option key={e.id} value={e.id}>
                       {e.name} • {e.position} ({e.department})
                     </option>

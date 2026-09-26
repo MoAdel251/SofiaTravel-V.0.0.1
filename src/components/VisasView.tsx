@@ -611,8 +611,8 @@ export function VisasView({
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm"
                   >
                     <option value="">Direct Embassy / Government E-Visa Portal</option>
-                    {suppliers.map(s => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.category || 'Supplier'})</option>
+                    {suppliers.filter(s => s && s.id && !(s as any).is_deleted && !(s as any).deleted && (s as any).status !== 'Deleted').map(s => (
+                      <option key={s.id} value={s.id}>{(s as any).supplier_name || s.name} ({(s as any).type || s.category || 'Supplier'})</option>
                     ))}
                   </select>
                 </div>

@@ -118,6 +118,24 @@ export function VouchersView({
   const [editingVoucher, setEditingVoucher] = useState<Voucher | null>(null);
   const [previewVoucher, setPreviewVoucher] = useState<Voucher | null>(null);
   const [sendModalVoucher, setSendModalVoucher] = useState<Voucher | null>(null);
+
+  // Helper filter for deleted items (Ensures deleted entities never appear in dropdown options)
+  const isNotDeleted = (item: any) => {
+    if (!item || !item.id) return false;
+    if (item.is_deleted || item.deleted) return false;
+    if (item.status === 'Deleted' || item.reservation_status === 'Deleted' || item.payment_status === 'Deleted') return false;
+    return true;
+  };
+
+  const validCustomers = customers.filter(isNotDeleted);
+  const validSuppliers = suppliers.filter(isNotDeleted);
+  const validEmployees = employees.filter(e => isNotDeleted(e) && (e as any).status !== 'Terminated' && e.status !== 'Inactive');
+  const validPackages = packages.filter(isNotDeleted);
+  const validVisas = visas.filter(isNotDeleted);
+  const validTransfers = transfers.filter(isNotDeleted);
+  const validCruises = cruises.filter(isNotDeleted);
+  const validTours = tours.filter(isNotDeleted);
+  const validDayTrips = dayTrips.filter(isNotDeleted);
   const [convertModalVoucher, setConvertModalVoucher] = useState<Voucher | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -904,7 +922,7 @@ export function VouchersView({
                       className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800"
                     >
                       <option value="">-- Choose a Tour Package --</option>
-                      {packages.map(p => (
+                      {validPackages.map(p => (
                         <option key={p.id} value={p.id}>{p.title} (${p.selling_price})</option>
                       ))}
                     </select>
@@ -919,7 +937,7 @@ export function VouchersView({
                       className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800"
                     >
                       <option value="">-- Choose a Visa Service --</option>
-                      {visas.map(v => (
+                      {validVisas.map(v => (
                         <option key={v.id} value={v.id}>{v.country} - {v.visa_title} (${v.selling_price})</option>
                       ))}
                     </select>
@@ -934,7 +952,7 @@ export function VouchersView({
                       className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800"
                     >
                       <option value="">-- Choose a Transfer Route --</option>
-                      {transfers.map(t => (
+                      {validTransfers.map(t => (
                         <option key={t.id} value={t.id}>{t.service_title} (${t.selling_price})</option>
                       ))}
                     </select>
@@ -949,7 +967,7 @@ export function VouchersView({
                       className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800"
                     >
                       <option value="">-- Choose a Nile / Sea Cruise --</option>
-                      {cruises.map(c => (
+                      {validCruises.map(c => (
                         <option key={c.id} value={c.id}>{c.cruise_name} - {c.route_itinerary} (${c.selling_price})</option>
                       ))}
                     </select>
@@ -964,7 +982,7 @@ export function VouchersView({
                       className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800"
                     >
                       <option value="">-- Choose a Tour Program --</option>
-                      {tours.map(t => (
+                      {validTours.map(t => (
                         <option key={t.id} value={t.id}>{t.tour_title} (${t.selling_price})</option>
                       ))}
                     </select>
@@ -979,7 +997,7 @@ export function VouchersView({
                       className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800"
                     >
                       <option value="">-- Choose a Day Trip Excursion --</option>
-                      {dayTrips.map(d => (
+                      {validDayTrips.map(d => (
                         <option key={d.id} value={d.id}>{d.trip_title} (${d.selling_price})</option>
                       ))}
                     </select>
@@ -1011,7 +1029,7 @@ export function VouchersView({
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
                   >
                     <option value="">-- Select Registered Customer --</option>
-                    {customers.map(c => (
+                    {validCustomers.map(c => (
                       <option key={c.id} value={c.id}>
                         {c.full_name || c.name} (Code: {c.customer_id}) • {c.phone || c.email}
                       </option>

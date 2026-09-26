@@ -29,7 +29,9 @@ import {
   ShieldCheck,
   Truck,
   Layers,
-  ChevronDown
+  ChevronDown,
+  Users,
+  Building2
 } from 'lucide-react';
 import { 
   Invoice, 
@@ -86,16 +88,31 @@ export function InvoicesView({
 }: InvoicesViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
-  const [recipientFilter, setRecipientFilter] = useState<'All' | 'Customer' | 'Supplier'>('All');
+  const [activeSectionTab, setActiveSectionTab] = useState<'All' | 'Customer' | 'Supplier'>('All');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const [paymentModalInvoice, setPaymentModalInvoice] = useState<Invoice | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
 
+  // Helper filter for deleted items (Ensures deleted entities never appear in dropdown options)
+  const isNotDeleted = (item: any) => {
+    if (!item || !item.id) return false;
+    if (item.is_deleted || item.deleted) return false;
+    if (item.status === 'Deleted' || item.reservation_status === 'Deleted' || item.payment_status === 'Deleted') return false;
+    return true;
+  };
+
+  const validCustomers = customers.filter(isNotDeleted);
+  const validSuppliers = suppliers.filter(isNotDeleted);
+  const validPackages = packages.filter(isNotDeleted);
+  const validHotels = hotels.filter(isNotDeleted);
+  const validFlights = flights.filter(isNotDeleted);
+  const validReservations = reservations.filter(isNotDeleted);
+
   // Form State for creating new invoice
   const [recipientType, setRecipientType] = useState<'Customer' | 'Supplier'>('Customer');
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[0]?.id || '');
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>(suppliers[0]?.id || '');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(validCustomers[0]?.id || '');
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>(validSuppliers[0]?.id || '');
   const [issueDate, setIssueDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState<string>(
     new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -161,7 +178,7 @@ export function InvoicesView({
         if (initialReservation.supplier_id) {
           setSelectedSupplierId(initialReservation.supplier_id);
         } else if (initialReservation.supplier_name) {
-          const found = suppliers.find(s => s.supplier_name?.toLowerCase() === initialReservation.supplier_name?.toLowerCase());
+          const found = validSuppliers.find(s => s.supplier_name?.toLowerCase() === initialReservation.supplier_name?.toLowerCase());
           if (found) setSelectedSupplierId(found.id);
         }
 
@@ -188,11 +205,11 @@ export function InvoicesView({
         setRecipientType('Customer');
 
         if (initialReservation.customer_id) {
-          const found = customers.find(c => c.id === initialReservation.customer_id || c.customer_id === initialReservation.customer_id);
+          const found = validCustomers.find(c => c.id === initialReservation.customer_id || c.customer_id === initialReservation.customer_id);
           if (found) setSelectedCustomerId(found.id);
           else setSelectedCustomerId(initialReservation.customer_id);
         } else if (initialReservation.customer_name) {
-          const found = customers.find(c => (c.full_name || c.name)?.toLowerCase() === initialReservation.customer_name.toLowerCase() || c.customer_id === initialReservation.customer_name);
+          const found = validCustomers.find(c => (c.full_name || c.name)?.toLowerCase() === initialReservation.customer_name.toLowerCase() || c.customer_id === initialReservation.customer_name);
           if (found) setSelectedCustomerId(found.id);
         }
 
@@ -232,7 +249,7 @@ export function InvoicesView({
 
   // Quick Add Item from Tour Package
   const handleAddTourPackage = (pkgId: string) => {
-    const pkg = packages.find(p => p.id === pkgId);
+    const pkg = validPackages.find(p => p.id === pkgId);
     if (!pkg) return;
     const newItem: InvoiceItem = {
       id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
@@ -250,7 +267,7 @@ export function InvoicesView({
 
   // Quick Add Item from Hotel
   const handleAddHotel = (hotelId: string) => {
-    const hot = hotels.find(h => h.id === hotelId);
+    const hot = validHotels.find(h => h.id === hotelId);
     if (!hot) return;
     const newItem: InvoiceItem = {
       id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
@@ -268,7 +285,7 @@ export function InvoicesView({
 
   // Quick Add Item from Flight
   const handleAddFlight = (flightId: string) => {
-    const fl = flights.find(f => f.id === flightId);
+    const fl = validFlights.find(f => f.id === flightId);
     if (!fl) return;
     const newItem: InvoiceItem = {
       id: 'ITEM-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
@@ -286,7 +303,7 @@ export function InvoicesView({
 
   // Quick Add Item from Reservation
   const handleAddReservationItem = (resId: string) => {
-    const res = reservations.find(r => r.id === resId || r.reservation_id === resId);
+    const res = validReservations.find(r => r.id === resId || r.reservation_id === resId);
     if (!res) return;
 
     // Check if an invoice of current recipientType already exists for this reservation
@@ -391,8 +408,8 @@ export function InvoicesView({
       return;
     }
 
-    const customer = customers.find(c => c.id === selectedCustomerId || c.customer_id === selectedCustomerId);
-    const supplier = suppliers.find(s => s.id === selectedSupplierId);
+    const customer = validCustomers.find(c => c.id === selectedCustomerId || c.customer_id === selectedCustomerId);
+    const supplier = validSuppliers.find(s => s.id === selectedSupplierId);
 
     const payment_status = balanceDue <= 0 ? 'Paid' : paidAmount > 0 ? 'Partially Paid' : 'Unpaid';
 
@@ -473,30 +490,41 @@ export function InvoicesView({
     setPaymentAmount(0);
   };
 
-  // Filter Invoices
-  const filteredInvoices = invoices.filter(inv => {
-    const recipient = inv.recipient_type === 'Supplier' ? (inv.supplier_name || '') : (inv.customer_name || '');
+  // Separate Customer and Supplier Invoices
+  const customerInvoices = invoices.filter(inv => inv.recipient_type !== 'Supplier');
+  const supplierInvoices = invoices.filter(inv => inv.recipient_type === 'Supplier');
+
+  // Filter Customer Invoices
+  const filteredCustomerInvoices = customerInvoices.filter(inv => {
+    const recipient = inv.customer_name || '';
     const matchesSearch = 
       ( inv.invoice_number || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
       ( recipient || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
       (inv.customer_passport && ( inv.customer_passport || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()));
 
     const matchesStatus = statusFilter === 'All' || inv.payment_status === statusFilter;
-    const matchesRecipient = recipientFilter === 'All' || 
-      (recipientFilter === 'Supplier' && inv.recipient_type === 'Supplier') ||
-      (recipientFilter === 'Customer' && inv.recipient_type !== 'Supplier');
-
-    return matchesSearch && matchesStatus && matchesRecipient;
+    return matchesSearch && matchesStatus;
   });
 
-  // Calculate Currency Totals for Actual Invoice Records ONLY
-  // Currencies: USD ($), EGP (EGP), EUR (€)
-  const calculateCurrencyTotals = (targetCur: 'USD' | 'EGP' | 'EUR') => {
+  // Filter Supplier Invoices
+  const filteredSupplierInvoices = supplierInvoices.filter(inv => {
+    const recipient = inv.supplier_name || '';
+    const matchesSearch = 
+      ( inv.invoice_number || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+      ( recipient || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()) ||
+      (inv.supplier_type && ( inv.supplier_type || "" ).toLowerCase().includes(( searchTerm || "" ).toLowerCase()));
+
+    const matchesStatus = statusFilter === 'All' || inv.payment_status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  // Calculate Currency Totals for a subset of invoices
+  const calculateTotalsForList = (list: Invoice[], targetCur: 'USD' | 'EGP' | 'EUR') => {
     let totalInv = 0;
     let totalPaid = 0;
     let totalPending = 0;
 
-    invoices.forEach(inv => {
+    list.forEach(inv => {
       let invCur = (inv.currency || 'EGP').toUpperCase();
       if (invCur === '$') invCur = 'USD';
       if (invCur === targetCur) {
@@ -509,16 +537,25 @@ export function InvoicesView({
     return { totalInv, totalPaid, totalPending };
   };
 
-  const usdTotals = calculateCurrencyTotals('USD');
-  const egpTotals = calculateCurrencyTotals('EGP');
-  const eurTotals = calculateCurrencyTotals('EUR');
+  // Consolidated Overall Totals
+  const usdTotals = calculateTotalsForList(invoices, 'USD');
+  const egpTotals = calculateTotalsForList(invoices, 'EGP');
+  const eurTotals = calculateTotalsForList(invoices, 'EUR');
+
+  // Customer Section Specific Totals
+  const custUsdTotals = calculateTotalsForList(customerInvoices, 'USD');
+  const custEgpTotals = calculateTotalsForList(customerInvoices, 'EGP');
+
+  // Supplier Section Specific Totals
+  const suppUsdTotals = calculateTotalsForList(supplierInvoices, 'USD');
+  const suppEgpTotals = calculateTotalsForList(supplierInvoices, 'EGP');
 
   // WhatsApp Share Generator
   const shareWhatsApp = (inv: Invoice) => {
     const isSup = inv.recipient_type === 'Supplier';
     const recipient = isSup ? inv.supplier_name : inv.customer_name;
     const phone = (isSup ? inv.supplier_phone : inv.customer_phone)?.replace(/[^0-9]/g, '') || '';
-    const matchedCust = !isSup ? customers.find(c => c.id === inv.customer_id || c.customer_id === inv.customer_id || c.full_name === inv.customer_name) : null;
+    const matchedCust = !isSup ? validCustomers.find(c => c.id === inv.customer_id || c.customer_id === inv.customer_id || c.full_name === inv.customer_name) : null;
     const custCode = matchedCust?.customer_id || inv.customer_id;
     
     const text = encodeURIComponent(
@@ -544,40 +581,57 @@ export function InvoicesView({
   };
 
   return (
-    <div className="p-6 sm:p-8 space-y-6 bg-slate-50 min-h-screen">
+    <div className="p-6 sm:p-8 space-y-8 bg-slate-50 min-h-screen">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Invoices & Billing Hub</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+            <FileText className="w-7 h-7 text-cyan-600" />
+            <span>Invoices & Billing Hub</span>
+          </h1>
           <p className="text-sm text-slate-500">
-            Issue and manage customer invoices, supplier settlements, itemized drop-downs, and bank transfers.
+            Issue and manage customer receivables and supplier liability invoices in separate detailed sections.
           </p>
         </div>
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center space-x-2 bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-cyan-600/20 transition-all cursor-pointer"
+            onClick={() => {
+              setRecipientType('Customer');
+              setShowCreateModal(true);
+            }}
+            className="flex items-center space-x-2 bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-cyan-600/20 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Create New Invoice</span>
+            <span>+ Create Customer Invoice</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setRecipientType('Supplier');
+              setShowCreateModal(true);
+            }}
+            className="flex items-center space-x-2 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-purple-600/20 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Create Supplier Invoice</span>
           </button>
         </div>
       </div>
 
-      {/* TOP SCREEN BANNER: Total Invoices, Total Paid, Total Pending in All 3 Currencies (USD $, EGP, EUR €) */}
+      {/* TOP CONSOLIDATED BANNER */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
         <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-cyan-600" />
             <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-              Financial Summary (All 3 Currencies: USD $, EGP, EUR €)
+              Consolidated Financial Summary (USD $, EGP, EUR €)
             </h2>
           </div>
-          <span className="text-xs text-slate-400 font-medium">Real-time consolidated balance</span>
+          <span className="text-xs text-slate-400 font-medium">Real-time overall accounts balance</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* U.S. Dollar Card */}
+          {/* USD Card */}
           <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -602,7 +656,7 @@ export function InvoicesView({
             </div>
           </div>
 
-          {/* Egyptian Pound Card */}
+          {/* EGP Card */}
           <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-100 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -627,7 +681,7 @@ export function InvoicesView({
             </div>
           </div>
 
-          {/* Euro Card */}
+          {/* EUR Card */}
           <div className="p-4 rounded-xl bg-purple-50/60 border border-purple-100 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -654,7 +708,7 @@ export function InvoicesView({
         </div>
       </div>
 
-      {/* Search & Recipient Filters */}
+      {/* SEARCH, STATUS & SECTION VIEW SWITCHER BAR */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           {/* Search */}
@@ -662,40 +716,40 @@ export function InvoicesView({
             <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by invoice #, customer, supplier..."
+              placeholder="Search invoices by #, name, passport..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs focus:outline-none focus:border-cyan-500 focus:bg-white"
             />
           </div>
 
-          {/* Recipient Filter Tab */}
+          {/* Section View Tabs */}
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
             <button
-              onClick={() => setRecipientFilter('All')}
+              onClick={() => setActiveSectionTab('All')}
               className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                recipientFilter === 'All' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                activeSectionTab === 'All' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              All Invoices ({invoices.length})
+              Both Sections ({invoices.length})
             </button>
             <button
-              onClick={() => setRecipientFilter('Customer')}
+              onClick={() => setActiveSectionTab('Customer')}
               className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                recipientFilter === 'Customer' ? 'bg-white text-cyan-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                activeSectionTab === 'Customer' ? 'bg-white text-cyan-700 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <User className="w-3.5 h-3.5" />
-              <span>Customers</span>
+              <span>1. Customers Only ({customerInvoices.length})</span>
             </button>
             <button
-              onClick={() => setRecipientFilter('Supplier')}
+              onClick={() => setActiveSectionTab('Supplier')}
               className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                recipientFilter === 'Supplier' ? 'bg-white text-purple-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                activeSectionTab === 'Supplier' ? 'bg-white text-purple-700 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Truck className="w-3.5 h-3.5" />
-              <span>Suppliers</span>
+              <span>2. Suppliers Only ({supplierInvoices.length})</span>
             </button>
           </div>
         </div>
@@ -717,230 +771,414 @@ export function InvoicesView({
         </div>
       </div>
 
-      {/* Invoices Data Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
-              <tr>
-                <th className="py-3.5 px-4 font-semibold">Invoice Details</th>
-                <th className="py-3.5 px-4 font-semibold">Recipient (Customer / Supplier)</th>
-                <th className="py-3.5 px-4 font-semibold">Issue / Due Date</th>
-                <th className="py-3.5 px-4 font-semibold">Total Amount</th>
-                <th className="py-3.5 px-4 font-semibold">Paid Amount</th>
-                <th className="py-3.5 px-4 font-semibold">Balance Due</th>
-                <th className="py-3.5 px-4 font-semibold">Status</th>
-                <th className="py-3.5 px-4 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredInvoices.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
-                    <FileText className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-                    <p className="font-semibold text-slate-600">No invoices match your search.</p>
-                    <p className="text-xs text-slate-400 mt-1">Create a new customer or supplier invoice to get started.</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredInvoices.map((inv) => {
-                  const isSupplier = inv.recipient_type === 'Supplier';
-                  const recipientName = isSupplier ? inv.supplier_name : inv.customer_name;
-                  const currency = inv.currency || 'USD';
+      {/* ========================================================================= */}
+      {/* SECTION 1: CUSTOMERS INVOICES (ACCOUNTS RECEIVABLE) */}
+      {/* ========================================================================= */}
+      {(activeSectionTab === 'All' || activeSectionTab === 'Customer') && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-gradient-to-r from-cyan-900 to-blue-900 text-white p-4 sm:p-5 rounded-2xl shadow-sm gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-white/10 rounded-xl backdrop-blur-xs">
+                <Users className="w-6 h-6 text-cyan-300" />
+              </div>
+              <div>
+                <h2 className="text-lg font-extrabold tracking-tight flex items-center gap-2">
+                  <span>1. Customer Invoices Section (Accounts Receivable)</span>
+                  <span className="text-xs bg-cyan-500/30 text-cyan-200 border border-cyan-400/30 px-2.5 py-0.5 rounded-full font-bold">
+                    {filteredCustomerInvoices.length} Records
+                  </span>
+                </h2>
+                <p className="text-xs text-cyan-100/80">
+                  Detailed billing, traveler sales invoices, payment collection, and outstanding customer balances.
+                </p>
+              </div>
+            </div>
 
-                  return (
-                    <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                          <FileText className={`w-4 h-4 ${isSupplier ? 'text-purple-600' : 'text-cyan-600'}`} />
-                          <span>{inv.invoice_number}</span>
-                        </div>
-                        <span className="text-[11px] text-slate-400">{inv.items?.length || 0} line items</span>
-                      </td>
+            <div className="flex items-center gap-2 text-xs bg-cyan-950/50 p-2.5 rounded-xl border border-cyan-700/40">
+              <span className="text-cyan-200 font-semibold">USD Billed:</span>
+              <span className="font-bold text-white">{formatCurrency(custUsdTotals.totalInv, 'USD')}</span>
+              <span className="text-cyan-400 mx-1">|</span>
+              <span className="text-cyan-200 font-semibold">EGP Billed:</span>
+              <span className="font-bold text-emerald-300">{formatCurrency(custEgpTotals.totalInv, 'EGP')}</span>
+            </div>
+          </div>
 
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                            isSupplier ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-cyan-100 text-cyan-800'
-                          }`}>
-                            {isSupplier ? 'Supplier (Liability)' : 'Customer'}
-                          </span>
-                          <span className="font-semibold text-slate-800">{recipientName}</span>
-                          {!isSupplier && (() => {
-                            const matched = customers.find(c => c.id === inv.customer_id || c.customer_id === inv.customer_id || c.full_name === inv.customer_name);
-                            const code = matched?.customer_id || inv.customer_id;
-                            return code ? (
-                              <span className="text-[10px] bg-cyan-50 text-cyan-900 border border-cyan-200 font-mono font-bold px-1.5 py-0.5 rounded">
-                                {code}
-                              </span>
-                            ) : null;
-                          })()}
-                          {inv.reservation_id && (
-                            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200">
-                              Res #{inv.reservation_id}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {isSupplier ? (
-                            <span className="text-amber-700 font-semibold">
-                              Payable Liability (Company Obligation) • {inv.supplier_type || 'Supplier Partner'}
-                            </span>
-                          ) : (
-                            inv.customer_phone || inv.customer_email || 'Direct Client'
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-xs text-slate-600">
-                        <div>Issue: {inv.issue_date}</div>
-                        <div className="text-slate-400 text-[11px]">Due: {inv.due_date}</div>
-                      </td>
-
-                      <td className="py-3.5 px-4 font-bold text-slate-900">
-                        <div>{formatCurrency(inv.total_amount, currency)}</div>
-                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                          {formatTripleCurrencyString(inv.total_amount, inv.currency, settings?.exchange_rates)}
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-4 font-semibold text-emerald-600">
-                        {formatCurrency(inv.paid_amount, currency)}
-                      </td>
-
-                      <td className="py-3.5 px-4 font-bold text-amber-600">
-                        {formatCurrency(inv.balance_due, currency)}
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1 ${
-                          inv.payment_status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
-                          inv.payment_status === 'Partially Paid' ? 'bg-cyan-100 text-cyan-800' :
-                          inv.payment_status === 'Overdue' ? 'bg-rose-100 text-rose-800' :
-                          'bg-amber-100 text-amber-800'
-                        }`}>
-                          {inv.payment_status === 'Paid' && <CheckCircle2 className="w-3 h-3" />}
-                          {inv.payment_status === 'Partially Paid' && <Clock className="w-3 h-3" />}
-                          {inv.payment_status === 'Unpaid' && <AlertCircle className="w-3 h-3" />}
-                          <span>{inv.payment_status}</span>
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end space-x-1.5">
-                          <button
-                            onClick={() => setViewInvoice(inv)}
-                            className="p-1.5 hover:bg-cyan-50 text-cyan-700 rounded-lg transition-colors cursor-pointer"
-                            title="View & Print Official Invoice"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => shareWhatsApp(inv)}
-                            className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors cursor-pointer"
-                            title="Send Invoice via WhatsApp"
-                          >
-                            <MessageCircle className="w-4 h-4" />
-                          </button>
-                          {inv.balance_due > 0 && (
-                            <button
-                              onClick={() => {
-                                setPaymentModalInvoice(inv);
-                                setPaymentAmount(inv.balance_due);
-                              }}
-                              className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors cursor-pointer"
-                              title="Record Payment"
-                            >
-                              <CreditCard className="w-4 h-4" />
-                            </button>
-                          )}
-                          {/* Edit Invoice Button */}
-                          <button
-                            onClick={() => {
-                              // If employee without direct permission, call onUpdateInvoice to trigger PermissionModal
-                              if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
-                                onUpdateInvoice(inv.id, inv);
-                              } else {
-                                setViewInvoice(inv);
-                              }
-                            }}
-                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
-                                ? 'hover:bg-blue-50 text-blue-600'
-                                : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
-                            }`}
-                            title={
-                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
-                                ? "View / Edit Invoice"
-                                : "Request Admin Permission to Edit Invoice (Requires Stated Reason)"
-                            }
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-
-                          {/* Delete Invoice Button */}
-                          <button
-                            onClick={() => {
-                              if (userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant') {
-                                if (window.confirm(`Are you sure you want to delete invoice ${inv.invoice_number}?`)) {
-                                  onDeleteInvoice(inv.id);
-                                }
-                              } else {
-                                onDeleteInvoice(inv.id);
-                              }
-                            }}
-                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
-                                ? 'hover:bg-rose-50 text-rose-600'
-                                : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
-                            }`}
-                            title={
-                              userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant'
-                                ? "Delete Invoice"
-                                : "Request Admin Permission to Delete Invoice (Requires Stated Reason)"
-                            }
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3.5 px-4 font-semibold">Invoice Details</th>
+                    <th className="py-3.5 px-4 font-semibold">Customer / Traveler Information</th>
+                    <th className="py-3.5 px-4 font-semibold">Dates & Currency</th>
+                    <th className="py-3.5 px-4 font-semibold">Total Sales Amount</th>
+                    <th className="py-3.5 px-4 font-semibold">Paid Amount</th>
+                    <th className="py-3.5 px-4 font-semibold">Balance Due</th>
+                    <th className="py-3.5 px-4 font-semibold">Payment Status</th>
+                    <th className="py-3.5 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredCustomerInvoices.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-10 text-center text-slate-400">
+                        <Users className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                        <p className="font-semibold text-slate-600 text-xs">No customer invoices match your search filter.</p>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  ) : (
+                    filteredCustomerInvoices.map((inv) => {
+                      const matchedCust = validCustomers.find(c => c.id === inv.customer_id || c.customer_id === inv.customer_id || c.full_name === inv.customer_name);
+                      const custCode = matchedCust?.customer_id || inv.customer_id;
 
-      {/* CREATE INVOICE MODAL with Quick Dropdowns for Tour Packages, Hotels, Flights */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 my-8 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-700 flex items-center justify-center font-bold">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">Issue New Invoice / Bill</h3>
-                  <p className="text-xs text-slate-500">Auto-fill line items from Tour Packages, Hotels, and Flight bookings.</p>
-                </div>
+                      return (
+                        <tr key={inv.id} className="hover:bg-cyan-50/30 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                              <FileText className="w-4 h-4 text-cyan-600" />
+                              <span>{inv.invoice_number}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400">{inv.items?.length || 0} service item(s)</span>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900">{inv.customer_name || 'Client'}</span>
+                              {custCode && (
+                                <span className="text-[10px] bg-cyan-100 text-cyan-900 border border-cyan-300 font-mono font-bold px-1.5 py-0.5 rounded">
+                                  {custCode}
+                                </span>
+                              )}
+                              {inv.reservation_id && (
+                                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200">
+                                  Res #{inv.reservation_id}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              {inv.customer_phone || inv.customer_email || 'Direct Client'} 
+                              {inv.customer_passport && ` • Passport: ${inv.customer_passport}`}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-xs text-slate-600">
+                            <div>Issue: {inv.issue_date}</div>
+                            <div className="text-slate-400 text-[11px]">Due: {inv.due_date}</div>
+                            <span className="text-[10px] font-bold text-cyan-700 bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-200 mt-1 inline-block">
+                              {inv.currency || 'USD'}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                            <div>{formatCurrency(inv.total_amount, inv.currency)}</div>
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              {formatTripleCurrencyString(inv.total_amount, inv.currency, settings?.exchange_rates)}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-semibold text-emerald-600">
+                            {formatCurrency(inv.paid_amount, inv.currency)}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-bold text-amber-600">
+                            {formatCurrency(inv.balance_due, inv.currency)}
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1 ${
+                              inv.payment_status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
+                              inv.payment_status === 'Partially Paid' ? 'bg-cyan-100 text-cyan-800' :
+                              inv.payment_status === 'Overdue' ? 'bg-rose-100 text-rose-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {inv.payment_status === 'Paid' && <CheckCircle2 className="w-3 h-3" />}
+                              {inv.payment_status === 'Partially Paid' && <Clock className="w-3 h-3" />}
+                              {inv.payment_status === 'Unpaid' && <AlertCircle className="w-3 h-3" />}
+                              <span>{inv.payment_status}</span>
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end space-x-1.5">
+                              <button
+                                onClick={() => setViewInvoice(inv)}
+                                className="p-1.5 hover:bg-cyan-50 text-cyan-700 rounded-lg transition-colors cursor-pointer"
+                                title="View & Print Customer Invoice"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => shareWhatsApp(inv)}
+                                className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors cursor-pointer"
+                                title="Send Customer Invoice via WhatsApp"
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                              </button>
+                              {inv.balance_due > 0 && (
+                                <button
+                                  onClick={() => {
+                                    setPaymentModalInvoice(inv);
+                                    setPaymentAmount(inv.balance_due);
+                                  }}
+                                  className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors cursor-pointer"
+                                  title="Record Customer Payment"
+                                >
+                                  <CreditCard className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
+                                    onUpdateInvoice(inv.id, inv);
+                                  } else {
+                                    setViewInvoice(inv);
+                                  }
+                                }}
+                                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors cursor-pointer"
+                                title="Edit Customer Invoice"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant') {
+                                    if (window.confirm(`Delete customer invoice ${inv.invoice_number}?`)) {
+                                      onDeleteInvoice(inv.id);
+                                    }
+                                  } else {
+                                    onDeleteInvoice(inv.id);
+                                  }
+                                }}
+                                className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Customer Invoice"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SECTION 2: SUPPLIER INVOICES (COMPANY PAYMENT LIABILITIES) */}
+      {/* ========================================================================= */}
+      {(activeSectionTab === 'All' || activeSectionTab === 'Supplier') && (
+        <div className="space-y-4 pt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-gradient-to-r from-purple-900 to-indigo-900 text-white p-4 sm:p-5 rounded-2xl shadow-sm gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-white/10 rounded-xl backdrop-blur-xs">
+                <Truck className="w-6 h-6 text-purple-300" />
               </div>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
+              <div>
+                <h2 className="text-lg font-extrabold tracking-tight flex items-center gap-2">
+                  <span>2. Supplier Invoices Section (Company Payment Liabilities)</span>
+                  <span className="text-xs bg-purple-500/30 text-purple-200 border border-purple-400/30 px-2.5 py-0.5 rounded-full font-bold">
+                    {filteredSupplierInvoices.length} Records
+                  </span>
+                </h2>
+                <p className="text-xs text-purple-100/80">
+                  Itemized supplier cost obligations, partner settlements, airline/hotel invoices, and company liabilities.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs bg-purple-950/50 p-2.5 rounded-xl border border-purple-700/40">
+              <span className="text-purple-200 font-semibold">USD Payable:</span>
+              <span className="font-bold text-white">{formatCurrency(suppUsdTotals.totalInv, 'USD')}</span>
+              <span className="text-purple-400 mx-1">|</span>
+              <span className="text-purple-200 font-semibold">EGP Payable:</span>
+              <span className="font-bold text-amber-300">{formatCurrency(suppEgpTotals.totalInv, 'EGP')}</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3.5 px-4 font-semibold">Invoice Details</th>
+                    <th className="py-3.5 px-4 font-semibold">Supplier Partner Details</th>
+                    <th className="py-3.5 px-4 font-semibold">Dates & Currency</th>
+                    <th className="py-3.5 px-4 font-semibold">Total Liability Amount</th>
+                    <th className="py-3.5 px-4 font-semibold">Paid Amount</th>
+                    <th className="py-3.5 px-4 font-semibold">Outstanding Obligation</th>
+                    <th className="py-3.5 px-4 font-semibold">Status</th>
+                    <th className="py-3.5 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredSupplierInvoices.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-10 text-center text-slate-400">
+                        <Truck className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                        <p className="font-semibold text-slate-600 text-xs">No supplier invoices match your search filter.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSupplierInvoices.map((inv) => {
+                      return (
+                        <tr key={inv.id} className="hover:bg-purple-50/30 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                              <FileText className="w-4 h-4 text-purple-600" />
+                              <span>{inv.invoice_number}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400">{inv.items?.length || 0} line items</span>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900">{inv.supplier_name || 'Supplier'}</span>
+                              <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded font-bold">
+                                {inv.supplier_type || 'Supplier Partner'}
+                              </span>
+                              {inv.reservation_id && (
+                                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200">
+                                  Res #{inv.reservation_id}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-purple-800 font-semibold mt-0.5">
+                              Company Payable Obligation • {inv.supplier_phone || inv.supplier_email || 'Direct Vendor'}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-xs text-slate-600">
+                            <div>Issue: {inv.issue_date}</div>
+                            <div className="text-slate-400 text-[11px]">Due: {inv.due_date}</div>
+                            <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 mt-1 inline-block">
+                              {inv.currency || 'USD'}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                            <div>{formatCurrency(inv.total_amount, inv.currency)}</div>
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              {formatTripleCurrencyString(inv.total_amount, inv.currency, settings?.exchange_rates)}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-semibold text-emerald-600">
+                            {formatCurrency(inv.paid_amount, inv.currency)}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-bold text-rose-600">
+                            {formatCurrency(inv.balance_due, inv.currency)}
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1 ${
+                              inv.payment_status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
+                              inv.payment_status === 'Partially Paid' ? 'bg-purple-100 text-purple-800' :
+                              inv.payment_status === 'Overdue' ? 'bg-rose-100 text-rose-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {inv.payment_status === 'Paid' && <CheckCircle2 className="w-3 h-3" />}
+                              {inv.payment_status === 'Partially Paid' && <Clock className="w-3 h-3" />}
+                              {inv.payment_status === 'Unpaid' && <AlertCircle className="w-3 h-3" />}
+                              <span>{inv.payment_status}</span>
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end space-x-1.5">
+                              <button
+                                onClick={() => setViewInvoice(inv)}
+                                className="p-1.5 hover:bg-purple-50 text-purple-700 rounded-lg transition-colors cursor-pointer"
+                                title="View & Print Supplier Liability Bill"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => shareWhatsApp(inv)}
+                                className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors cursor-pointer"
+                                title="Send Supplier Bill via WhatsApp"
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                              </button>
+                              {inv.balance_due > 0 && (
+                                <button
+                                  onClick={() => {
+                                    setPaymentModalInvoice(inv);
+                                    setPaymentAmount(inv.balance_due);
+                                  }}
+                                  className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors cursor-pointer"
+                                  title="Record Payment to Supplier"
+                                >
+                                  <CreditCard className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (userRole !== 'Administrator' && userRole !== 'Manager' && userRole !== 'Accountant') {
+                                    onUpdateInvoice(inv.id, inv);
+                                  } else {
+                                    setViewInvoice(inv);
+                                  }
+                                }}
+                                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors cursor-pointer"
+                                title="Edit Supplier Invoice"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant') {
+                                    if (window.confirm(`Delete supplier invoice ${inv.invoice_number}?`)) {
+                                      onDeleteInvoice(inv.id);
+                                    }
+                                  } else {
+                                    onDeleteInvoice(inv.id);
+                                  }
+                                }}
+                                className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Supplier Invoice"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE NEW INVOICE MODAL */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-cyan-600" />
+                <span>Create New Invoice / Bill</span>
+              </h3>
+              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateInvoice} className="space-y-6 mt-6">
-              {/* Recipient Type Switcher: Customer vs Supplier */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+            <form onSubmit={handleCreateInvoice} className="space-y-4 mt-4">
+              {/* Recipient Type Toggle */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">Invoice Recipient</label>
-                  <div className="flex items-center bg-white p-1 rounded-lg border border-slate-200 text-xs font-bold">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Invoice Recipient Category
+                  </label>
+                  <div className="flex items-center bg-slate-200/80 p-1 rounded-lg text-xs font-bold">
                     <button
                       type="button"
                       onClick={() => setRecipientType('Customer')}
@@ -993,7 +1231,7 @@ export function InvoicesView({
                         className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-cyan-500 font-medium"
                       >
                         <option value="">-- Select Registered Customer --</option>
-                        {customers.map(c => (
+                        {validCustomers.map(c => (
                           <option key={c.id} value={c.id}>
                             {c.full_name || c.name || 'Customer'} (Code: {c.customer_id || c.id}) • {c.customer_type || 'Individual'} • Passport: {c.passport_number || 'N/A'}
                           </option>
@@ -1009,7 +1247,7 @@ export function InvoicesView({
                         onChange={(e) => setSelectedSupplierId(e.target.value)}
                         className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-cyan-500 font-medium"
                       >
-                        {suppliers.map(s => (
+                        {validSuppliers.map(s => (
                           <option key={s.id} value={s.id}>
                             {s.supplier_name} • {s.type} • Contact: {s.contact_person}
                           </option>
@@ -1076,7 +1314,7 @@ export function InvoicesView({
                       className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Reservation --</option>
-                      {reservations.map(r => {
+                      {validReservations.map(r => {
                         const hasCust = invoices.some(inv => 
                           (inv.reservation_id === r.id || inv.reservation_id === r.reservation_id || r.customer_invoice_id === inv.id || r.customer_invoice_number === inv.invoice_number) &&
                           (inv.recipient_type === 'Customer' || (!inv.recipient_type && !inv.supplier_id))
@@ -1113,7 +1351,7 @@ export function InvoicesView({
                       className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Package --</option>
-                      {packages.map(p => (
+                      {validPackages.map(p => (
                         <option key={p.id} value={p.id}>
                           {p.package_name} ({formatCurrency(p.selling_price, 'USD')})
                         </option>
@@ -1132,7 +1370,7 @@ export function InvoicesView({
                       className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Hotel --</option>
-                      {hotels.map(h => (
+                      {validHotels.map(h => (
                         <option key={h.id} value={h.id}>
                           {h.hotel_name} - {h.city} ({formatCurrency(h.selling_price, 'USD')})
                         </option>
@@ -1151,7 +1389,7 @@ export function InvoicesView({
                       className="w-full bg-white border border-cyan-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
                     >
                       <option value="">-- Choose Flight --</option>
-                      {flights.map(f => (
+                      {validFlights.map(f => (
                         <option key={f.id} value={f.id}>
                           {f.airline} #{f.flight_number} ({f.departure_airport}→{f.arrival_airport})
                         </option>
@@ -1180,20 +1418,20 @@ export function InvoicesView({
                     No items added yet. Select a Tour Package, Hotel, or Flight from the dropdowns above.
                   </div>
                 ) : (
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                      <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
                         <tr>
-                          <th className="py-2.5 px-3">Service / Item Description</th>
+                          <th className="py-2.5 px-3">Item / Service Title</th>
                           <th className="py-2.5 px-3 w-20">Qty</th>
-                          <th className="py-2.5 px-3 w-28">Unit Price ({getCurrencySymbol(invoiceCurrency)})</th>
-                          <th className="py-2.5 px-3 w-28">Total ({getCurrencySymbol(invoiceCurrency)})</th>
-                          <th className="py-2.5 px-3 w-10 text-right"></th>
+                          <th className="py-2.5 px-3 w-28">Unit Price</th>
+                          <th className="py-2.5 px-3 w-28">Total</th>
+                          <th className="py-2.5 px-3 text-right w-12">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {items.map((item, idx) => (
-                          <tr key={item.id} className="bg-white">
+                          <tr key={idx} className="hover:bg-slate-50">
                             <td className="py-2.5 px-3">
                               <input
                                 type="text"
@@ -1411,7 +1649,7 @@ export function InvoicesView({
         </div>
       )}
 
-      {/* VIEW & PRINT OFFICIAL INVOICE MODAL (With Logo, Manager Signature, and Bank Account Details) */}
+      {/* VIEW & PRINT OFFICIAL INVOICE MODAL */}
       {viewInvoice && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-3xl w-full p-8 shadow-2xl border border-slate-200 my-8 max-h-[95vh] overflow-y-auto print:m-0 print:p-0 print:shadow-none print:border-none">
@@ -1463,7 +1701,7 @@ export function InvoicesView({
               </div>
             </div>
 
-            {/* PRINTABLE INVOICE CONTENT (Scaled for A4 Paper) */}
+            {/* PRINTABLE INVOICE CONTENT */}
             <div id="invoice-a4-preview-card" className="printable-a4 avoid-page-break pt-4 space-y-6">
               {/* Header with Sofia Logo & Company Info */}
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6 pb-6 border-b-2 border-slate-900">
@@ -1498,7 +1736,7 @@ export function InvoicesView({
                     {viewInvoice.recipient_type === 'Supplier' ? viewInvoice.supplier_name : viewInvoice.customer_name}
                   </p>
                   {viewInvoice.recipient_type !== 'Supplier' && (() => {
-                    const matched = customers.find(c => c.id === viewInvoice.customer_id || c.customer_id === viewInvoice.customer_id || c.full_name === viewInvoice.customer_name);
+                    const matched = validCustomers.find(c => c.id === viewInvoice.customer_id || c.customer_id === viewInvoice.customer_id || c.full_name === viewInvoice.customer_name);
                     const code = matched?.customer_id || viewInvoice.customer_id;
                     return code ? (
                       <div className="mt-1 mb-1.5 flex items-center gap-1.5">
@@ -1600,7 +1838,7 @@ export function InvoicesView({
                 </div>
               </div>
 
-              {/* OFFICIAL BANK DETAILS & WIRE TRANSFER INSTRUCTIONS (Requirement 4) */}
+              {/* OFFICIAL BANK DETAILS */}
               <div className="bg-cyan-50/70 border border-cyan-200 rounded-xl p-4 text-xs space-y-1.5 text-slate-800">
                 <div className="flex items-center gap-2 text-cyan-900 font-bold">
                   <Building className="w-4 h-4 text-cyan-700" />

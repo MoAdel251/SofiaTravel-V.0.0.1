@@ -510,7 +510,7 @@ export function DocumentsView({
                     onChange={(e) => setLinkedEntityId(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-cyan-500"
                   >
-                    {customers.map(c => (
+                    {customers.filter(c => c && c.id && !(c as any).is_deleted && !(c as any).deleted && (c as any).status !== 'Deleted').map(c => (
                       <option key={c.id} value={c.id}>{c.full_name} ({c.passport_number})</option>
                     ))}
                   </select>
@@ -525,7 +525,7 @@ export function DocumentsView({
                     onChange={(e) => setLinkedEntityId(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-cyan-500"
                   >
-                    {suppliers.map(s => (
+                    {suppliers.filter(s => s && s.id && !(s as any).is_deleted && !(s as any).deleted && (s as any).status !== 'Deleted').map(s => (
                       <option key={s.id} value={s.id}>{s.supplier_name} ({s.type})</option>
                     ))}
                   </select>

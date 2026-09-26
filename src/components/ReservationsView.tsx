@@ -89,15 +89,28 @@ export function ReservationsView({
   const [selectedInvoicePreview, setSelectedInvoicePreview] = useState<Invoice | null>(null);
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
 
+  // Helper filter for deleted items (Ensures deleted entities never appear in dropdown options)
+  const isNotDeleted = (item: any) => {
+    if (!item || !item.id) return false;
+    if (item.is_deleted || item.deleted) return false;
+    if (item.status === 'Deleted' || item.reservation_status === 'Deleted' || item.payment_status === 'Deleted') return false;
+    return true;
+  };
+
+  const validCustomers = customers.filter(isNotDeleted);
+  const validSuppliers = suppliers.filter(isNotDeleted);
+  const validEmployees = employees.filter(e => isNotDeleted(e) && (e as any).status !== 'Terminated' && e.status !== 'Inactive');
+  const validPackages = packages.filter(isNotDeleted);
+
   const [formData, setFormData] = useState<Partial<Reservation>>({
-    customer_id: customers[0]?.id || '',
+    customer_id: validCustomers[0]?.id || '',
     service_type: 'Travel Package',
     travel_date: '2026-09-15',
     return_date: '2026-09-22',
     number_of_travelers: 2,
     destination: 'Luxor & Aswan',
-    supplier_id: suppliers[0]?.id || '',
-    employee_id: employees[0]?.id || '',
+    supplier_id: validSuppliers[0]?.id || '',
+    employee_id: validEmployees[0]?.id || '',
     selling_price: 1500,
     cost_price: 1000,
     paid_amount: 500,
@@ -630,7 +643,7 @@ export function ReservationsView({
                   className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer shadow-2xs"
                 >
                   <option value="">-- Choose a tour package to automatically fill details --</option>
-                  {packages.map(pkg => (
+                  {validPackages.map(pkg => (
                     <option key={pkg.id} value={pkg.id}>
                       {pkg.package_name} ({pkg.destination} • {pkg.duration} • ${pkg.selling_price})
                     </option>
@@ -646,7 +659,7 @@ export function ReservationsView({
                     onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   >
-                    {customers.map(c => (
+                    {validCustomers.map(c => (
                       <option key={c.id} value={c.id}>{c.full_name}</option>
                     ))}
                   </select>
@@ -714,7 +727,7 @@ export function ReservationsView({
                     onChange={(e) => setFormData({ ...formData, supplier_id: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   >
-                    {suppliers.map(s => (
+                    {validSuppliers.map(s => (
                       <option key={s.id} value={s.id}>{s.supplier_name}</option>
                     ))}
                   </select>
@@ -726,7 +739,7 @@ export function ReservationsView({
                     onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   >
-                    {employees.map(e => (
+                    {validEmployees.map(e => (
                       <option key={e.id} value={e.id}>{e.name}</option>
                     ))}
                   </select>
@@ -1045,7 +1058,7 @@ export function ReservationsView({
                   <select
                     value={editingReservation.customer_id || ''}
                     onChange={(e) => {
-                      const cust = customers.find(c => c.id === e.target.value);
+                      const cust = validCustomers.find(c => c.id === e.target.value);
                       setEditingReservation({
                         ...editingReservation,
                         customer_id: e.target.value,
@@ -1054,7 +1067,7 @@ export function ReservationsView({
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   >
-                    {customers.map(c => (
+                    {validCustomers.map(c => (
                       <option key={c.id} value={c.id}>{c.full_name}</option>
                     ))}
                   </select>
@@ -1064,7 +1077,7 @@ export function ReservationsView({
                   <select
                     value={editingReservation.employee_id || ''}
                     onChange={(e) => {
-                      const emp = employees.find(em => em.id === e.target.value);
+                      const emp = validEmployees.find(em => em.id === e.target.value);
                       setEditingReservation({
                         ...editingReservation,
                         employee_id: e.target.value,
@@ -1074,7 +1087,7 @@ export function ReservationsView({
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   >
                     <option value="">-- Keep Current / Unassigned --</option>
-                    {employees.map(e => (
+                    {validEmployees.map(e => (
                       <option key={e.id} value={e.id}>{e.name} ({e.position || 'Staff'})</option>
                     ))}
                   </select>
@@ -1084,7 +1097,7 @@ export function ReservationsView({
                   <select
                     value={editingReservation.supplier_id || ''}
                     onChange={(e) => {
-                      const supp = suppliers.find(s => s.id === e.target.value);
+                      const supp = validSuppliers.find(s => s.id === e.target.value);
                       setEditingReservation({
                         ...editingReservation,
                         supplier_id: e.target.value,
@@ -1094,7 +1107,7 @@ export function ReservationsView({
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
                   >
                     <option value="">-- Select Supplier --</option>
-                    {suppliers.map(s => (
+                    {validSuppliers.map(s => (
                       <option key={s.id} value={s.id}>{s.supplier_name}</option>
                     ))}
                   </select>
