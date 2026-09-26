@@ -381,40 +381,177 @@ export default function App() {
     reason: string,
     proposedChanges?: any
   ) => {
-    await fetch('/api/permission-requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        employee_id: currentUsername,
-        employee_name: currentUsername,
-        employee_role: userRole,
-        module: moduleName,
-        item_id: itemId,
-        item_name: itemName,
-        action_type: actionType,
-        reason,
-        proposed_changes: proposedChanges
-      })
-    });
-    fetchAllData();
+    const newReqId = "REQ-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newReq: PermissionRequest = {
+      id: newReqId,
+      request_id: "PR-" + Math.floor(1000 + Math.random() * 9000),
+      employee_id: currentUsername,
+      employee_name: currentUsername,
+      employee_role: userRole,
+      module: moduleName,
+      item_id: itemId,
+      item_name: itemName,
+      action_type: actionType,
+      reason,
+      proposed_changes: proposedChanges,
+      status: 'Pending',
+      created_at: new Date().toISOString().replace('T', ' ').substring(0, 16)
+    };
+
+    setPermissionRequests(prev => [newReq, ...prev]);
+
+    try {
+      const res = await fetch('/api/permission-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newReq)
+      });
+      if (!res.ok) {
+        await dataService.saveDocument('permission_requests', newReqId, newReq, '/api/permission-requests', 'POST');
+      }
+    } catch (e) {
+      console.warn("API request save failed, using direct Firestore fallback:", e);
+      await dataService.saveDocument('permission_requests', newReqId, newReq, '/api/permission-requests', 'POST');
+    }
+    dataService.clearLocalCache();
+    await fetchAllData();
   };
 
   const handleApprovePermissionRequest = async (id: string) => {
-    await fetch(`/api/permission-requests/${id}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reviewer_name: currentUsername })
-    });
-    fetchAllData();
+    try {
+      const res = await fetch(`/api/permission-requests/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewer_name: currentUsername })
+      });
+      if (res.ok) {
+        const approvedReq = await res.json();
+        setPermissionRequests(prev => prev.map(r => (r.id === id || r.request_id === id) ? approvedReq : r));
+      } else {
+        console.warn("Approval API endpoint returned error status, performing direct fallback...");
+        const req = permissionRequests.find(r => r.id === id || r.request_id === id);
+        if (req) {
+          const updatedReq: PermissionRequest = {
+            ...req,
+            status: 'Approved',
+            reviewed_by: currentUsername,
+            reviewed_at: new Date().toISOString().replace('T', ' ').substring(0, 16)
+          };
+          await dataService.saveDocument('permission_requests', req.id, updatedReq, `/api/permission-requests/${req.id}/approve`, 'POST');
+          setPermissionRequests(prev => prev.map(r => (r.id === id || r.request_id === id) ? updatedReq : r));
+
+          const colMap: Record<string, string> = {
+            'Customers': 'customers', 'Customer': 'customers',
+            'Reservations': 'reservations', 'Reservation': 'reservations',
+            'Vouchers': 'vouchers', 'Voucher': 'vouchers', 'Customer Vouchers': 'vouchers',
+            'Invoices': 'invoices', 'Invoice': 'invoices',
+            'Suppliers': 'suppliers', 'Supplier': 'suppliers',
+            'Employees': 'employees', 'Employee': 'employees',
+            'Tour Packages': 'tour_packages', 'Packages': 'tour_packages',
+            'Hotels': 'hotels', 'Flights': 'flights', 'Visas': 'visas', 'Transfers': 'transfers',
+            'Cruises': 'cruises', 'Tours': 'tours', 'Day Trips': 'day_trips',
+            'Tasks': 'tasks', 'Documents': 'documents', 'Expenses': 'expenses',
+            'Customer Payments': 'customer_payments', 'Supplier Payments': 'supplier_payments',
+            'Customer Inquiries': 'customer_inquiries', 'Inquiries': 'customer_inquiries'
+          };
+          const targetCol = colMap[req.module] || req.module.toLowerCase().replace(/\s+/g, '_');
+          if (targetCol) {
+            if (req.action_type === 'Delete') {
+              await dataService.deleteDocument(targetCol, req.item_id);
+              if (targetCol === 'vouchers') {
+                await dataService.deleteDocument('reservations', req.item_id);
+              }
+            } else if (req.action_type === 'Edit' && req.proposed_changes) {
+              await dataService.saveDocument(targetCol, req.item_id, req.proposed_changes, undefined, 'PUT');
+              if (targetCol === 'vouchers') {
+                await dataService.saveDocument('reservations', req.item_id, req.proposed_changes, undefined, 'PUT');
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to call approval API, running client direct fallback:", e);
+      const req = permissionRequests.find(r => r.id === id || r.request_id === id);
+      if (req) {
+        const updatedReq: PermissionRequest = {
+          ...req,
+          status: 'Approved',
+          reviewed_by: currentUsername,
+          reviewed_at: new Date().toISOString().replace('T', ' ').substring(0, 16)
+        };
+        await dataService.saveDocument('permission_requests', req.id, updatedReq);
+        setPermissionRequests(prev => prev.map(r => (r.id === id || r.request_id === id) ? updatedReq : r));
+
+        const colMap: Record<string, string> = {
+          'Customers': 'customers', 'Customer': 'customers',
+          'Reservations': 'reservations', 'Reservation': 'reservations',
+          'Vouchers': 'vouchers', 'Voucher': 'vouchers', 'Customer Vouchers': 'vouchers',
+          'Invoices': 'invoices', 'Invoice': 'invoices',
+          'Suppliers': 'suppliers', 'Supplier': 'suppliers',
+          'Employees': 'employees', 'Employee': 'employees',
+          'Tour Packages': 'tour_packages', 'Packages': 'tour_packages',
+          'Hotels': 'hotels', 'Flights': 'flights', 'Visas': 'visas', 'Transfers': 'transfers',
+          'Cruises': 'cruises', 'Tours': 'tours', 'Day Trips': 'day_trips',
+          'Tasks': 'tasks', 'Documents': 'documents', 'Expenses': 'expenses',
+          'Customer Payments': 'customer_payments', 'Supplier Payments': 'supplier_payments',
+          'Customer Inquiries': 'customer_inquiries', 'Inquiries': 'customer_inquiries'
+        };
+        const targetCol = colMap[req.module] || req.module.toLowerCase().replace(/\s+/g, '_');
+        if (targetCol) {
+          if (req.action_type === 'Delete') {
+            await dataService.deleteDocument(targetCol, req.item_id);
+          } else if (req.action_type === 'Edit' && req.proposed_changes) {
+            await dataService.saveDocument(targetCol, req.item_id, req.proposed_changes, undefined, 'PUT');
+          }
+        }
+      }
+    }
+    dataService.clearLocalCache();
+    await fetchAllData();
   };
 
   const handleRejectPermissionRequest = async (id: string, reason?: string) => {
-    await fetch(`/api/permission-requests/${id}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reviewer_name: currentUsername, rejection_reason: reason })
-    });
-    fetchAllData();
+    try {
+      const res = await fetch(`/api/permission-requests/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewer_name: currentUsername, rejection_reason: reason })
+      });
+      if (res.ok) {
+        const rejectedReq = await res.json();
+        setPermissionRequests(prev => prev.map(r => (r.id === id || r.request_id === id) ? rejectedReq : r));
+      } else {
+        const req = permissionRequests.find(r => r.id === id || r.request_id === id);
+        if (req) {
+          const updatedReq: PermissionRequest = {
+            ...req,
+            status: 'Rejected',
+            reviewed_by: currentUsername,
+            reviewed_at: new Date().toISOString().replace('T', ' ').substring(0, 16),
+            rejection_reason: reason || 'Not approved'
+          };
+          await dataService.saveDocument('permission_requests', req.id, updatedReq);
+          setPermissionRequests(prev => prev.map(r => (r.id === id || r.request_id === id) ? updatedReq : r));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to call rejection API, running fallback:", e);
+      const req = permissionRequests.find(r => r.id === id || r.request_id === id);
+      if (req) {
+        const updatedReq: PermissionRequest = {
+          ...req,
+          status: 'Rejected',
+          reviewed_by: currentUsername,
+          reviewed_at: new Date().toISOString().replace('T', ' ').substring(0, 16),
+          rejection_reason: reason || 'Not approved'
+        };
+        await dataService.saveDocument('permission_requests', req.id, updatedReq);
+        setPermissionRequests(prev => prev.map(r => (r.id === id || r.request_id === id) ? updatedReq : r));
+      }
+    }
+    dataService.clearLocalCache();
+    await fetchAllData();
   };
 
   // CRUD Handlers with RBAC Permission Intercepts and Dual Cloud Persistence

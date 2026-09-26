@@ -416,7 +416,16 @@ app.post("/api/permission-requests/:id/approve", async (req, res) => {
   const { id } = req.params;
   const { reviewer_name } = req.body;
 
-  const request = (db.permission_requests || []).find(r => r.id === id);
+  // Sync latest permission requests from Firestore if needed
+  if (!db.permission_requests || db.permission_requests.length === 0) {
+    await getCollectionDocs('permission_requests');
+  }
+
+  let request = (db.permission_requests || []).find(r => r.id === id || r.request_id === id);
+  if (!request) {
+    await getCollectionDocs('permission_requests');
+    request = (db.permission_requests || []).find(r => r.id === id || r.request_id === id);
+  }
   if (!request) return res.status(404).json({ error: "Request not found" });
 
   request.status = "Approved";
@@ -425,51 +434,99 @@ app.post("/api/permission-requests/:id/approve", async (req, res) => {
 
   const colMap: Record<string, string> = {
     'Customers': 'customers',
+    'Customer': 'customers',
     'Reservations': 'reservations',
+    'Reservation': 'reservations',
     'Vouchers': 'vouchers',
+    'Voucher': 'vouchers',
     'Customer Vouchers': 'vouchers',
+    'Customer Voucher': 'vouchers',
     'Invoices': 'invoices',
+    'Invoice': 'invoices',
     'Suppliers': 'suppliers',
+    'Supplier': 'suppliers',
     'Employees': 'employees',
+    'Employee': 'employees',
     'Tour Packages': 'tour_packages',
+    'Tour Package': 'tour_packages',
     'Packages': 'tour_packages',
+    'Package': 'tour_packages',
     'Hotels': 'hotels',
+    'Hotel': 'hotels',
     'Flights': 'flights',
+    'Flight': 'flights',
     'Visas': 'visas',
+    'Visa': 'visas',
     'Transfers': 'transfers',
+    'Transfer': 'transfers',
     'Cruises': 'cruises',
+    'Cruise': 'cruises',
     'Tours': 'tours',
+    'Tour': 'tours',
     'Day Trips': 'day_trips',
+    'Day Trip': 'day_trips',
     'Services': 'visas',
     'Tourism Services': 'visas',
     'Tasks': 'tasks',
+    'Task': 'tasks',
     'Documents': 'documents',
+    'Document': 'documents',
     'Expenses': 'expenses',
+    'Expense': 'expenses',
     'Customer Payments': 'customer_payments',
+    'Customer Payment': 'customer_payments',
     'Supplier Payments': 'supplier_payments',
+    'Supplier Payment': 'supplier_payments',
     'Customer Inquiries': 'customer_inquiries',
-    'Inquiries': 'customer_inquiries'
+    'Customer Inquiry': 'customer_inquiries',
+    'Inquiries': 'customer_inquiries',
+    'Inquiry': 'customer_inquiries'
   };
 
-  const targetCol = colMap[request.module];
-  if (targetCol && db[targetCol]) {
+  const targetCol = colMap[request.module] || (request.module ? request.module.toLowerCase().replace(/\s+/g, '_') : '');
+  if (targetCol) {
+    // ALWAYS fetch collection from Firestore first to populate server memory db[targetCol]
+    const collectionItems = await getCollectionDocs(targetCol);
+
     if (request.action_type === 'Delete') {
-      db[targetCol] = db[targetCol].filter((i: any) => i.id !== request.item_id);
+      db[targetCol] = collectionItems.filter((i: any) => 
+        i.id !== request.item_id && 
+        String(i.id) !== String(request.item_id) && 
+        i.customer_id !== request.item_id && 
+        i.invoice_number !== request.item_id && 
+        i.voucher_number !== request.item_id
+      );
       await deleteFromFirestore(targetCol, request.item_id);
+
       if (targetCol === 'vouchers') {
-        db.reservations = (db.reservations || []).filter((r: any) => r.id !== request.item_id);
+        const resvItems = await getCollectionDocs('reservations');
+        db.reservations = resvItems.filter((r: any) => 
+          r.id !== request.item_id && 
+          String(r.id) !== String(request.item_id)
+        );
         await deleteFromFirestore('reservations', request.item_id);
       }
     } else if (request.action_type === 'Edit' && request.proposed_changes) {
-      const idx = db[targetCol].findIndex((i: any) => i.id === request.item_id);
+      const idx = collectionItems.findIndex((i: any) => 
+        i.id === request.item_id || 
+        String(i.id) === String(request.item_id) || 
+        i.customer_id === request.item_id || 
+        i.invoice_number === request.item_id || 
+        i.voucher_number === request.item_id
+      );
       if (idx !== -1) {
-        db[targetCol][idx] = { ...db[targetCol][idx], ...request.proposed_changes };
-        await saveToFirestore(targetCol, request.item_id, db[targetCol][idx]);
+        const existingDoc = collectionItems[idx];
+        const updatedDoc = { ...existingDoc, ...request.proposed_changes, id: existingDoc.id };
+        db[targetCol][idx] = updatedDoc;
+        await saveToFirestore(targetCol, existingDoc.id, updatedDoc);
+
         if (targetCol === 'vouchers') {
-          const rIdx = (db.reservations || []).findIndex((r: any) => r.id === request.item_id);
+          const resvItems = await getCollectionDocs('reservations');
+          const rIdx = resvItems.findIndex((r: any) => r.id === existingDoc.id || String(r.id) === String(existingDoc.id));
           if (rIdx !== -1) {
-            db.reservations[rIdx] = { ...db.reservations[rIdx], ...request.proposed_changes };
-            await saveToFirestore('reservations', request.item_id, db.reservations[rIdx]);
+            const updatedResv = { ...resvItems[rIdx], ...request.proposed_changes, id: existingDoc.id };
+            db.reservations[rIdx] = updatedResv;
+            await saveToFirestore('reservations', existingDoc.id, updatedResv);
           }
         }
       }
@@ -498,7 +555,15 @@ app.post("/api/permission-requests/:id/reject", async (req, res) => {
   const { id } = req.params;
   const { reviewer_name, rejection_reason } = req.body;
 
-  const request = (db.permission_requests || []).find(r => r.id === id);
+  if (!db.permission_requests || db.permission_requests.length === 0) {
+    await getCollectionDocs('permission_requests');
+  }
+
+  let request = (db.permission_requests || []).find(r => r.id === id || r.request_id === id);
+  if (!request) {
+    await getCollectionDocs('permission_requests');
+    request = (db.permission_requests || []).find(r => r.id === id || r.request_id === id);
+  }
   if (!request) return res.status(404).json({ error: "Request not found" });
 
   request.status = "Rejected";
