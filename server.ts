@@ -483,51 +483,87 @@ app.post("/api/permission-requests/:id/approve", async (req, res) => {
     'Inquiry': 'customer_inquiries'
   };
 
-  const targetCol = colMap[request.module] || (request.module ? request.module.toLowerCase().replace(/\s+/g, '_') : '');
-  if (targetCol) {
-    // ALWAYS fetch collection from Firestore first to populate server memory db[targetCol]
-    const collectionItems = await getCollectionDocs(targetCol);
+  const initialTargetCol = colMap[request.module] || (request.module ? request.module.toLowerCase().replace(/\s+/g, '_') : '');
+  const allPossibleCols = [
+    'customers', 'reservations', 'vouchers', 'invoices', 'suppliers', 
+    'employees', 'tour_packages', 'hotels', 'flights', 'visas', 
+    'transfers', 'cruises', 'tours', 'day_trips', 'tasks', 
+    'documents', 'expenses', 'customer_payments', 'supplier_payments', 
+    'customer_inquiries'
+  ];
 
-    if (request.action_type === 'Delete') {
-      db[targetCol] = collectionItems.filter((i: any) => 
-        i.id !== request.item_id && 
-        String(i.id) !== String(request.item_id) && 
-        i.customer_id !== request.item_id && 
-        i.invoice_number !== request.item_id && 
-        i.voucher_number !== request.item_id
-      );
-      await deleteFromFirestore(targetCol, request.item_id);
+  let foundCol = initialTargetCol;
+  let collectionItems: any[] = [];
+  let targetIdx = -1;
 
-      if (targetCol === 'vouchers') {
-        const resvItems = await getCollectionDocs('reservations');
-        db.reservations = resvItems.filter((r: any) => 
-          r.id !== request.item_id && 
-          String(r.id) !== String(request.item_id)
-        );
-        await deleteFromFirestore('reservations', request.item_id);
-      }
-    } else if (request.action_type === 'Edit' && request.proposed_changes) {
-      const idx = collectionItems.findIndex((i: any) => 
+  if (foundCol) {
+    collectionItems = await getCollectionDocs(foundCol);
+    targetIdx = collectionItems.findIndex((i: any) => 
+      i.id === request.item_id || 
+      String(i.id) === String(request.item_id) || 
+      i.customer_id === request.item_id || 
+      i.invoice_number === request.item_id || 
+      i.voucher_number === request.item_id ||
+      i.reservation_id === request.item_id
+    );
+  }
+
+  // If not found in primary mapped collection, search across all possible collections
+  if (targetIdx === -1) {
+    for (const col of allPossibleCols) {
+      if (col === initialTargetCol) continue;
+      const items = await getCollectionDocs(col);
+      const idx = items.findIndex((i: any) => 
         i.id === request.item_id || 
         String(i.id) === String(request.item_id) || 
         i.customer_id === request.item_id || 
         i.invoice_number === request.item_id || 
-        i.voucher_number === request.item_id
+        i.voucher_number === request.item_id ||
+        i.reservation_id === request.item_id
       );
       if (idx !== -1) {
-        const existingDoc = collectionItems[idx];
-        const updatedDoc = { ...existingDoc, ...request.proposed_changes, id: existingDoc.id };
-        db[targetCol][idx] = updatedDoc;
-        await saveToFirestore(targetCol, existingDoc.id, updatedDoc);
+        foundCol = col;
+        collectionItems = items;
+        targetIdx = idx;
+        break;
+      }
+    }
+  }
 
-        if (targetCol === 'vouchers') {
-          const resvItems = await getCollectionDocs('reservations');
-          const rIdx = resvItems.findIndex((r: any) => r.id === existingDoc.id || String(r.id) === String(existingDoc.id));
-          if (rIdx !== -1) {
-            const updatedResv = { ...resvItems[rIdx], ...request.proposed_changes, id: existingDoc.id };
-            db.reservations[rIdx] = updatedResv;
-            await saveToFirestore('reservations', existingDoc.id, updatedResv);
-          }
+  if (foundCol && targetIdx !== -1) {
+    const existingDoc = collectionItems[targetIdx];
+    const docId = existingDoc.id;
+
+    if (request.action_type === 'Delete') {
+      db[foundCol] = collectionItems.filter((i: any) => i.id !== docId);
+      await deleteFromFirestore(foundCol, docId);
+
+      if (foundCol === 'vouchers' || foundCol === 'reservations') {
+        const altCol = foundCol === 'vouchers' ? 'reservations' : 'vouchers';
+        const altItems = await getCollectionDocs(altCol);
+        db[altCol] = altItems.filter((r: any) => r.id !== docId && r.voucher_number !== existingDoc.voucher_number);
+        await deleteFromFirestore(altCol, docId);
+      }
+    } else if (request.action_type === 'Edit' && request.proposed_changes) {
+      const updatedDoc = { ...existingDoc, ...request.proposed_changes, id: docId };
+      if (!db[foundCol]) db[foundCol] = [];
+      const memIdx = db[foundCol].findIndex((i: any) => i.id === docId);
+      if (memIdx !== -1) {
+        db[foundCol][memIdx] = updatedDoc;
+      } else {
+        db[foundCol].push(updatedDoc);
+      }
+      await saveToFirestore(foundCol, docId, updatedDoc);
+
+      if (foundCol === 'vouchers' || foundCol === 'reservations') {
+        const altCol = foundCol === 'vouchers' ? 'reservations' : 'vouchers';
+        const altItems = await getCollectionDocs(altCol);
+        const rIdx = altItems.findIndex((r: any) => r.id === docId || String(r.id) === String(docId) || r.voucher_number === existingDoc.voucher_number);
+        if (rIdx !== -1) {
+          const updatedAlt = { ...altItems[rIdx], ...request.proposed_changes, id: docId };
+          if (!db[altCol]) db[altCol] = [];
+          db[altCol][rIdx] = updatedAlt;
+          await saveToFirestore(altCol, docId, updatedAlt);
         }
       }
     }

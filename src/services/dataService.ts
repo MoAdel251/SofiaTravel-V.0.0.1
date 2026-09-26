@@ -145,15 +145,19 @@ export const dataService = {
 
     // 1. Update local storage cache immediately
     try {
-      localStorage.setItem(cacheKey, JSON.stringify(cleanData));
+      const existingDocStr = localStorage.getItem(cacheKey);
+      const existingDoc = existingDocStr ? JSON.parse(existingDocStr) : {};
+      const mergedData = { ...existingDoc, ...cleanData };
+      localStorage.setItem(cacheKey, JSON.stringify(mergedData));
+      
       const colStr = localStorage.getItem(collectionCacheKey);
       let colArr = colStr ? JSON.parse(colStr) : [];
       if (Array.isArray(colArr)) {
         const idx = colArr.findIndex((item: any) => item.id === docId);
         if (idx >= 0) {
-          colArr[idx] = cleanData;
+          colArr[idx] = { ...colArr[idx], ...cleanData };
         } else {
-          colArr.unshift(cleanData);
+          colArr.unshift(mergedData);
         }
         localStorage.setItem(collectionCacheKey, JSON.stringify(colArr));
       }
