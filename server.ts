@@ -388,9 +388,13 @@ const ensureDeveloperAccountOnce = (): Promise<void> => {
 
 // Run the provisioning once per warm serverless instance so the account
 // exists even when the database is created fresh on Vercel.
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (process.env.VERCEL) {
-    ensureDeveloperAccountOnce().catch(() => {});
+    try {
+      await ensureDeveloperAccountOnce();
+    } catch {
+      // Never block API traffic because of provisioning hiccups.
+    }
   }
   next();
 });
