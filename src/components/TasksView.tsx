@@ -67,16 +67,16 @@ export function TasksView({
   const sendTaskReminderWhatsApp = (t: Task) => {
     const emp = employees.find(e => e.id === t.assigned_employee_id || e.name === t.assigned_employee_name);
     const text = encodeURIComponent(
-      `*SOFIA TRAVEL - TASK ASSIGNMENT NOTICE*\n` +
+      `✈️ *SOFIA TRAVEL - TASK ASSIGNMENT NOTICE* 📋\n` +
       `-----------------------------------------\n` +
-      `Assigned To: ${t.assigned_employee_name}\n` +
-      `Task: ${t.task_name}\n` +
-      `Priority: ${t.priority}\n` +
-      `Due Date: ${t.due_date}\n` +
-      `Status: ${t.status}\n` +
-      (t.notes ? `Notes: ${t.notes}\n` : '') +
+      `👤 Assigned To: ${t.assigned_employee_name}\n` +
+      `📝 Task: ${t.task_name}\n` +
+      `🚩 Priority: ${t.priority}\n` +
+      `📅 Due Date: ${t.due_date}\n` +
+      `📌 Status: ${t.status}\n` +
+      (t.notes ? `🗒️ Notes: ${t.notes}\n` : '') +
       `-----------------------------------------\n` +
-      `Please complete this assignment and mark it finished in the Sofia portal.`
+      `✅ Please complete this assignment and mark it finished in the Sofia portal.`
     );
     const phone = emp?.phone?.replace(/[^0-9]/g, '') || '';
     const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;

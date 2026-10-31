@@ -3,7 +3,8 @@ import {
   Search, Bell, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, Compass, Truck, FileText,
   Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
-  Ticket, Layers, MessageCircle, Instagram, Trash2, RefreshCw
+  Ticket, Layers, MessageCircle, Instagram, Trash2, RefreshCw,
+  Target, CalendarClock
 } from 'lucide-react';
 import { UserRole, NotificationItem } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -104,6 +105,8 @@ export function Navbar({
     { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
     { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'attendance', labelKey: 'nav_attendance', defaultLabel: 'Attendance', icon: CalendarClock, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'employee-targets', labelKey: 'nav_targets', defaultLabel: 'Employee Targets', icon: Target, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
     { id: 'reports', labelKey: 'nav_reports', defaultLabel: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: 'view_reports' },
     { id: 'finance-payroll', labelKey: 'nav_finance_payroll', defaultLabel: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'], perm: ['view_finance', 'view_payroll'] },

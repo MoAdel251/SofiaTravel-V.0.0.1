@@ -23,6 +23,7 @@ import {
   Sparkles, 
   MessageCircle, 
   Download,
+  Receipt,
   Building,
   User,
   ArrowRight,
@@ -100,6 +101,18 @@ export function InvoicesView({
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const [paymentModalInvoice, setPaymentModalInvoice] = useState<Invoice | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
+
+  // System-generated payment receipt snapshot (PDF-ready)
+  const [receiptData, setReceiptData] = useState<{
+    invoice: Invoice;
+    amountReceived: number;
+    paidAfter: number;
+    balanceAfter: number;
+    method: string;
+    date: string;
+    receiptNumber: string;
+    label: string;
+  } | null>(null);
 
   // Helper filter for deleted items (Ensures deleted entities never appear in dropdown options)
   const isNotDeleted = (item: any) => {
@@ -623,18 +636,69 @@ export function InvoicesView({
     setPaidAmount(0);
   };
 
+  // System receipt number: deterministic, readable and unique per payment minute
+  const buildReceiptNumber = (inv: Invoice, at: Date = new Date()) => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}`;
+    return `RCPT-${inv.invoice_number || inv.id}-${stamp}`;
+  };
+
+  const openReceiptForInvoice = (inv: Invoice) => {
+    const now = new Date();
+    setReceiptData({
+      invoice: inv,
+      amountReceived: Number(inv.paid_amount || 0),
+      paidAfter: Number(inv.paid_amount || 0),
+      balanceAfter: Number(inv.balance_due || 0),
+      method: inv.payment_method || 'Bank Transfer',
+      date: now.toISOString().split('T')[0],
+      receiptNumber: buildReceiptNumber(inv, now),
+      label: Number(inv.balance_due || 0) <= 0 ? 'Official Payment Receipt' : 'Payment on Account Receipt'
+    });
+  };
+
   // Record Payment
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!paymentModalInvoice) return;
-    const newPaid = (paymentModalInvoice.paid_amount || 0) + Number(paymentAmount);
+    const amount = Number(paymentAmount) || 0;
+    if (amount <= 0) {
+      alert('Please enter a payment amount greater than zero.');
+      return;
+    }
+    if (amount > Number(paymentModalInvoice.balance_due || 0)) {
+      alert(`Payment cannot exceed the outstanding balance of ${formatCurrency(paymentModalInvoice.balance_due, paymentModalInvoice.currency)}.`);
+      return;
+    }
+    const newPaid = (paymentModalInvoice.paid_amount || 0) + amount;
     const newBalance = Math.max(0, paymentModalInvoice.total_amount - newPaid);
     const newStatus = newBalance <= 0 ? 'Paid' : newPaid > 0 ? 'Partially Paid' : 'Unpaid';
+    const method = paymentModalInvoice.payment_method || paymentMethod || 'Bank Transfer';
+    const now = new Date();
 
     onUpdateInvoice(paymentModalInvoice.id, {
       paid_amount: newPaid,
       balance_due: newBalance,
       payment_status: newStatus
+    });
+
+    // Generate the official payment receipt snapshot immediately so the
+    // operator can download it as a PDF without waiting for a data refresh.
+    setReceiptData({
+      invoice: {
+        ...paymentModalInvoice,
+        paid_amount: newPaid,
+        balance_due: newBalance,
+        payment_status: newStatus,
+        payment_method: method
+      },
+      amountReceived: amount,
+      paidAfter: newPaid,
+      balanceAfter: newBalance,
+      method,
+      date: now.toISOString().split('T')[0],
+      receiptNumber: buildReceiptNumber(paymentModalInvoice, now),
+      label: newStatus === 'Paid' ? 'Final Payment Receipt' : 'Partial Payment Receipt'
     });
 
     setPaymentModalInvoice(null);
@@ -713,21 +777,21 @@ export function InvoicesView({
     const custCode = matchedCust?.customer_id || inv.customer_id;
     
     const text = encodeURIComponent(
-      `*SOFIA TRAVEL - OFFICIAL INVOICE / RECEIPT*\n` +
+      `✈️ *SOFIA TRAVEL - OFFICIAL INVOICE / RECEIPT* 🧾\n` +
       `-----------------------------------------\n` +
-      `Invoice #: ${inv.invoice_number}\n` +
-      `Date: ${inv.issue_date}\n` +
-      `Recipient: ${recipient}${custCode ? `\nCustomer Code: ${custCode}` : ''}\n` +
-      `Total Amount: ${formatCurrency(inv.total_amount, inv.currency)}\n` +
-      `Amount Paid: ${formatCurrency(inv.paid_amount, inv.currency)}\n` +
-      `*Outstanding Balance: ${formatCurrency(inv.balance_due, inv.currency)}*\n` +
-      `Status: ${inv.payment_status}\n` +
+      `🔖 Invoice #: ${inv.invoice_number}\n` +
+      `📅 Date: ${inv.issue_date}\n` +
+      `👤 Recipient: ${recipient}${custCode ? `\n🆔 Customer Code: ${custCode}` : ''}\n` +
+      `💵 Total Amount: ${formatCurrency(inv.total_amount, inv.currency)}\n` +
+      `✅ Amount Paid: ${formatCurrency(inv.paid_amount, inv.currency)}\n` +
+      `⚠️ *Outstanding Balance: ${formatCurrency(inv.balance_due, inv.currency)}*\n` +
+      `📌 Status: ${inv.payment_status}\n` +
       `-----------------------------------------\n` +
-      `*Bank Wire Details:*\n` +
-      `Bank: ${settings.bank_name || 'National Bank of Egypt'}\n` +
-      `Account: ${settings.bank_account_number || 'EG540003001500000010987654321'}\n` +
-      `SWIFT/IBAN: ${settings.bank_iban_swift || 'NBEGEGCX054'}\n` +
-      `Thank you for traveling with Sofia Travel!`
+      `🏦 *Bank Wire Details:*\n` +
+      `🏛️ Bank: ${settings.bank_name || 'National Bank of Egypt'}\n` +
+      `🔢 Account: ${settings.bank_account_number || 'EG540003001500000010987654321'}\n` +
+      `🌍 SWIFT/IBAN: ${settings.bank_iban_swift || 'NBEGEGCX054'}\n` +
+      `🙏 Thank you for traveling with Sofia Travel!`
     );
 
     const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
@@ -1926,6 +1990,16 @@ export function InvoicesView({
                   <MessageCircle className="w-3.5 h-3.5" />
                   <span>Send via WhatsApp</span>
                 </button>
+                {Number(viewInvoice.paid_amount || 0) > 0 && (
+                  <button
+                    onClick={() => openReceiptForInvoice(viewInvoice)}
+                    className="flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+                    title="Open the official payment receipt (PDF ready)"
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>Receipt PDF</span>
+                  </button>
+                )}
                 <button
                   onClick={() => downloadElementAsPDF({
                     elementId: 'invoice-a4-preview-card',
@@ -2134,6 +2208,179 @@ export function InvoicesView({
           </div>
         </div>
       )}
+
+      {/* SYSTEM-GENERATED PAYMENT RECEIPT MODAL (PDF / A4 PRINT READY) */}
+      {receiptData && (() => {
+        const rInv = receiptData.invoice;
+        const isSupplierReceipt = isSupplierInvoice(rInv);
+        const recipientName = isSupplierReceipt ? rInv.supplier_name : rInv.customer_name;
+        const matchedCustomer = !isSupplierReceipt
+          ? validCustomers.find(c => c.id === rInv.customer_id || c.customer_id === rInv.customer_id || c.full_name === rInv.customer_name)
+          : null;
+        const customerCode = matchedCustomer?.customer_id || rInv.customer_id;
+        const isFullyPaid = receiptData.balanceAfter <= 0;
+        return (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-[60] overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 my-8 max-h-[95vh] overflow-y-auto print:m-0 print:p-0 print:shadow-none print:border-none">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-5 border-b border-slate-200 print:hidden">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-500">System-Generated Payment Receipt</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => downloadElementAsPDF({
+                      elementId: 'receipt-a4-card',
+                      filename: `Sofia_Travel_Receipt_${receiptData.receiptNumber}.pdf`
+                    })}
+                    className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+                    title="Download this receipt as a PDF file"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Receipt PDF</span>
+                  </button>
+                  <button
+                    onClick={() => printElement('receipt-a4-card', `Sofia_Travel_Receipt_${receiptData.receiptNumber}`)}
+                    className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+                    title="Print this receipt on A4 paper"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print A4 Receipt</span>
+                  </button>
+                  <button
+                    onClick={() => setReceiptData(null)}
+                    className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg"
+                    title="Close Receipt"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div id="receipt-a4-card" className="printable-a4 avoid-page-break pt-4 space-y-6">
+                {/* Company Header */}
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-5 border-b-2 border-slate-900">
+                  <div>
+                    <SofiaLogo variant="horizontal" />
+                    <p className="text-xs text-slate-500 mt-2 max-w-xs">{settings.address}</p>
+                    <p className="text-xs text-slate-500">Tel: {settings.phone} • WhatsApp: {settings.whatsapp}</p>
+                    <p className="text-xs text-slate-500">Email: {settings.email} • TRN: {settings.tax_number}</p>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Payment Receipt</h2>
+                    <p className="text-xs font-bold text-emerald-700 mt-1">{receiptData.label}</p>
+                    <div className="text-xs text-slate-600 mt-2 space-y-0.5">
+                      <p><strong>Receipt No:</strong> <span className="font-mono font-bold text-slate-900">{receiptData.receiptNumber}</span></p>
+                      <p><strong>Receipt Date:</strong> {receiptData.date}</p>
+                      <p><strong>Invoice Ref:</strong> <span className="font-mono font-bold">{rInv.invoice_number}</span></p>
+                      <p><strong>Invoice Date:</strong> {rInv.issue_date}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Received From / Payment Details */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                      {isSupplierReceipt ? 'Paid To Supplier' : 'Received From Client'}
+                    </p>
+                    <p className="font-bold text-sm text-slate-900 mt-1">{recipientName || 'Valued Client'}</p>
+                    {customerCode && !isSupplierReceipt && (
+                      <p className="text-slate-600 mt-1">Customer Code: <span className="font-mono font-bold text-cyan-800">{customerCode}</span></p>
+                    )}
+                    {(isSupplierReceipt ? rInv.supplier_phone : rInv.customer_phone) && (
+                      <p className="text-slate-600">Phone: {isSupplierReceipt ? rInv.supplier_phone : rInv.customer_phone}</p>
+                    )}
+                    {(isSupplierReceipt ? rInv.supplier_type : rInv.customer_address) && (
+                      <p className="text-slate-600">{isSupplierReceipt ? rInv.supplier_type : rInv.customer_address}</p>
+                    )}
+                    {rInv.file_number && <p className="text-slate-600 font-mono">File #: {rInv.file_number}</p>}
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Payment Information</p>
+                    <p className="text-slate-600">Method: <strong className="text-slate-900">{receiptData.method}</strong></p>
+                    <p className="text-slate-600">Currency: <strong className="text-slate-900">{rInv.currency}</strong></p>
+                    <p className="text-slate-600">Payment Status: <strong className="text-slate-900">{rInv.payment_status}</strong></p>
+                    <p className="text-slate-600">Issued By: <strong className="text-slate-900">{rInv.created_by_employee || 'Sofia Travel Accounts'}</strong></p>
+                    <p className="text-slate-600">Privileged Reference: <strong className="text-slate-900">{rInv.reservation_id || rInv.id}</strong></p>
+                  </div>
+                </div>
+
+                {/* Amount Breakdown */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900 text-white font-bold uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="py-2.5 px-3">Description</th>
+                        <th className="py-2.5 px-3 text-right">Amount ({getCurrencySymbol(rInv.currency)})</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr>
+                        <td className="py-3 px-3">
+                          <p className="font-bold text-slate-900">Payment received against Invoice {rInv.invoice_number}</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {isSupplierReceipt ? 'Supplier payment settlement' : 'Customer invoice payment'} • {receiptData.date}
+                          </p>
+                        </td>
+                        <td className="py-3 px-3 text-right font-black text-emerald-700">
+                          {formatCurrency(receiptData.amountReceived, rInv.currency)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+                  <div className={`px-4 py-3 rounded-xl border-2 font-black text-sm tracking-wide ${
+                    isFullyPaid ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-amber-50 border-amber-300 text-amber-700'
+                  }`}>
+                    {isFullyPaid ? 'PAID IN FULL' : 'PARTIAL PAYMENT RECEIVED'}
+                  </div>
+
+                  <div className="w-full sm:w-80 bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Invoice Total:</span>
+                      <span className="font-bold text-slate-900">{formatCurrency(rInv.total_amount, rInv.currency)}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-700 font-bold text-sm border-t border-slate-200 pt-2">
+                      <span>Amount Received Now:</span>
+                      <span>{formatCurrency(receiptData.amountReceived, rInv.currency)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>Total Paid To Date:</span>
+                      <span className="font-bold text-slate-900">{formatCurrency(receiptData.paidAfter, rInv.currency)}</span>
+                    </div>
+                    <div className="flex justify-between text-amber-700 font-bold border-t border-slate-200 pt-2">
+                      <span>Remaining Balance:</span>
+                      <span>{formatCurrency(receiptData.balanceAfter, rInv.currency)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bank Details & Signature */}
+                <div className="bg-cyan-50/70 border border-cyan-200 rounded-xl p-4 text-[11px] text-slate-800 space-y-1">
+                  <p className="font-bold text-cyan-900">Bank Wire Reference</p>
+                  <p><strong>Bank:</strong> {settings.bank_name || 'National Bank of Egypt (NBE) - Tahrir Branch'}</p>
+                  <p><strong>Account:</strong> <span className="font-mono">{settings.bank_account_number || 'EG540003001500000010987654321'}</span> • <strong>SWIFT:</strong> {settings.bank_iban_swift || 'NBEGEGCX054'}</p>
+                  <p><strong>Beneficiary:</strong> {settings.bank_beneficiary_name || settings.company_name}</p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-end justify-between gap-6 pt-4 border-t border-slate-200">
+                  <p className="text-[10px] text-slate-500 max-w-md leading-relaxed">
+                    This is a system-generated receipt produced by Sofia Travel Management System. No handwritten signature is required.
+                    Generated on {new Date().toLocaleString()} • Receipt {receiptData.receiptNumber}.
+                  </p>
+                  <div className="flex flex-col items-center">
+                    <ManagerSignature managerName={rInv.manager_name || 'Ahmed Ali'} />
+                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mt-1">Authorized Signatory</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

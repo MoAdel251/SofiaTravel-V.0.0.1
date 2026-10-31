@@ -712,6 +712,43 @@ export interface AttendanceSettings {
   late_deduction_type: 'Per Minute' | 'Per Late Day' | 'No Deduction';
 }
 
+export interface EmployeeWorkSchedule {
+  id: string;
+  schedule_id: string;
+  employee_id: string;
+  employee_name: string;
+  work_start: string;
+  work_end: string;
+  work_days: string[];
+  grace_minutes?: number;
+  notes?: string;
+  created_by?: string;
+  updated_at?: string;
+}
+
+export type EmployeeTargetType =
+  | 'Sales Revenue'
+  | 'Bookings Count'
+  | 'New Customers'
+  | 'Collections'
+  | 'Custom';
+
+export interface EmployeeTarget {
+  id: string;
+  target_id: string;
+  employee_id: string;
+  employee_name: string;
+  period: string;
+  target_type: EmployeeTargetType;
+  title?: string;
+  target_value: number;
+  currency?: string;
+  notes?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export type DocumentType = 
   | 'Passport' 
   | 'Visa' 

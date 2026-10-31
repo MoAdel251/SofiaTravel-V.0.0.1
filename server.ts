@@ -172,7 +172,18 @@ let db = {
   employee_advances: [],
   commission_records: [],
   finance_audit_logs: [],
-  customer_inquiries: []
+  customer_inquiries: [],
+  attendance: [],
+  work_schedules: [],
+  employee_targets: [],
+  attendance_settings: {
+    official_check_in: "09:00",
+    official_check_out: "17:00",
+    grace_period_minutes: 15,
+    required_working_hours: 8,
+    absence_deduction_type: "Deduct Daily Rate",
+    late_deduction_type: "Per Minute"
+  }
 };
 
 async function getCollectionDocs(collectionName: string): Promise<any[]> {
@@ -229,7 +240,7 @@ async function loadFromFirestore() {
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries"
+    "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "employee_targets"
   ];
   try {
     console.log("Loading persistent data from Firestore...");
@@ -258,7 +269,7 @@ async function wipeAllFirestoreTestData(includeNonAdminEmployees = true, actingA
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries"
+    "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "employee_targets"
   ];
   console.log(`Admin action by ${actingAdmin}: Wiping all operational data from Firestore...`);
   for (const col of collections) {
@@ -2263,6 +2274,169 @@ app.post("/api/finance-audit-logs", async (req, res) => {
   db.finance_audit_logs.push(log);
   await saveToFirestore('finance_audit_logs', log.id, log);
   res.json(log);
+});
+
+// Attendance records
+app.get("/api/attendance", async (req, res) => {
+  const records = await getCollectionDocs('attendance');
+  res.json(records);
+});
+
+app.post("/api/attendance", async (req, res) => {
+  const recordId = req.body.id || ("ATT-" + Date.now());
+  const record = {
+    attendance_id: req.body.attendance_id || recordId,
+    ...req.body,
+    id: recordId
+  };
+  const idx = db.attendance.findIndex((r: any) => r.id === record.id);
+  if (idx >= 0) {
+    db.attendance[idx] = record;
+  } else {
+    db.attendance.push(record);
+  }
+  await saveToFirestore('attendance', record.id, record);
+  res.json(record);
+});
+
+app.put("/api/attendance/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.attendance.findIndex((r: any) => r.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('attendance');
+    idx = db.attendance.findIndex((r: any) => r.id === id);
+  }
+  const current = idx !== -1 ? db.attendance[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.attendance[idx] = updated;
+  } else {
+    db.attendance.push(updated);
+  }
+  await saveToFirestore('attendance', id, updated);
+  res.json(updated);
+});
+
+app.delete("/api/attendance/:id", async (req, res) => {
+  const { id } = req.params;
+  db.attendance = db.attendance.filter((r: any) => r.id !== id);
+  await deleteFromFirestore('attendance', id);
+  res.json({ success: true });
+});
+
+// Employee work schedules
+app.get("/api/work-schedules", async (req, res) => {
+  const schedules = await getCollectionDocs('work_schedules');
+  res.json(schedules);
+});
+
+app.post("/api/work-schedules", async (req, res) => {
+  const scheduleId = req.body.id || req.body.schedule_id || ("SCH-" + Date.now());
+  const schedule = {
+    ...req.body,
+    schedule_id: req.body.schedule_id || scheduleId,
+    id: scheduleId
+  };
+  const idx = db.work_schedules.findIndex((s: any) => s.id === schedule.id);
+  if (idx >= 0) {
+    db.work_schedules[idx] = schedule;
+  } else {
+    db.work_schedules.push(schedule);
+  }
+  await saveToFirestore('work_schedules', schedule.id, schedule);
+  res.json(schedule);
+});
+
+app.put("/api/work-schedules/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.work_schedules.findIndex((s: any) => s.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('work_schedules');
+    idx = db.work_schedules.findIndex((s: any) => s.id === id);
+  }
+  const current = idx !== -1 ? db.work_schedules[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.work_schedules[idx] = updated;
+  } else {
+    db.work_schedules.push(updated);
+  }
+  await saveToFirestore('work_schedules', id, updated);
+  res.json(updated);
+});
+
+app.delete("/api/work-schedules/:id", async (req, res) => {
+  const { id } = req.params;
+  db.work_schedules = db.work_schedules.filter((s: any) => s.id !== id);
+  await deleteFromFirestore('work_schedules', id);
+  res.json({ success: true });
+});
+
+// Employee targets
+app.get("/api/employee-targets", async (req, res) => {
+  const targets = await getCollectionDocs('employee_targets');
+  res.json(targets);
+});
+
+app.post("/api/employee-targets", async (req, res) => {
+  const targetId = req.body.id || req.body.target_id || ("TGT-" + Date.now());
+  const target = {
+    ...req.body,
+    target_id: req.body.target_id || targetId,
+    id: targetId
+  };
+  const idx = db.employee_targets.findIndex((t: any) => t.id === target.id);
+  if (idx >= 0) {
+    db.employee_targets[idx] = target;
+  } else {
+    db.employee_targets.push(target);
+  }
+  await saveToFirestore('employee_targets', target.id, target);
+  res.json(target);
+});
+
+app.put("/api/employee-targets/:id", async (req, res) => {
+  const { id } = req.params;
+  let idx = db.employee_targets.findIndex((t: any) => t.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('employee_targets');
+    idx = db.employee_targets.findIndex((t: any) => t.id === id);
+  }
+  const current = idx !== -1 ? db.employee_targets[idx] : { id };
+  const updated = { ...current, ...req.body, id };
+  if (idx !== -1) {
+    db.employee_targets[idx] = updated;
+  } else {
+    db.employee_targets.push(updated);
+  }
+  await saveToFirestore('employee_targets', id, updated);
+  res.json(updated);
+});
+
+app.delete("/api/employee-targets/:id", async (req, res) => {
+  const { id } = req.params;
+  db.employee_targets = db.employee_targets.filter((t: any) => t.id !== id);
+  await deleteFromFirestore('employee_targets', id);
+  res.json({ success: true });
+});
+
+// Attendance settings (single document)
+app.get("/api/attendance-settings", async (req, res) => {
+  try {
+    const snap = await getDocFromServer(doc(firestoreDb, 'attendance_settings', 'main'));
+    if (snap.exists()) {
+      db.attendance_settings = { ...db.attendance_settings, ...snap.data() };
+    }
+  } catch (err) {
+    console.error("Error reading attendance settings from Firestore:", err);
+  }
+  res.json(db.attendance_settings);
+});
+
+app.put("/api/attendance-settings", async (req, res) => {
+  db.attendance_settings = { ...db.attendance_settings, ...req.body };
+  await saveToFirestore('attendance_settings', 'main', db.attendance_settings);
+  res.json(db.attendance_settings);
 });
 
 // Employees

@@ -22,6 +22,8 @@ import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { LoginModal } from './components/LoginModal';
 import { CustomerInquiriesView } from './components/CustomerInquiriesView';
+import { AttendanceView } from './components/AttendanceView';
+import { EmployeeTargetsView } from './components/EmployeeTargetsView';
 import { PermissionRequestsView } from './components/PermissionRequestsView';
 import { PermissionModal } from './components/PermissionModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -61,7 +63,11 @@ import {
   CruiseService,
   TourService,
   DayTripService,
-  CustomerInquiry
+  CustomerInquiry,
+  AttendanceRecord,
+  AttendanceSettings,
+  EmployeeWorkSchedule,
+  EmployeeTarget
 } from './types';
 import { dataService } from './services/dataService';
 
@@ -112,6 +118,17 @@ export default function App() {
   const [stats, setStats] = useState<any>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerInquiries, setCustomerInquiries] = useState<CustomerInquiry[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [workSchedules, setWorkSchedules] = useState<EmployeeWorkSchedule[]>([]);
+  const [employeeTargets, setEmployeeTargets] = useState<EmployeeTarget[]>([]);
+  const [attendanceSettings, setAttendanceSettings] = useState<AttendanceSettings>({
+    official_check_in: '09:00',
+    official_check_out: '17:00',
+    grace_period_minutes: 15,
+    required_working_hours: 8,
+    absence_deduction_type: 'Deduct Daily Rate',
+    late_deduction_type: 'Per Minute'
+  });
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [visas, setVisas] = useState<VisaService[]>([]);
@@ -218,7 +235,11 @@ export default function App() {
         advRes,
         commRes,
         fAuditRes,
-        inqRes
+        inqRes,
+        attRes,
+        schRes,
+        tgtRes,
+        attSetRes
       ] = await Promise.all([
         dataService.getCollection<Customer>('customers', '/api/customers', customers),
         dataService.getCollection<Reservation>('reservations', '/api/reservations', reservations),
@@ -247,11 +268,19 @@ export default function App() {
         dataService.getCollection<EmployeeAdvance>('employee_advances', '/api/employee-advances', advances),
         dataService.getCollection<CommissionRecord>('commission_records', '/api/commission-records', commissions),
         dataService.getCollection<FinanceAuditLog>('finance_audit_logs', '/api/finance-audit-logs', financeAuditLogs),
-        dataService.getCollection<CustomerInquiry>('customer_inquiries', '/api/customer-inquiries', customerInquiries)
+        dataService.getCollection<CustomerInquiry>('customer_inquiries', '/api/customer-inquiries', customerInquiries),
+        dataService.getCollection<AttendanceRecord>('attendance', '/api/attendance', attendanceRecords),
+        dataService.getCollection<EmployeeWorkSchedule>('work_schedules', '/api/work-schedules', workSchedules),
+        dataService.getCollection<EmployeeTarget>('employee_targets', '/api/employee-targets', employeeTargets),
+        dataService.getDocument<AttendanceSettings>('attendance_settings', 'main', '/api/attendance-settings', attendanceSettings)
       ]);
 
       setCustomers(custRes || []);
       setCustomerInquiries(inqRes || []);
+      setAttendanceRecords(attRes || []);
+      setWorkSchedules(schRes || []);
+      setEmployeeTargets(tgtRes || []);
+      if (attSetRes) setAttendanceSettings(attSetRes);
       setReservations(resvRes || []);
       setVouchers(vouchRes || []);
       setVisas(visaRes || []);
@@ -2106,6 +2135,122 @@ export default function App() {
   const isCurrentAdmin = userRole === 'Administrator' || currentEmployee?.is_admin === true || currentEmployee?.position === 'Administrator';
   const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
 
+  // ---------------------------------------------------------------------------
+  // Attendance, work schedules and employee targets
+  // ---------------------------------------------------------------------------
+  const handleAttendanceCheckIn = async (employeeId: string, date: string, checkInTime: string) => {
+    const emp = employees.find(e => e.id === employeeId || e.employee_id === employeeId);
+    const schedule = workSchedules.find(s => s.employee_id === employeeId || s.employee_id === emp?.employee_id);
+    const expectedStart = schedule?.work_start || attendanceSettings.official_check_in;
+    const [startH, startM] = expectedStart.split(':').map(Number);
+    const [inH, inM] = checkInTime.split(':').map(Number);
+    const lateMinutes = Math.max(0, (inH * 60 + inM) - (startH * 60 + startM));
+    const grace = schedule?.grace_minutes ?? attendanceSettings.grace_period_minutes;
+    const stamp = Date.now();
+    const record: AttendanceRecord = {
+      id: `ATT-${stamp}-${employeeId}`,
+      attendance_id: `ATT-${stamp}`,
+      employee_id: employeeId,
+      employee_name: emp?.name || employeeId,
+      date,
+      check_in_time: checkInTime,
+      status: lateMinutes > grace ? 'Late' : 'Present',
+      late_minutes: lateMinutes,
+      created_at: new Date().toISOString()
+    };
+    setAttendanceRecords(prev => [record, ...prev]);
+    await dataService.saveDocument('attendance', record.id, record, '/api/attendance', 'POST');
+    fetchAllData();
+  };
+
+  const handleAttendanceCheckOut = async (recordId: string, checkOutTime: string) => {
+    const record = attendanceRecords.find(r => r.id === recordId);
+    if (!record) return;
+    let totalWorkingHours = '--';
+    if (record.check_in_time) {
+      const [inH, inM] = record.check_in_time.split(':').map(Number);
+      const [outH, outM] = checkOutTime.split(':').map(Number);
+      const diff = (outH * 60 + outM) - (inH * 60 + inM);
+      if (diff > 0) totalWorkingHours = `${Math.floor(diff / 60)}h ${diff % 60}m`;
+    }
+    const updated: AttendanceRecord = {
+      ...record,
+      check_out_time: checkOutTime,
+      total_working_hours: totalWorkingHours,
+      updated_at: new Date().toISOString()
+    };
+    setAttendanceRecords(prev => prev.map(r => (r.id === recordId ? updated : r)));
+    await dataService.saveDocument('attendance', recordId, updated, `/api/attendance/${recordId}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleAddAttendance = async (record: AttendanceRecord) => {
+    setAttendanceRecords(prev => [record, ...prev]);
+    await dataService.saveDocument('attendance', record.id, record, '/api/attendance', 'POST');
+    fetchAllData();
+  };
+
+  const handleUpdateAttendance = async (record: AttendanceRecord) => {
+    setAttendanceRecords(prev => prev.map(r => (r.id === record.id ? record : r)));
+    await dataService.saveDocument('attendance', record.id, record, `/api/attendance/${record.id}`, 'PUT');
+    fetchAllData();
+  };
+
+  const handleDeleteAttendance = async (id: string) => {
+    setAttendanceRecords(prev => prev.filter(r => r.id !== id));
+    await dataService.deleteDocument('attendance', id, `/api/attendance/${id}`);
+    fetchAllData();
+  };
+
+  const handleSaveWorkSchedule = async (schedule: EmployeeWorkSchedule) => {
+    setWorkSchedules(prev => {
+      const idx = prev.findIndex(s => s.id === schedule.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = schedule;
+        return next;
+      }
+      return [schedule, ...prev];
+    });
+    await dataService.saveDocument('work_schedules', schedule.id, schedule, '/api/work-schedules', 'POST');
+    showToast(`Work schedule saved for ${schedule.employee_name}`);
+    fetchAllData();
+  };
+
+  const handleDeleteWorkSchedule = async (id: string) => {
+    setWorkSchedules(prev => prev.filter(s => s.id !== id));
+    await dataService.deleteDocument('work_schedules', id, `/api/work-schedules/${id}`);
+    showToast('Work schedule removed');
+    fetchAllData();
+  };
+
+  const handleAddEmployeeTarget = async (target: EmployeeTarget) => {
+    setEmployeeTargets(prev => [target, ...prev]);
+    await dataService.saveDocument('employee_targets', target.id, target, '/api/employee-targets', 'POST');
+    showToast(`Target assigned to ${target.employee_name}`);
+    fetchAllData();
+  };
+
+  const handleUpdateEmployeeTarget = async (target: EmployeeTarget) => {
+    setEmployeeTargets(prev => prev.map(t => (t.id === target.id ? target : t)));
+    await dataService.saveDocument('employee_targets', target.id, target, '/api/employee-targets', 'POST');
+    showToast('Employee target updated');
+    fetchAllData();
+  };
+
+  const handleDeleteEmployeeTarget = async (id: string) => {
+    setEmployeeTargets(prev => prev.filter(t => t.id !== id));
+    await dataService.deleteDocument('employee_targets', id, `/api/employee-targets/${id}`);
+    showToast('Employee target deleted');
+    fetchAllData();
+  };
+
+  const handleUpdateAttendanceSettings = async (next: AttendanceSettings) => {
+    setAttendanceSettings(next);
+    await dataService.saveDocument('attendance_settings', 'main', next, '/api/attendance-settings', 'PUT');
+    showToast('Attendance rules updated');
+  };
+
   const handleLogin = (name: string, role: UserRole, empId?: string) => {
     setCurrentUsername(name);
     setUserRole(role);
@@ -2506,6 +2651,40 @@ export default function App() {
           )}
           {currentTab === 'activity-log' && (
             <ActivityLogView logs={activityLogs} />
+          )}
+          {currentTab === 'attendance' && (
+            <AttendanceView
+              userRole={userRole}
+              userPermissions={currentUserPermissions}
+              currentEmployeeId={currentEmpId}
+              currentUsername={currentUsername}
+              employees={employees}
+              attendanceRecords={attendanceRecords}
+              workSchedules={workSchedules}
+              onCheckIn={handleAttendanceCheckIn}
+              onCheckOut={handleAttendanceCheckOut}
+              onAddAttendance={handleAddAttendance}
+              onUpdateAttendance={handleUpdateAttendance}
+              onDeleteAttendance={handleDeleteAttendance}
+              onSaveSchedule={handleSaveWorkSchedule}
+              onDeleteSchedule={handleDeleteWorkSchedule}
+              settings={attendanceSettings}
+              onUpdateSettings={handleUpdateAttendanceSettings}
+              onAddAuditLog={handleAddAuditLog}
+            />
+          )}
+          {currentTab === 'employee-targets' && (
+            <EmployeeTargetsView
+              targets={employeeTargets}
+              employees={employees}
+              userRole={userRole}
+              currentEmployeeId={currentEmpId}
+              currentUsername={currentUsername}
+              onAddTarget={handleAddEmployeeTarget}
+              onUpdateTarget={handleUpdateEmployeeTarget}
+              onDeleteTarget={handleDeleteEmployeeTarget}
+              onAddAuditLog={handleAddAuditLog}
+            />
           )}
         </main>
       </div>

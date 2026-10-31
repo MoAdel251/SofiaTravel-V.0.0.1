@@ -19,6 +19,7 @@ import {
   Check
 } from 'lucide-react';
 import { TravelDocument, Customer, Supplier, TourPackage, Hotel, Flight, Invoice } from '../types';
+import { FILE_UPLOADS_ENABLED, FILE_UPLOAD_DISABLED_MESSAGE } from '../lib/featureFlags';
 
 interface DocumentsViewProps {
   documents: TravelDocument[];
@@ -169,6 +170,11 @@ export function DocumentsView({
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!FILE_UPLOADS_ENABLED) {
+      alert(FILE_UPLOAD_DISABLED_MESSAGE);
+      e.target.value = '';
+      return;
+    }
     const file = e.target.files?.[0];
     if (file) {
       const sizeStr = file.size > 1024 * 1024 
@@ -187,6 +193,10 @@ export function DocumentsView({
 
   const handleSaveUpload = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!FILE_UPLOADS_ENABLED) {
+      alert(FILE_UPLOAD_DISABLED_MESSAGE);
+      return;
+    }
     if (!docName) return;
 
     let entityName = 'General Enterprise Archive';
@@ -241,13 +251,30 @@ export function DocumentsView({
           </p>
         </div>
         <button
-          onClick={() => setShowUploadModal(true)}
-          className="flex items-center space-x-2 bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-cyan-600/20 transition-all cursor-pointer"
+          type="button"
+          disabled={!FILE_UPLOADS_ENABLED}
+          onClick={() => FILE_UPLOADS_ENABLED && setShowUploadModal(true)}
+          title={FILE_UPLOADS_ENABLED ? 'Upload a document' : FILE_UPLOAD_DISABLED_MESSAGE}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+            FILE_UPLOADS_ENABLED
+              ? 'bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white shadow-md shadow-cyan-600/20 cursor-pointer'
+              : 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300'
+          }`}
         >
           <Upload className="w-4 h-4" />
-          <span>Upload File to System</span>
+          <span>{FILE_UPLOADS_ENABLED ? 'Upload File to System' : 'File Uploads Disabled'}</span>
         </button>
       </div>
+
+      {!FILE_UPLOADS_ENABLED && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-amber-900">File uploads are turned off</p>
+            <p className="text-xs text-amber-700 mt-0.5">{FILE_UPLOAD_DISABLED_MESSAGE}</p>
+          </div>
+        </div>
+      )}
 
       {/* Categories Bar & Search */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
@@ -418,7 +445,7 @@ export function DocumentsView({
       )}
 
       {/* UPLOAD DOCUMENT MODAL with Drag-and-Drop & Click to Browse */}
-      {showUploadModal && (
+      {showUploadModal && FILE_UPLOADS_ENABLED && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-xl border border-slate-200 space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">

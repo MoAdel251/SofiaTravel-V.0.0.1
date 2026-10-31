@@ -47,7 +47,10 @@ export const OPERATIONAL_COLLECTIONS = [
   'payroll_records',
   'employee_advances',
   'commission_records',
-  'finance_audit_logs'
+  'finance_audit_logs',
+  'attendance',
+  'work_schedules',
+  'employee_targets'
 ] as const;
 
 export const dataService = {

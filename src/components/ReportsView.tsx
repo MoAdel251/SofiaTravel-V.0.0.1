@@ -105,30 +105,30 @@ export function ReportsView({
   // WhatsApp Manager Report Dispatcher (Requirement 12)
   const sendManagerReportWhatsApp = () => {
     const text = encodeURIComponent(
-      `*SOFIA TRAVEL - EXECUTIVE MANAGER INTELLIGENCE REPORT*\n` +
+      `📊 *SOFIA TRAVEL - EXECUTIVE MANAGER INTELLIGENCE REPORT* 📈\n` +
       `=========================================\n` +
-      `Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n` +
-      `Company: ${settings?.company_name || 'Sofia Travel Egypt'}\n` +
+      `📅 Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n` +
+      `🏢 Company: ${settings?.company_name || 'Sofia Travel Egypt'}\n` +
       `=========================================\n\n` +
-      `*1. KEY PERFORMANCE METRICS:*\n` +
-      `• Total Reservations: ${totalReservationsCount} (${confirmedReservations.length} Confirmed)\n` +
-      `• Registered Clients: ${customers.length}\n` +
-      `• Active Suppliers/Hotels/Airlines: ${suppliers.length}\n` +
-      `• Available Tour Packages: ${packages.length}\n\n` +
-      `*2. FINANCIAL PERFORMANCE BY CURRENCY:*\n` +
-      `• *Gross Sales:* ${formatCurrencyMap(grossSalesByCurrency)}\n` +
-      `• *Operating Net Profit:* ${formatCurrencyMap(netProfitByCurrency)}\n` +
-      `• *Total Collections:* ${formatCurrencyMap(collectionsByCurrency)}\n` +
-      `• *Customer Receivables Pending:* ${formatCurrencyMap(receivablesByCurrency)}\n` +
-      `• *Supplier Payables Pending:* ${formatCurrencyMap(payablesByCurrency)}\n\n` +
-      `*3. OPERATIONAL INVENTORY HIGHLIGHTS:*\n` +
-      `• Partner Hotel Contracts: ${hotels.length} verified properties\n` +
-      `• Active Flight Routes: ${flights.length} scheduled sectors\n\n` +
-      `*Bank Wire Confirmation:*\n` +
-      `Bank: ${settings?.bank_name || 'National Bank of Egypt (NBE)'}\n` +
-      `Account: ${settings?.bank_account_number || 'EG540003001500000010987654321'}\n` +
+      `*1. 📌 KEY PERFORMANCE METRICS:*\n` +
+      `• 🧳 Total Reservations: ${totalReservationsCount} (${confirmedReservations.length} Confirmed)\n` +
+      `• 👥 Registered Clients: ${customers.length}\n` +
+      `• 🤝 Active Suppliers/Hotels/Airlines: ${suppliers.length}\n` +
+      `• 🗺️ Available Tour Packages: ${packages.length}\n\n` +
+      `*2. 💵 FINANCIAL PERFORMANCE BY CURRENCY:*\n` +
+      `• 📈 *Gross Sales:* ${formatCurrencyMap(grossSalesByCurrency)}\n` +
+      `• 💹 *Operating Net Profit:* ${formatCurrencyMap(netProfitByCurrency)}\n` +
+      `• ✅ *Total Collections:* ${formatCurrencyMap(collectionsByCurrency)}\n` +
+      `• ⚠️ *Customer Receivables Pending:* ${formatCurrencyMap(receivablesByCurrency)}\n` +
+      `• 🔻 *Supplier Payables Pending:* ${formatCurrencyMap(payablesByCurrency)}\n\n` +
+      `*3. 🗂️ OPERATIONAL INVENTORY HIGHLIGHTS:*\n` +
+      `• 🏨 Partner Hotel Contracts: ${hotels.length} verified properties\n` +
+      `• ✈️ Active Flight Routes: ${flights.length} scheduled sectors\n\n` +
+      `*🏦 Bank Wire Confirmation:*\n` +
+      `🏛️ Bank: ${settings?.bank_name || 'National Bank of Egypt (NBE)'}\n` +
+      `🔢 Account: ${settings?.bank_account_number || 'EG540003001500000010987654321'}\n` +
       `=========================================\n` +
-      `Report Generated for Executive General Manager`
+      `🙏 Report Generated for Executive General Manager`
     );
 
     const phone = settings?.whatsapp?.replace(/[^0-9]/g, '') || '';
