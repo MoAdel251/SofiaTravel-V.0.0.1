@@ -5,6 +5,7 @@ import express from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
+import { buildInvoiceNumber, getInvoiceKind } from './src/lib/invoiceNumbering';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -86,6 +87,7 @@ let db = {
     bank_beneficiary_name: "Sofia Travel S.A.E.",
     default_currency: "USD",
     invoice_prefix: "INV-2026-",
+    supplier_invoice_prefix: "BILL-2026-",
     reservation_prefix: "RES-",
     voucher_prefix: "VCH-2026-",
     payment_methods: ["Cash", "Bank Transfer", "Credit Card", "InstaPay", "ValU (Installments)", "TRU (Installments)", "Other"],
@@ -753,6 +755,12 @@ app.get("/api/settings", async (req, res) => {
       const targetDoc = setSnap.docs.find(d => d.id === 'company_settings') || setSnap.docs.find(d => d.id === 'main') || setSnap.docs[0];
       if (targetDoc && targetDoc.id !== 'system_status') {
         db.settings = { ...db.settings, ...targetDoc.data(), logo: "/sofia-logo.png" };
+        if ((db.settings.invoice_prefix || '').trim() === 'INV-') {
+          db.settings.invoice_prefix = 'INV-2026-';
+        }
+        if (!(db.settings.supplier_invoice_prefix || '').trim()) {
+          db.settings.supplier_invoice_prefix = 'BILL-2026-';
+        }
       }
     }
   } catch (err) {
@@ -1232,7 +1240,7 @@ async function handleConfirmAndTransferVoucher(req: any, res: any) {
   const existingCustInv = db.invoices?.find(inv => inv.recipient_type === 'Customer' && (inv.notes?.includes(v.voucher_number) || inv.items?.some(i => i.item_reference_id === v.id)));
   if (!existingCustInv) {
     const custInvId = "INV-C-" + Math.random().toString(36).substring(2, 7).toUpperCase();
-    const custInvNum = `INV-2026-${(db.invoices?.length || 0) + 1001}`;
+    const custInvNum = buildInvoiceNumber(db.invoices || [], db.settings, 'customer');
     const sellingPrice = Number(v.selling_price) || 0;
     const paidAmt = Number(v.paid_amount) || 0;
     const balDue = Math.max(0, sellingPrice - paidAmt);
@@ -1288,7 +1296,7 @@ async function handleConfirmAndTransferVoucher(req: any, res: any) {
   const existingSupInv = db.invoices?.find(inv => inv.recipient_type === 'Supplier' && (inv.notes?.includes(v.voucher_number) || inv.items?.some(i => i.item_reference_id === v.id)));
   if (!existingSupInv && v.cost_price && v.cost_price > 0) {
     const supInvId = "INV-S-" + Math.random().toString(36).substring(2, 7).toUpperCase();
-    const supInvNum = `BILL-2026-${(db.invoices?.length || 0) + 1002}`;
+    const supInvNum = buildInvoiceNumber(db.invoices || [], db.settings, 'supplier');
     const costPrice = Number(v.cost_price) || 0;
     const supplierInvoice = {
       id: supInvId,
@@ -2456,9 +2464,13 @@ app.get("/api/invoices", async (req, res) => {
 
 app.post("/api/invoices", async (req, res) => {
   const invId = req.body.id || ("INV-" + Math.random().toString(36).substring(2, 7).toUpperCase());
-  const invCount = (db.invoices?.length || 0) + 1001;
+  const invoiceKind = getInvoiceKind({
+    recipient_type: req.body.recipient_type,
+    supplier_id: req.body.supplier_id,
+    customer_id: req.body.customer_id
+  });
+  const generatedInvoiceNumber = buildInvoiceNumber(db.invoices || [], db.settings, invoiceKind);
   const newInvoice = {
-    invoice_number: req.body.invoice_number || `INV-2026-${invCount}`,
     issue_date: req.body.issue_date || new Date().toISOString().split('T')[0],
     due_date: req.body.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     currency: "USD",
@@ -2473,6 +2485,7 @@ app.post("/api/invoices", async (req, res) => {
     payment_status: "Unpaid",
     manager_name: "Ahmed Ali",
     ...req.body,
+    invoice_number: (req.body.invoice_number || '').trim() || generatedInvoiceNumber,
     id: invId
   };
 

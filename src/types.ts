@@ -804,6 +804,7 @@ export interface CompanySettings {
   bank_beneficiary_name?: string;
   default_currency: string;
   invoice_prefix: string;
+  supplier_invoice_prefix?: string;
   reservation_prefix: string;
   voucher_prefix?: string;
   payment_methods: string[];

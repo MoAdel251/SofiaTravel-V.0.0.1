@@ -48,6 +48,7 @@ import {
 } from '../types';
 import { SofiaLogo } from './SofiaLogo';
 import { ManagerSignature } from './ManagerSignature';
+import { buildInvoiceNumber, isSupplierInvoice } from '../lib/invoiceNumbering';
 import { formatCurrency, getCurrencySymbol, convertCurrency, formatTripleCurrencyString } from '../utils/currency';
 
 interface InvoicesViewProps {
@@ -66,6 +67,7 @@ interface InvoicesViewProps {
   onUpdateInvoice: (id: string, invoiceData: Partial<Invoice>) => void;
   onDeleteInvoice: (id: string) => void;
   onUpdateReservation?: (id: string, data: Partial<Reservation>) => void;
+  onNavigate?: (tab: string) => void;
   userRole?: UserRole;
   currentCurrency?: string;
 }
@@ -86,6 +88,7 @@ export function InvoicesView({
   onUpdateInvoice,
   onDeleteInvoice,
   onUpdateReservation,
+  onNavigate,
   userRole = 'Administrator',
   currentCurrency = 'USD'
 }: InvoicesViewProps) {
@@ -558,6 +561,7 @@ export function InvoicesView({
 
     const invoiceData: Partial<Invoice> = {
       recipient_type: recipientType,
+      invoice_number: editingInvoice?.invoice_number || nextInvoiceNumber,
       reservation_id: linkedResId,
       customer_id: customer?.customer_id || customer?.id || selectedCustomerId || transferredFromRes?.customer_id || editingInvoice?.customer_id || undefined,
       customer_name: customer?.full_name || customer?.name || transferredFromRes?.customer_name || editingInvoice?.customer_name || undefined,
@@ -638,8 +642,11 @@ export function InvoicesView({
   };
 
   // Separate Customer and Supplier Invoices
-  const customerInvoices = invoices.filter(inv => inv.recipient_type !== 'Supplier');
-  const supplierInvoices = invoices.filter(inv => inv.recipient_type === 'Supplier');
+  const customerInvoices = invoices.filter(inv => !isSupplierInvoice(inv));
+  const supplierInvoices = invoices.filter(inv => isSupplierInvoice(inv));
+  const nextCustomerInvoiceNumber = buildInvoiceNumber(invoices, settings, 'customer');
+  const nextSupplierInvoiceNumber = buildInvoiceNumber(invoices, settings, 'supplier');
+  const nextInvoiceNumber = recipientType === 'Supplier' ? nextSupplierInvoiceNumber : nextCustomerInvoiceNumber;
 
   // Filter Customer Invoices
   const filteredCustomerInvoices = customerInvoices.filter(inv => {
@@ -948,6 +955,9 @@ export function InvoicesView({
                   <span className="text-xs bg-cyan-500/30 text-cyan-200 border border-cyan-400/30 px-2.5 py-0.5 rounded-full font-bold">
                     {filteredCustomerInvoices.length} Records
                   </span>
+                  <span className="text-xs bg-white/10 text-cyan-100 border border-cyan-300/30 px-2.5 py-0.5 rounded-full font-mono font-bold">
+                    Next: {nextCustomerInvoiceNumber}
+                  </span>
                 </h2>
                 <p className="text-xs text-cyan-100/80">
                   Detailed billing, traveler sales invoices, payment collection, and outstanding customer balances.
@@ -1004,16 +1014,28 @@ export function InvoicesView({
 
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-slate-900">{inv.customer_name || 'Client'}</span>
+                              <button
+                                type="button"
+                                onClick={() => onNavigate?.('customers')}
+                                className="font-bold text-slate-900 hover:text-cyan-700 hover:underline cursor-pointer"
+                                title="Open customer in CRM"
+                              >
+                                {inv.customer_name || 'Client'}
+                              </button>
                               {custCode && (
                                 <span className="text-[10px] bg-cyan-100 text-cyan-900 border border-cyan-300 font-mono font-bold px-1.5 py-0.5 rounded">
                                   {custCode}
                                 </span>
                               )}
                               {inv.reservation_id && (
-                                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200">
+                                <button
+                                  type="button"
+                                  onClick={() => onNavigate?.('vouchers')}
+                                  className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200 hover:bg-cyan-50 hover:text-cyan-700 cursor-pointer"
+                                  title="Open linked voucher / reservation"
+                                >
                                   Res #{inv.reservation_id}
-                                </span>
+                                </button>
                               )}
                               {inv.file_number && (
                                 <span className="text-[10px] font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
@@ -1143,6 +1165,9 @@ export function InvoicesView({
                   <span className="text-xs bg-purple-500/30 text-purple-200 border border-purple-400/30 px-2.5 py-0.5 rounded-full font-bold">
                     {filteredSupplierInvoices.length} Records
                   </span>
+                  <span className="text-xs bg-white/10 text-purple-100 border border-purple-300/30 px-2.5 py-0.5 rounded-full font-mono font-bold">
+                    Next: {nextSupplierInvoiceNumber}
+                  </span>
                 </h2>
                 <p className="text-xs text-purple-100/80">
                   Itemized supplier cost obligations, partner settlements, airline/hotel invoices, and company liabilities.
@@ -1196,14 +1221,26 @@ export function InvoicesView({
 
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-slate-900">{inv.supplier_name || 'Supplier'}</span>
+                              <button
+                                type="button"
+                                onClick={() => onNavigate?.('suppliers')}
+                                className="font-bold text-slate-900 hover:text-purple-700 hover:underline cursor-pointer"
+                                title="Open supplier in CRM"
+                              >
+                                {inv.supplier_name || 'Supplier'}
+                              </button>
                               <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded font-bold">
                                 {inv.supplier_type || 'Supplier Partner'}
                               </span>
                               {inv.reservation_id && (
-                                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200">
+                                <button
+                                  type="button"
+                                  onClick={() => onNavigate?.('vouchers')}
+                                  className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium border border-slate-200 hover:bg-purple-50 hover:text-purple-700 cursor-pointer"
+                                  title="Open linked voucher / reservation"
+                                >
                                   Res #{inv.reservation_id}
-                                </span>
+                                </button>
                               )}
                             </div>
                             <div className="text-[11px] text-purple-800 font-semibold mt-0.5">
@@ -1467,7 +1504,7 @@ export function InvoicesView({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Issue Date</label>
                     <input
@@ -1485,6 +1522,20 @@ export function InvoicesView({
                       onChange={(e) => setDueDate(e.target.value)}
                       className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      {recipientType === 'Supplier' ? 'Supplier Bill Number' : 'Customer Invoice Number'}
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={editingInvoice?.invoice_number || nextInvoiceNumber}
+                      className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-700 cursor-not-allowed"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Auto-generated. Customer and supplier sequences are kept separate.
+                    </p>
                   </div>
                 </div>
               </div>

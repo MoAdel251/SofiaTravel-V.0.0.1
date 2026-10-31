@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   FileCheck2, 
   Car, 
@@ -109,6 +109,12 @@ export function ServicesView({
   onCreateVoucherForService
 }: ServicesViewProps) {
   const [activeTab, setActiveTab] = useState<'visas' | 'flights' | 'hotels' | 'transfers' | 'cruises' | 'tours' | 'day-trips'>(initialSubTab);
+
+  // Keep the internal tab in sync when navigation targets a different service
+  // (for example a global-search result for a hotel or flight).
+  useEffect(() => {
+    setActiveTab(initialSubTab);
+  }, [initialSubTab]);
 
   const tabs = [
     { id: 'visas', label: 'Visa Processing', icon: FileCheck2, count: visas.length, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },

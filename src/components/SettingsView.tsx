@@ -463,7 +463,7 @@ export function SettingsView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Default Base Currency</label>
               <select
@@ -489,13 +489,24 @@ export function SettingsView({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice Number Prefix</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Customer Invoice Prefix</label>
               <input
                 type="text"
                 value={formData.invoice_prefix || 'INV-2026-'}
                 onChange={(e) => handleFieldChange({ invoice_prefix: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono"
               />
+              <p className="text-[10px] text-slate-400 mt-1">Separate accounts-receivable sequence.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier Invoice / Bill Prefix</label>
+              <input
+                type="text"
+                value={formData.supplier_invoice_prefix || 'BILL-2026-'}
+                onChange={(e) => handleFieldChange({ supplier_invoice_prefix: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">Separate accounts-payable sequence.</p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Reservation Number Prefix</label>

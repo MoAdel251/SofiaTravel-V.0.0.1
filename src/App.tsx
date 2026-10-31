@@ -6,8 +6,6 @@ import { VouchersView } from './components/VouchersView';
 import { ServicesView } from './components/ServicesView';
 import { ReservationsView } from './components/ReservationsView';
 import { TourPackagesView } from './components/TourPackagesView';
-import { HotelsView } from './components/HotelsView';
-import { FlightsView } from './components/FlightsView';
 import { SuppliersView } from './components/SuppliersView';
 import { FinanceView } from './components/FinanceView';
 import { InvoicesView } from './components/InvoicesView';
@@ -32,6 +30,7 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminResetDataModal } from './components/AdminResetDataModal';
 import { DatabaseConnectionStatus } from './lib/firebase';
 import { isDeveloperAccount, isReservedDeveloperUsername, DEVELOPER_ACCOUNT_ID } from './lib/developerAccount';
+import { buildInvoiceNumber, getInvoiceKind } from './lib/invoiceNumbering';
 import { 
   UserRole, 
   Customer, 
@@ -147,7 +146,8 @@ export default function App() {
     instagram_url: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
     tax_number: "TR-98765",
     default_currency: "EGP",
-    invoice_prefix: "INV-",
+    invoice_prefix: "INV-2026-",
+    supplier_invoice_prefix: "BILL-2026-",
     reservation_prefix: "RES-",
     payment_methods: ["Cash", "Bank Transfer", "Credit Card"],
     exchange_rates: []
@@ -271,7 +271,13 @@ export default function App() {
       setTasks(taskRes || []);
       setDocuments(docRes || []);
       setNotifications(notifRes || []);
-      if (settRes) setSettings(settRes);
+      if (settRes) {
+        setSettings({
+          ...settRes,
+          invoice_prefix: (settRes.invoice_prefix || '').trim() === 'INV-' ? 'INV-2026-' : settRes.invoice_prefix,
+          supplier_invoice_prefix: settRes.supplier_invoice_prefix || 'BILL-2026-'
+        });
+      }
       setActivityLogs(logRes || []);
       setPermissionRequests(pReqRes || []);
       setPayrollRecords(payrollRes || []);
@@ -606,12 +612,16 @@ export default function App() {
   const handleAddInvoice = async (data: Partial<Invoice>) => {
     const newId = "INV-" + Math.random().toString(36).substring(2, 7).toUpperCase();
     const invCount = (invoices?.length || 0) + 1001;
+    const invoiceKind = getInvoiceKind({
+      recipient_type: data.recipient_type,
+      supplier_id: data.supplier_id,
+      customer_id: data.customer_id
+    });
+    const generatedInvoiceNumber = buildInvoiceNumber(invoices || [], settings, invoiceKind);
     const linkedVoucher = data.reservation_id ? vouchers.find(v => v.id === data.reservation_id || v.reservation_id === data.reservation_id) : null;
     const linkedCust = data.customer_id ? customers.find(c => c.id === data.customer_id || c.customer_id === data.customer_id) : null;
     const derivedFileNum = data.file_number || linkedVoucher?.file_number || linkedCust?.file_number || `FILE-2026-${String(invCount).padStart(4, '0')}`;
     const newInvoice: Invoice = {
-      id: newId,
-      invoice_number: data.invoice_number || `INV-2026-${invCount}`,
       file_number: derivedFileNum,
       issue_date: data.issue_date || new Date().toISOString().split('T')[0],
       due_date: data.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -629,7 +639,9 @@ export default function App() {
       customer_id: data.customer_id || linkedVoucher?.customer_id || "",
       customer_name: data.customer_name || linkedVoucher?.customer_name || "",
       recipient_type: data.recipient_type || "Customer",
-      ...data
+      ...data,
+      id: newId,
+      invoice_number: data.invoice_number?.trim() || generatedInvoiceNumber
     };
     setInvoices(prev => [newInvoice, ...prev]);
     await dataService.saveDocument('invoices', newId, newInvoice, '/api/invoices', 'POST');
@@ -2344,22 +2356,6 @@ export default function App() {
               }} 
             />
           )}
-          {currentTab === 'hotels' && (
-            <HotelsView 
-              hotels={hotels} 
-              onAddHotel={handleAddHotel} 
-              onUpdateHotel={handleUpdateHotel}
-              onDeleteHotel={handleDeleteHotel}
-            />
-          )}
-          {currentTab === 'flights' && (
-            <FlightsView 
-              flights={flights} 
-              onAddFlight={handleAddFlight} 
-              onUpdateFlight={handleUpdateFlight}
-              onDeleteFlight={handleDeleteFlight}
-            />
-          )}
           {currentTab === 'suppliers' && (
             <SuppliersView 
               suppliers={suppliers} 
@@ -2416,6 +2412,7 @@ export default function App() {
               onUpdateInvoice={handleUpdateInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onUpdateReservation={handleUpdateReservation}
+              onNavigate={(tab) => setCurrentTab(tab)}
               userRole={userRole}
               currentCurrency={currentCurrency}
             />
@@ -2518,9 +2515,11 @@ export default function App() {
         onClose={() => setIsSearchOpen(false)}
         customers={customers}
         reservations={reservations}
+        invoices={invoices}
         hotels={hotels}
         flights={flights}
         suppliers={suppliers}
+        onNavigate={(tab) => setCurrentTab(tab)}
       />
 
       <AiAssistantModal
