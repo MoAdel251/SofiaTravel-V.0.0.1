@@ -26,5 +26,15 @@
       "vite-plugin-pwa/client"
     ],
     "noEmit": true
-  }
+  },
+  "include": [
+    "src",
+    "server.ts",
+    "vite.config.ts",
+    "api"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

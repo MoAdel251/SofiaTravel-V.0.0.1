@@ -3,6 +3,7 @@ import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
 import { UserRole, Employee } from '../types';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
 import { useLanguage } from '../context/LanguageContext';
+import { DEVELOPER_ACCOUNT } from '../lib/developerAccount';
 
 interface LoginModalProps {
   employees?: Employee[];
@@ -16,12 +17,9 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  // Pre-configured system administrator and staff accounts
+  // Protected developer account with full system privileges.
   const systemAccounts = [
-    { name: 'IT', pass: 'S2026', role: 'Administrator' as UserRole, id: 'SYS-IT-ADMIN' },
-    { name: 'Karim Nabil', pass: 'KN02', role: 'Manager' as UserRole, id: 'EMP-2' },
-    { name: 'Mona Zaki', pass: 'MZ03', role: 'Accountant' as UserRole, id: 'EMP-3' },
-    { name: 'Youssef Mahmoud', pass: 'YM04', role: 'Operations' as UserRole, id: 'EMP-4' }
+    { name: DEVELOPER_ACCOUNT.name, pass: DEVELOPER_ACCOUNT.password, role: DEVELOPER_ACCOUNT.role, id: DEVELOPER_ACCOUNT.id }
   ];
 
   const handleLoginSubmit = (e: React.FormEvent) => {

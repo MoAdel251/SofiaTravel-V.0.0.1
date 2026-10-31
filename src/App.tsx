@@ -31,6 +31,7 @@ import { MobileQuickActionModal } from './components/MobileQuickActionModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminResetDataModal } from './components/AdminResetDataModal';
 import { DatabaseConnectionStatus } from './lib/firebase';
+import { isDeveloperAccount, isReservedDeveloperUsername, DEVELOPER_ACCOUNT_ID } from './lib/developerAccount';
 import { 
   UserRole, 
   Customer, 
@@ -74,7 +75,9 @@ export default function App() {
     return localStorage.getItem('sofia_travel_user') || 'Admin';
   });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('sofia_travel_auth') !== 'false';
+    // Require an explicit login on every new browser session. Previously an
+    // unset key auto-authenticated visitors as Administrator.
+    return localStorage.getItem('sofia_travel_auth') === 'true';
   });
   const [currentCurrency, setCurrentCurrency] = useState<string>('EGP');
 
@@ -1743,6 +1746,10 @@ export default function App() {
   };
 
   const handleAddEmployee = async (data: Partial<Employee> & { username?: string; password?: string }) => {
+    if (isReservedDeveloperUsername(data.username)) {
+      showToast(`The username "${data.username}" is reserved for the protected developer account.`);
+      return;
+    }
     const newId = `EMP-${Date.now().toString(36).toUpperCase()}`;
     const empPos = (data.position || 'Sales') as EmployeePosition;
     const empRecord: Employee = {
@@ -1771,6 +1778,14 @@ export default function App() {
 
   const handleEditEmployee = async (id: string, data: Partial<Employee>) => {
     const emp = employees.find(e => e.id === id);
+    if (id === DEVELOPER_ACCOUNT_ID || isDeveloperAccount(emp)) {
+      showToast('The developer (IT) account is protected and cannot be modified.');
+      return;
+    }
+    if (data.username && isReservedDeveloperUsername(data.username) && !isDeveloperAccount(emp)) {
+      showToast(`The username "${data.username}" is reserved for the protected developer account.`);
+      return;
+    }
     const itemName = emp ? `Employee ${emp.name}` : id;
     if (!isAuthorizedToDirectlyModify) {
       setPermissionModalState({
@@ -1796,6 +1811,10 @@ export default function App() {
 
   const handleDeleteEmployee = async (id: string) => {
     const emp = employees.find(e => e.id === id);
+    if (id === DEVELOPER_ACCOUNT_ID || isDeveloperAccount(emp)) {
+      showToast('The developer (IT) account is protected and cannot be deleted.');
+      return;
+    }
     const itemName = emp ? `Employee ${emp.name}` : id;
     if (!isAuthorizedToDirectlyModify) {
       setPermissionModalState({

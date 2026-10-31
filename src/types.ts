@@ -685,6 +685,33 @@ export interface Employee {
   total_profit?: number;
 }
 
+export type AttendanceStatus = 'Present' | 'Late' | 'Absent' | 'On Leave' | 'Half Day';
+
+export interface AttendanceRecord {
+  id: string;
+  attendance_id: string;
+  employee_id: string;
+  employee_name: string;
+  date: string;
+  check_in_time?: string;
+  check_out_time?: string;
+  status: AttendanceStatus;
+  late_minutes?: number;
+  total_working_hours?: string;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AttendanceSettings {
+  official_check_in: string;
+  official_check_out: string;
+  grace_period_minutes: number;
+  required_working_hours: number;
+  absence_deduction_type: 'Deduct Daily Rate' | 'No Deduction' | 'Custom Amount';
+  late_deduction_type: 'Per Minute' | 'Per Late Day' | 'No Deduction';
+}
+
 export type DocumentType = 
   | 'Passport' 
   | 'Visa' 

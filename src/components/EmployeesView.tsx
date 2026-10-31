@@ -3,6 +3,7 @@ import {
   Briefcase, Plus, Phone, Mail, X, Edit2, Trash2, AlertTriangle, Check, Save, Shield, UserX, UserCheck, Lock, Copy
 } from 'lucide-react';
 import { Employee, UserRole } from '../types';
+import { isDeveloperAccount, isReservedDeveloperUsername } from '../lib/developerAccount';
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -192,6 +193,10 @@ export function EmployeesView({
   }, []);
 
   const openEditModal = (emp: Employee) => {
+    if (isDeveloperAccount(emp)) {
+      alert('The developer (IT) account is protected and cannot be modified.');
+      return;
+    }
     const isEmpAdmin = emp.is_admin === true || emp.position === 'Administrator';
     setEditingEmployee(emp);
     setFormData({
@@ -291,6 +296,14 @@ export function EmployeesView({
 
   const handleCreateOrUpdate = (e: React.FormEvent) => {
     e.preventDefault();
+    if (editingEmployee && isDeveloperAccount(editingEmployee)) {
+      alert('The developer (IT) account is protected and cannot be modified.');
+      return;
+    }
+    if (isReservedDeveloperUsername(formData.username) && !(editingEmployee && isDeveloperAccount(editingEmployee))) {
+      alert('The username "IT" is reserved for the protected developer account. Please choose another username.');
+      return;
+    }
     const empName = formData.name || formData.username || 'Employee';
     if (editingEmployee) {
       onEditEmployee(editingEmployee.id, formData);
@@ -335,6 +348,12 @@ export function EmployeesView({
 
   const handleConfirmDeactivate = () => {
     if (!employeeToDeactivate) return;
+    if (isDeveloperAccount(employeeToDeactivate)) {
+      alert('The developer (IT) account is protected and cannot be deactivated.');
+      setShowDeactivateModal(false);
+      setEmployeeToDeactivate(null);
+      return;
+    }
     const newStatus = employeeToDeactivate.account_status === 'Inactive' ? 'Active' : 'Inactive';
     if (onDeactivateEmployee) {
       onDeactivateEmployee(employeeToDeactivate.id, newStatus);
@@ -628,6 +647,11 @@ export function EmployeesView({
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right">
+                      {isDeveloperAccount(emp) ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-lg font-bold text-[10px]">
+                          <Lock className="w-3 h-3" /> Protected Developer Account
+                        </span>
+                      ) : (
                       <div className="flex items-center justify-end space-x-2">
                         {isAdmin && (
                           <button
@@ -666,6 +690,7 @@ export function EmployeesView({
                           </button>
                         )}
                       </div>
+                      )}
                     </td>
                   </tr>
                 );
