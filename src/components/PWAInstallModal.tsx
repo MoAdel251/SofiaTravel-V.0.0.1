@@ -15,6 +15,7 @@ import {
   Laptop
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { SOFIA_LOGO_URL } from './SofiaLogo';
 
 interface PWAInstallModalProps {
   isOpen: boolean;
@@ -67,17 +68,18 @@ export function PWAInstallModal({
           </button>
 
           <div className="flex items-center gap-3.5">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 p-0.5 shadow-xl shadow-blue-500/20 shrink-0">
-              <div className="w-full h-full bg-slate-900 rounded-[14px] flex items-center justify-center overflow-hidden">
-                <img 
-                  src="/sofia-logo.png" 
-                  alt="Sofia Travel App Logo" 
-                  className="w-11 h-11 object-contain rounded-xl p-0.5 bg-white" 
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = '/sofia-logo.svg';
-                  }}
-                />
-              </div>
+            <div className="w-16 h-16 rounded-2xl bg-white p-1 shadow-xl shadow-blue-500/20 shrink-0 flex items-center justify-center overflow-hidden border border-slate-200">
+              <img 
+                src={SOFIA_LOGO_URL} 
+                alt="Sofia Travel App Logo" 
+                className="w-full h-full object-contain" 
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (!img.src.endsWith('/sofia-logo.png')) {
+                    img.src = '/sofia-logo.png';
+                  }
+                }}
+              />
             </div>
             <div>
               <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-[10px] font-bold uppercase tracking-wider mb-1">

@@ -29,6 +29,8 @@ import { PermissionModal } from './components/PermissionModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { MobileQuickActionModal } from './components/MobileQuickActionModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { AdminResetDataModal } from './components/AdminResetDataModal';
+import { DatabaseConnectionStatus } from './lib/firebase';
 import { 
   UserRole, 
   Customer, 
@@ -90,9 +92,19 @@ export default function App() {
     setCurrentTab('invoices');
   };
 
-  // Modals state
+  // Modals & status state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
+  const [isAdminResetModalOpen, setIsAdminResetModalOpen] = useState(false);
+  const [dbStatus, setDbStatus] = useState<DatabaseConnectionStatus | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(prev => (prev === msg ? null : prev));
+    }, 4500);
+  };
 
   // Data states
   const [stats, setStats] = useState<any>(null);
@@ -123,7 +135,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [settings, setSettings] = useState<CompanySettings>({
     company_name: "Sofia Travel",
-    logo: "✈️",
+    logo: "/sofia-logo.png",
     address: "124 Tahrir Square, Cairo",
     phone: "+20 2 25750000",
     whatsapp: "+20 100 123 4567",
@@ -156,15 +168,26 @@ export default function App() {
 
   const isAuthorizedToDirectlyModify = userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant';
 
-  // Fetch all data on mount
+  // Fetch all data & verify live Cloud Firestore connection on mount
   useEffect(() => {
+    dataService.verifyConnection().then(setDbStatus).catch(() => {});
     fetchAllData();
   }, []);
+
+  const handleVerifyDatabase = async () => {
+    const status = await dataService.verifyConnection();
+    setDbStatus(status);
+    await fetchAllData();
+    if (status.connected) {
+      showToast(`Cloud Firestore synced (${status.latencyMs ?? 0}ms)`);
+    } else {
+      showToast('Using offline cache — Cloud Firestore temporarily unreachable');
+    }
+  };
 
   const fetchAllData = async () => {
     try {
       const [
-        statsRes,
         custRes,
         resvRes,
         vouchRes,
@@ -194,7 +217,6 @@ export default function App() {
         fAuditRes,
         inqRes
       ] = await Promise.all([
-        fetch('/api/dashboard-stats?t=' + Date.now()).then(r => r.json()).catch(() => null),
         dataService.getCollection<Customer>('customers', '/api/customers', customers),
         dataService.getCollection<Reservation>('reservations', '/api/reservations', reservations),
         dataService.getCollection<Voucher>('vouchers', '/api/vouchers', vouchers),
@@ -254,17 +276,40 @@ export default function App() {
       setCommissions(commRes || []);
       setFinanceAuditLogs(fAuditRes || []);
 
-      if (statsRes && statsRes.total_sales !== undefined) {
-        setStats(statsRes);
-      } else {
-        // Compute dashboard stats client-side based on actual database records
-        const activeResvs = (resvRes || []).filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending' || r.reservation_status === 'Paid' || r.reservation_status === 'Partially Paid');
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todaysResvCount = (resvRes || []).filter(r => r.booking_date === todayStr).length;
-        const upcomingTripsCount = (resvRes || []).filter(r => r.travel_date && r.travel_date >= todayStr).length;
+      // Compute dashboard stats directly from live Cloud Firestore collections
+      {
+        const resvList = resvRes || [];
+        const vouchList = vouchRes || [];
+        // Include vouchers that haven't been duplicated as reservation records
+        const resvIds = new Set(resvList.map(r => r.id || r.reservation_id));
+        const extraVouchersAsOps = vouchList.filter(v => !resvIds.has(v.id) && !resvIds.has(v.reservation_id || '') && !resvIds.has(v.voucher_number || ''));
+        const combinedBookings: any[] = [
+          ...resvList,
+          ...extraVouchersAsOps.map(v => ({
+            id: v.id,
+            reservation_id: v.voucher_number || v.reservation_id || v.id,
+            customer_name: v.customer_name,
+            service_type: v.service_category,
+            destination: v.destination,
+            booking_date: v.issue_date,
+            travel_date: v.travel_date,
+            selling_price: v.selling_price,
+            cost_price: v.cost_price,
+            paid_amount: v.paid_amount,
+            remaining_amount: v.remaining_amount,
+            currency: v.currency,
+            employee_name: v.employee_name,
+            reservation_status: v.reservation_status || (v.status === 'Cancelled' ? 'Cancelled' : 'Confirmed'),
+          }))
+        ];
 
-        const sales = (resvRes || []).reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
-        const supplierCosts = (resvRes || []).reduce((acc, r) => acc + (Number(r.cost_price) || 0), 0);
+        const activeResvs = combinedBookings.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending' || r.reservation_status === 'Paid' || r.reservation_status === 'Partially Paid');
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todaysResvCount = combinedBookings.filter(r => r.booking_date === todayStr).length;
+        const upcomingTripsCount = combinedBookings.filter(r => r.travel_date && r.travel_date >= todayStr).length;
+
+        const sales = combinedBookings.reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
+        const supplierCosts = combinedBookings.reduce((acc, r) => acc + (Number(r.cost_price) || 0), 0);
         const expensesTotal = (expRes || []).reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
         const netProfit = sales - supplierCosts - expensesTotal;
 
@@ -272,7 +317,7 @@ export default function App() {
         const outstandingSupplier = (supRes || []).reduce((acc, s) => acc + (Number(s.outstanding_balance) || 0), 0);
 
         const outstandingByCurr: Record<string, number> = {};
-        (resvRes || []).forEach(r => {
+        combinedBookings.forEach(r => {
           const rem = Number(r.remaining_amount) || (Number(r.selling_price || 0) - Number(r.paid_amount || 0));
           if (rem > 0) {
             const curr = r.currency || 'USD';
@@ -298,7 +343,7 @@ export default function App() {
           Profit: 0
         }));
 
-        (resvRes || []).forEach(r => {
+        combinedBookings.forEach(r => {
           if (!r.booking_date) return;
           const date = new Date(r.booking_date);
           if (date.getFullYear() === currentYear) {
@@ -320,7 +365,7 @@ export default function App() {
         });
 
         const destCounts: Record<string, number> = {};
-        (resvRes || []).forEach(r => {
+        combinedBookings.forEach(r => {
           if (r.destination) {
             destCounts[r.destination] = (destCounts[r.destination] || 0) + 1;
           }
@@ -335,7 +380,7 @@ export default function App() {
           .slice(0, 3);
 
         const agentSales: Record<string, number> = {};
-        (resvRes || []).forEach(r => {
+        combinedBookings.forEach(r => {
           if (r.employee_name) {
             agentSales[r.employee_name] = (agentSales[r.employee_name] || 0) + (Number(r.selling_price) || 0);
           }
@@ -359,7 +404,7 @@ export default function App() {
           outstanding_supplier_payments: outstandingSupplier,
           outstanding_by_currency: outstandingByCurr,
           today_tasks: (taskRes || []).filter(t => t.status !== 'Completed').length,
-          recent_reservations: (resvRes || []).slice(-5).reverse(),
+          recent_reservations: combinedBookings.slice(-5).reverse(),
           recent_payments: (cPayRes || []).slice(-5).reverse(),
           recent_activities: (logRes || []).slice(-6).reverse(),
           monthlyData,
@@ -833,7 +878,7 @@ export default function App() {
         if (result.inquiry) {
           setCustomerInquiries(prev => prev.map(i => i.id === inquiry.id ? result.inquiry : i));
         }
-        alert(`Successfully converted ${inquiry.name} to registered customer (${result.customer?.customer_id || 'CRM'})!`);
+        showToast(`Successfully converted ${inquiry.name} to registered customer (${result.customer?.customer_id || 'CRM'})!`);
       }
     } catch (e) {
       console.error("Error converting inquiry to customer:", e);
@@ -1947,10 +1992,27 @@ export default function App() {
     fetchAllData();
   };
 
-  const handleClearAllDatabase = async () => {
-    dataService.clearLocalCache();
+  const handleClearAllDatabase = async (includeEmployees: boolean = true) => {
+    const adminAllowed = userRole === 'Administrator' || currentEmployee?.is_admin === true || currentEmployee?.position === 'Administrator';
+    if (!adminAllowed) {
+      showToast('Access Denied: Only the Administrator can delete all data.');
+      return;
+    }
+
+    await dataService.wipeAllOperationalData({
+      includeEmployees,
+      actingAdmin: currentUsername || 'Admin',
+    });
+
     setCustomers([]);
+    setCustomerInquiries([]);
     setReservations([]);
+    setVouchers([]);
+    setVisas([]);
+    setTransfers([]);
+    setCruises([]);
+    setTours([]);
+    setDayTrips([]);
     setPackages([]);
     setHotels([]);
     setFlights([]);
@@ -1959,12 +2021,20 @@ export default function App() {
     setCustomerPayments([]);
     setSupplierPayments([]);
     setExpenses([]);
-    // Note: Employee accounts are preserved to prevent losing user credentials and staff data
+    setPayrollRecords([]);
+    setAdvances([]);
+    setCommissions([]);
+    setFinanceAuditLogs([]);
     setTasks([]);
     setDocuments([]);
     setNotifications([]);
     setActivityLogs([]);
     setPermissionRequests([]);
+    if (includeEmployees) {
+      setEmployees(prev => prev.filter(e => e.is_admin === true || e.position === 'Administrator'));
+    }
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     setStats({
       total_customers: 0,
       active_reservations: 0,
@@ -1975,14 +2045,20 @@ export default function App() {
       net_profit: 0,
       outstanding_customer_payments: 0,
       outstanding_supplier_payments: 0,
+      outstanding_by_currency: {},
       today_tasks: 0,
       low_stock_alerts: 0,
-      unread_notifications: 0
+      unread_notifications: 0,
+      recent_reservations: [],
+      recent_payments: [],
+      recent_activities: [],
+      monthlyData: monthNames.map(month => ({ month, Sales: 0, Expenses: 0, Profit: 0 })),
+      destinationPopularity: [],
+      topAgent: { name: 'No data', sales: 0 }
     });
-    try {
-      await fetch('/api/admin/clear-all-data', { method: 'POST' });
-    } catch {}
+
     await fetchAllData();
+    showToast('All existing operational data has been permanently deleted. Ready for clean republish!');
   };
 
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
@@ -2054,12 +2130,19 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans flex-col w-full max-w-full">
+    <div className="flex h-[100dvh] min-h-[100dvh] bg-slate-100 overflow-hidden font-sans flex-col w-full max-w-full">
       {!isAuthenticated && (
         <LoginModal employees={employees}
           onLogin={handleLogin}
           companyName={settings.company_name}
         />
+      )}
+
+      {toastMessage && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-2xl border border-slate-700 flex items-center gap-2 max-w-[92vw] animate-in fade-in">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+          <span className="truncate">{toastMessage}</span>
+        </div>
       )}
 
       <Navbar
@@ -2080,11 +2163,24 @@ export default function App() {
         onLogout={handleLogout}
         isMobileMenuOpen={isMobileMenuOpen}
         setIsMobileMenuOpen={setIsMobileMenuOpen}
+        dbConnected={dbStatus?.connected ?? true}
+        onVerifyDb={handleVerifyDatabase}
+        isAdmin={isCurrentAdmin}
+        onOpenAdminReset={() => setIsAdminResetModalOpen(true)}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto w-full max-w-full">
-        <main className="flex-1 pb-20 lg:pb-6 w-full max-w-full overflow-x-hidden">
-          {currentTab === 'dashboard' && <DashboardView stats={stats} currentCurrency={currentCurrency} />}
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto overscroll-y-contain w-full max-w-full">
+        <main className="flex-1 pb-24 lg:pb-6 w-full max-w-full overflow-x-hidden">
+          {currentTab === 'dashboard' && (
+            <DashboardView
+              stats={stats}
+              currentCurrency={currentCurrency}
+              isAdmin={isCurrentAdmin}
+              onOpenAdminReset={() => setIsAdminResetModalOpen(true)}
+              dbConnected={dbStatus?.connected ?? true}
+              onVerifyDb={handleVerifyDatabase}
+            />
+          )}
 
           {currentTab === 'permission-requests' && (
             <PermissionRequestsView
@@ -2386,6 +2482,10 @@ export default function App() {
               onUpdateSettings={handleUpdateSettings} 
               onClearAllData={handleClearAllDatabase}
               userRole={userRole}
+              isAdmin={isCurrentAdmin}
+              dbStatus={dbStatus}
+              onVerifyDatabase={handleVerifyDatabase}
+              onOpenAdminReset={() => setIsAdminResetModalOpen(true)}
             />
           )}
           {currentTab === 'activity-log' && (
@@ -2448,6 +2548,16 @@ export default function App() {
         onSelectAction={handleSelectQuickAdd}
         userRole={userRole}
       />
+
+      {/* Administrator-Only Delete All Data Modal */}
+      {isCurrentAdmin && (
+        <AdminResetDataModal
+          isOpen={isAdminResetModalOpen}
+          onClose={() => setIsAdminResetModalOpen(false)}
+          onConfirmDeleteAll={handleClearAllDatabase}
+          isAdmin={isCurrentAdmin}
+        />
+      )}
 
       {/* Cloud Connectivity and Offline Indicator */}
       <OfflineIndicator />

@@ -11,14 +11,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'icon-maskable.svg'],
+        includeAssets: ['favicon.ico', 'sofia-logo.png', 'sofia-logo.jpg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
         manifest: {
           id: '/',
           name: 'Sofia Travel Management System',
           short_name: 'Sofia Travel',
           description: 'Comprehensive mobile and desktop platform for Sofia Travel to manage bookings, vouchers, itineraries, and operations.',
           theme_color: '#0f172a',
-          background_color: '#0f172a',
+          background_color: '#ffffff',
           display: 'standalone',
           orientation: 'any',
           start_url: '/',
@@ -45,7 +45,8 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+          globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,svg,woff,woff2}'],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -82,6 +83,9 @@ export default defineConfig(() => {
         },
       }),
     ],
+    build: {
+      chunkSizeWarningLimit: 4000,
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

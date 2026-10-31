@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Lock, User, Plane, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
 import { UserRole, Employee } from '../types';
+import { SOFIA_LOGO_URL } from './SofiaLogo';
+import { useLanguage } from '../context/LanguageContext';
 
 interface LoginModalProps {
   employees?: Employee[];
@@ -9,6 +11,7 @@ interface LoginModalProps {
 }
 
 export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalProps) {
+  const { language, toggleLanguage } = useLanguage();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -29,13 +32,16 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
     const inputPass = password;
 
     if (!inputUser || !inputPass) {
-      setError('Please enter both username and password.');
+      setError(
+        language === 'ar'
+          ? 'يرجى إدخال اسم المستخدم وكلمة المرور.'
+          : 'Please enter both username and password.'
+      );
       return;
     }
 
-    // 1. Check in active system administrators & built-in accounts (Strict Case-Sensitive Match)
     const matchedSystemAccount = systemAccounts.find(
-      acc => (acc.name === inputUser) && (acc.pass === inputPass)
+      acc => acc.name === inputUser && acc.pass === inputPass
     );
 
     if (matchedSystemAccount) {
@@ -43,7 +49,6 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
       return;
     }
 
-    // 2. Check in database employees list (Strict Case-Sensitive Match on Username / Name / Email)
     const matchedEmployee = employees.find(emp => {
       const matchName = emp.name === inputUser || emp.username === inputUser || emp.email === inputUser;
       const expectedPass = emp.password || '1234';
@@ -52,19 +57,26 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
     });
 
     if (matchedEmployee) {
-      // Check if employee account is active
       const status = matchedEmployee.account_status || matchedEmployee.status || 'Active';
       if (status === 'Inactive' || status === 'Suspended' || matchedEmployee.login_access_enabled === false) {
-        setError('This account has been deactivated or suspended. Please contact your system administrator.');
+        setError(
+          language === 'ar'
+            ? 'هذا الحساب معطل حالياً. يرجى التواصل مع مدير النظام.'
+            : 'This account has been deactivated or suspended. Please contact your system administrator.'
+        );
         return;
       }
 
       let role: UserRole = 'Sales';
       if (matchedEmployee.is_admin || matchedEmployee.position === 'Administrator') {
         role = 'Administrator';
-      } else if (matchedEmployee.position === 'Manager' || 
-          matchedEmployee.position === 'Accountant' || matchedEmployee.position === 'Operations' || 
-          matchedEmployee.position === 'Customer Service' || matchedEmployee.position === 'Sales') {
+      } else if (
+        matchedEmployee.position === 'Manager' ||
+        matchedEmployee.position === 'Accountant' ||
+        matchedEmployee.position === 'Operations' ||
+        matchedEmployee.position === 'Customer Service' ||
+        matchedEmployee.position === 'Sales'
+      ) {
         role = matchedEmployee.position;
       } else if (matchedEmployee.position === 'Reservation Agent') {
         role = 'Sales';
@@ -74,26 +86,43 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
       return;
     }
 
-    // 3. If no exact match found, reject securely
-    setError('Invalid username or password. Usernames and passwords are strictly case-sensitive.');
+    setError(
+      language === 'ar'
+        ? 'اسم المستخدم أو كلمة المرور غير صحيحة (الأحرف حساسة لحالة الكبير والصغير).'
+        : 'Invalid username or password. Usernames and passwords are strictly case-sensitive.'
+    );
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-300">
-        {/* Header */}
-        <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950 p-6 text-white text-center relative overflow-hidden">
-          <img 
-            src="/sofia-logo.png" 
-            alt="Sofia Travel" 
-            className="w-16 h-16 object-contain bg-white rounded-2xl mx-auto p-1.5 shadow-xl shadow-cyan-500/20 border border-slate-700/80 mb-3"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "/sofia-logo.svg";
-            }}
-          />
-          <h2 className="text-xl font-extrabold tracking-tight uppercase">{companyName}</h2>
-          <p className="text-xs text-cyan-300 mt-1 uppercase font-semibold tracking-wider">Cloud Enterprise Management Portal</p>
-          <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl"></div>
+    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden my-auto">
+        {/* Header with Attached Sofia Travel Logo As-Is */}
+        <div className="bg-slate-900 p-6 text-white text-center relative">
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="absolute top-4 end-4 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-cyan-300 cursor-pointer"
+          >
+            {language === 'en' ? 'العربية' : 'English'}
+          </button>
+
+          <div className="inline-flex items-center justify-center bg-white rounded-2xl p-2 shadow-lg mb-3">
+            <img
+              src={SOFIA_LOGO_URL}
+              alt={companyName}
+              className="h-24 sm:h-28 w-auto object-contain select-none"
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (!img.src.endsWith('/sofia-logo.png')) {
+                  img.src = '/sofia-logo.png';
+                }
+              }}
+            />
+          </div>
+          <h2 className="text-lg font-extrabold tracking-tight">{companyName}</h2>
+          <p className="text-xs text-cyan-300 mt-0.5 font-medium">
+            {language === 'ar' ? 'بوابة إدارة العمليات والحسابات السحابية' : 'Cloud Operations & Management Portal'}
+          </p>
         </div>
 
         {/* Form Body */}
@@ -107,40 +136,45 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
 
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">Username / Full Name</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                {language === 'ar' ? 'اسم المستخدم' : 'Username / Full Name'}
+              </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <User className="w-4 h-4 text-slate-400 absolute start-3.5 top-3.5 pointer-events-none" />
                 <input
                   type="text"
                   required
-                  placeholder="Enter username (e.g. IT or Employee Name)"
+                  placeholder={language === 'ar' ? 'أدخل اسم المستخدم' : 'Enter username'}
                   value={username}
                   onChange={e => setUsername(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 ps-10 pe-4 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600 transition-all"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">Password</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                {language === 'ar' ? 'كلمة المرور' : 'Password'}
+              </label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <Lock className="w-4 h-4 text-slate-400 absolute start-3.5 top-3.5 pointer-events-none" />
                 <input
                   type="password"
+                  required
                   placeholder="••••••••"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 ps-10 pe-4 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600 transition-all"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md shadow-blue-600/20 transition-all text-xs mt-2 cursor-pointer flex items-center justify-center gap-2"
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-md transition-all text-sm mt-2 cursor-pointer flex items-center justify-center gap-2 min-h-[48px]"
             >
-              <span>Sign In to Sofia Travel Portal</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <span>{language === 'ar' ? 'تسجيل الدخول إلى النظام' : 'Sign In to Portal'}</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         </div>

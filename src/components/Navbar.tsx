@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Search, Bell, Sparkles, Globe, Shield, ChevronDown, Check, User, Clock, ArrowRight, X, Menu,
-  LayoutDashboard, Users, BookmarkCheck, Compass, Plane, Hotel, Truck, FileText, 
+import {
+  Search, Bell, User, Clock, ArrowRight, X, Menu,
+  LayoutDashboard, Users, Compass, Truck, FileText,
   Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
-  Ticket, Layers, FileCheck2, Car, Ship, Sun, MessageCircle, Instagram
+  Ticket, Layers, MessageCircle, Instagram, Trash2, RefreshCw
 } from 'lucide-react';
 import { UserRole, NotificationItem } from '../types';
-import { getCurrencySymbol } from '../utils/currency';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useLanguage } from '../context/LanguageContext';
+import { SOFIA_LOGO_URL } from './SofiaLogo';
 
 function LiveClock() {
   const [time, setTime] = useState(new Date());
@@ -19,9 +19,9 @@ function LiveClock() {
   }, []);
 
   return (
-    <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 rounded-xl text-[11px] font-bold text-slate-200 border border-slate-700 tabular-nums shadow-inner">
-      <Clock className="w-3.5 h-3.5 text-blue-400" />
-      <span>{time.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+    <div className="hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 rounded-xl text-[11px] font-semibold text-slate-200 border border-slate-700 tabular-nums">
+      <Clock className="w-3.5 h-3.5 text-cyan-400" />
+      <span>{time.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
     </div>
   );
 }
@@ -44,16 +44,18 @@ interface NavbarProps {
   onLogout: () => void;
   isMobileMenuOpen?: boolean;
   setIsMobileMenuOpen?: (open: boolean) => void;
+  dbConnected?: boolean;
+  onVerifyDb?: () => void;
+  isAdmin?: boolean;
+  onOpenAdminReset?: () => void;
 }
 
 export function Navbar({
   userRole,
   userPermissions = [],
-  setUserRole,
   currentCurrency,
   setCurrentCurrency,
   onOpenSearch,
-  onOpenAi,
   notifications = [],
   pendingPermissionCount = 0,
   onMarkNotificationRead,
@@ -63,7 +65,11 @@ export function Navbar({
   companyName,
   onLogout,
   isMobileMenuOpen,
-  setIsMobileMenuOpen
+  setIsMobileMenuOpen,
+  dbConnected = true,
+  onVerifyDb,
+  isAdmin = false,
+  onOpenAdminReset,
 }: NavbarProps) {
   const { language, setLanguage, toggleLanguage, t } = useLanguage();
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
@@ -89,12 +95,12 @@ export function Navbar({
     { id: 'dashboard', labelKey: 'nav_dashboard', defaultLabel: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'vouchers', labelKey: 'nav_vouchers', defaultLabel: 'Customer Vouchers', icon: Ticket, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
     { id: 'services', labelKey: 'nav_services', defaultLabel: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_trips' },
-    { id: 'permission-requests', labelKey: 'nav_approval_requests', defaultLabel: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
     { id: 'customers', labelKey: 'nav_customers', defaultLabel: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
     { id: 'customer-inquiries', labelKey: 'nav_customer_inquiries', defaultLabel: 'Customer Inquiries', icon: MessageCircle, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
-    { id: 'suppliers', labelKey: 'nav_suppliers', defaultLabel: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
     { id: 'invoices', labelKey: 'nav_invoices', defaultLabel: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_sales' },
+    { id: 'suppliers', labelKey: 'nav_suppliers', defaultLabel: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
     { id: 'packages', labelKey: 'nav_packages', defaultLabel: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
+    { id: 'permission-requests', labelKey: 'nav_approval_requests', defaultLabel: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
     { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
     { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
@@ -112,6 +118,8 @@ export function Navbar({
     if (userPermissions && userPermissions.length > 0) return hasPerm(item.perm);
     return false;
   });
+
+  const activeItem = filteredItems.find(i => i.id === currentTab) || filteredItems[0];
   const unreadCount = notifications.filter(n => !n.read).length;
 
   useEffect(() => {
@@ -120,139 +128,183 @@ export function Navbar({
         setShowNotificationsDropdown(false);
       }
     }
-
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   return (
-    <div className="sticky top-0 z-40 w-full flex flex-col">
-      {/* Top Header */}
-      <header className="h-16 bg-slate-900 border-b border-slate-800 px-4 sm:px-6 lg:px-8 flex items-center justify-between shadow-xs text-white">
-        {/* Brand & Mobile Hamburger */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+    <div className="sticky top-0 z-40 w-full flex flex-col shrink-0">
+      {/* Top App Bar (Mobile-App Optimized + Desktop Clean Header) */}
+      <header className="h-14 sm:h-16 bg-slate-900 border-b border-slate-800 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 text-white">
+        {/* Left: Attached Logo As-Is & Active Section Title on Mobile */}
+        <div className="flex items-center gap-2.5 min-w-0 shrink-0">
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 text-slate-400 hover:text-white rounded-xl lg:hidden focus:outline-none cursor-pointer"
-            aria-label="Toggle Menu"
+            type="button"
+            onClick={() => setCurrentTab('dashboard')}
+            className="flex items-center gap-2.5 focus:outline-none cursor-pointer shrink-0"
+            title={companyName}
           >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-          
-          <div className="flex items-center gap-2">
-            <img 
-              src="/sofia-logo.png" 
-              alt="Sofia Travel" 
-              className="w-8 h-8 sm:w-9 sm:h-9 object-contain rounded-xl p-0.5 bg-white shadow-md shadow-cyan-500/20 border border-slate-700 shrink-0"
+            <img
+              src={SOFIA_LOGO_URL}
+              alt={companyName}
+              className="h-10 sm:h-11 w-auto object-contain rounded-lg bg-white px-1.5 py-0.5 shadow-sm border border-slate-700/60 select-none shrink-0"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+                const img = e.currentTarget;
+                if (!img.src.endsWith('/sofia-logo.png')) {
+                  img.src = '/sofia-logo.png';
+                }
               }}
             />
-            <span className="font-bold text-sm sm:text-base tracking-tight truncate max-w-[120px] sm:max-w-none">
-              {companyName} <span className="text-cyan-400 font-extrabold">OS</span>
+          </button>
+
+          {/* Current Screen Title on Mobile (Native App Bar Style) */}
+          <div className="flex flex-col min-w-0 lg:hidden">
+            <span className="text-xs sm:text-sm font-bold text-white truncate max-w-[130px] sm:max-w-[200px]">
+              {activeItem ? (t(activeItem.labelKey) || activeItem.defaultLabel) : companyName}
+            </span>
+            <span className="text-[10px] text-slate-400 truncate">
+              {dbConnected ? t('cloud_live') : t('cloud_offline')}
+            </span>
+          </div>
+
+          {/* Desktop Brand Name */}
+          <div className="hidden lg:flex flex-col min-w-0">
+            <span className="font-bold text-sm tracking-tight text-white truncate">
+              {companyName}
+            </span>
+            <span className="text-[10px] text-cyan-400 font-medium truncate">
+              {t('app_subtitle')}
             </span>
           </div>
         </div>
 
-        {/* Search Bar Trigger */}
-        <div className="flex items-center gap-4 flex-1 justify-center max-w-xs sm:max-w-md lg:max-w-xl mx-2">
+        {/* Center: Search Trigger (Full bar on md+, clean icon button on small phones) */}
+        <div className="hidden md:flex items-center flex-1 max-w-md mx-3">
           <button
+            type="button"
             onClick={onOpenSearch}
-            className="relative w-full text-left cursor-pointer group"
+            className="relative w-full text-start cursor-pointer group"
           >
             <input
               type="text"
               readOnly
-              placeholder="Search (Name, PNR, Invoice...)"
-              className="w-full bg-slate-800 group-hover:bg-slate-700/70 border border-slate-700 rounded-xl py-1.5 sm:py-2 pl-9 sm:pl-10 pr-3 text-xs cursor-pointer text-slate-300 outline-none transition-all placeholder:text-slate-500"
+              placeholder={t('search_placeholder')}
+              className="w-full bg-slate-800 group-hover:bg-slate-800/80 border border-slate-700 rounded-xl py-2 ps-9 pe-3 text-xs cursor-pointer text-slate-200 outline-none transition-all placeholder:text-slate-400"
             />
-            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 absolute left-3 top-2.5 text-slate-500 pointer-events-none group-hover:text-blue-400 transition-colors" />
+            <Search className="w-4 h-4 absolute start-3 top-2.5 text-slate-400 pointer-events-none group-hover:text-cyan-400 transition-colors" />
           </button>
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 justify-end">
-          {/* Language Switcher Button */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {/* Mobile Search Icon Button (>= 40px touch target) */}
           <button
-            onClick={toggleLanguage}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-900 to-blue-900 hover:from-cyan-800 hover:to-blue-800 border border-cyan-400/50 rounded-xl text-xs font-bold text-cyan-200 transition-all shadow-xs cursor-pointer shrink-0"
-            title={language === 'en' ? 'تغيير اللغة إلى العربية' : 'Switch language to English'}
+            type="button"
+            onClick={onOpenSearch}
+            className="md:hidden w-10 h-10 flex items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label={t('search')}
           >
-            <Globe2 className="w-4 h-4 text-cyan-300 shrink-0" />
-            <span className="font-extrabold">{language === 'en' ? 'العربية' : 'English'}</span>
+            <Search className="w-4.5 h-4.5" />
           </button>
 
-          {/* PWA Mobile App Install Button */}
-          <PWAInstallButton variant="header" companyName={companyName} />
+          {/* Language Switcher */}
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="h-9 sm:h-9 px-2.5 sm:px-3 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-cyan-300 transition-colors cursor-pointer shrink-0"
+            title={language === 'en' ? 'تغيير اللغة إلى العربية' : 'Switch language to English'}
+          >
+            <Globe2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span>{language === 'en' ? 'AR' : 'EN'}</span>
+          </button>
 
-          {/* Company Instagram Page Link */}
+          {/* PWA Install Button on Desktop/Tablet */}
+          <div className="hidden sm:block">
+            <PWAInstallButton variant="header" companyName={companyName} />
+          </div>
+
+          {/* Instagram Compact Button */}
           <a
             href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-900/80 via-pink-900/80 to-rose-900/80 hover:from-purple-800 hover:to-rose-800 border border-pink-500/40 rounded-xl text-[11px] font-bold text-pink-200 transition-all shadow-xs cursor-pointer shrink-0 group"
-            title="Visit Company Instagram Page (https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)"
+            className="hidden xl:flex items-center gap-1.5 h-9 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold text-pink-300 transition-colors shrink-0"
+            title="Sofia Travel Instagram"
           >
-            <Instagram className="w-3.5 h-3.5 text-pink-400 group-hover:scale-110 transition-transform shrink-0" />
+            <Instagram className="w-3.5 h-3.5 text-pink-400 shrink-0" />
             <span>Instagram</span>
-            <span className="text-[10px] text-pink-300/90 font-normal truncate max-w-[280px]">
-              (https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)
-            </span>
           </a>
 
-          {/* Live System Clock */}
-          <LiveClock />
-          
-          {/* Cloud Sync Status Badge */}
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/60 border border-emerald-500/30 rounded-full text-[11px] text-emerald-400 font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <Database className="w-3 h-3 text-emerald-400" />
-            <span>Firestore Cloud Live</span>
-          </div>
+          {/* Live Database Connection Status Button */}
+          <button
+            type="button"
+            onClick={onVerifyDb}
+            className={`hidden lg:flex items-center gap-1.5 h-9 px-2.5 rounded-xl border text-[11px] font-semibold transition-colors cursor-pointer ${
+              dbConnected
+                ? 'bg-emerald-950/50 border-emerald-500/30 text-emerald-300 hover:bg-emerald-950/80'
+                : 'bg-amber-950/50 border-amber-500/30 text-amber-300 hover:bg-amber-950/80'
+            }`}
+            title={t('db_verify_btn')}
+          >
+            <Database className="w-3.5 h-3.5 shrink-0" />
+            <span>{dbConnected ? t('cloud_live') : t('cloud_offline')}</span>
+          </button>
 
-          {/* Logged in Username */}
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-xl text-xs font-bold text-slate-200 border border-slate-700">
-            <User className="w-3.5 h-3.5 text-slate-400" />
-            <span className="truncate max-w-[100px]">{username}</span>
-            <span className="text-[10px] bg-slate-700 text-blue-300 px-1.5 py-0.5 rounded-md">{userRole}</span>
+          {/* Administrator-Only Delete All Data Quick Button (Desktop) */}
+          {isAdmin && onOpenAdminReset && (
+            <button
+              type="button"
+              onClick={onOpenAdminReset}
+              className="hidden xl:flex items-center gap-1.5 h-9 px-3 bg-rose-950/60 hover:bg-rose-900/80 border border-rose-500/40 rounded-xl text-xs font-bold text-rose-300 hover:text-white transition-colors cursor-pointer shrink-0"
+              title={t('admin_reset_title')}
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              <span>{t('admin_delete_all_btn')}</span>
+            </button>
+          )}
+
+          <LiveClock />
+
+          {/* Logged-in User (Desktop) */}
+          <div className="hidden md:flex items-center gap-1.5 h-9 px-2.5 bg-slate-800 rounded-xl text-xs font-semibold text-slate-200 border border-slate-700">
+            <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="truncate max-w-[90px]">{username}</span>
           </div>
 
           {/* Notification Bell */}
           <div className="relative" ref={notifRef}>
             <button
+              type="button"
               onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
-              className={`p-2 rounded-xl transition-all cursor-pointer relative ${
-                showNotificationsDropdown ? 'bg-blue-900/50 text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors cursor-pointer relative ${
+                showNotificationsDropdown ? 'bg-blue-900/50 text-blue-400' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               }`}
-              title="System Actions & Notifications"
+              aria-label={t('nav_notifications')}
             >
               <Bell className="w-5 h-5" />
               {(unreadCount > 0 || pendingPermissionCount > 0) && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 text-white text-[10px] flex items-center justify-center rounded-full font-bold shadow-xs animate-pulse border border-slate-900">
+                <span className="absolute top-1 end-1 min-w-[16px] h-4 px-1 bg-rose-500 text-white text-[10px] flex items-center justify-center rounded-full font-bold border border-slate-900">
                   {unreadCount + pendingPermissionCount}
                 </span>
               )}
             </button>
 
-            {/* Notifications Dropdown */}
             {showNotificationsDropdown && (
-              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150 text-slate-900">
+              <div className="fixed sm:absolute inset-x-3 sm:inset-x-auto sm:end-0 top-16 sm:top-auto sm:mt-2 sm:w-96 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden text-slate-900">
                 <div className="p-3.5 bg-slate-900 text-white flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-blue-400" />
-                    <span className="text-xs font-bold tracking-tight">System Actions & Employee Activity</span>
+                    <Bell className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs font-bold">{t('nav_notifications')}</span>
                   </div>
-                  <span className="text-[10px] bg-blue-500/20 text-blue-300 font-semibold px-2 py-0.5 rounded-full">
-                    {unreadCount} Unread
+                  <span className="text-[11px] text-cyan-300 font-semibold">
+                    {unreadCount}
                   </span>
                 </div>
 
-                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
                   {notifications.length === 0 ? (
                     <div className="p-6 text-center text-xs text-slate-400">
-                      No active notifications or employee action logs.
+                      No active notifications.
                     </div>
                   ) : (
                     notifications.slice(0, 10).map((notif) => (
@@ -269,17 +321,9 @@ export function Navbar({
                           <User className="w-3.5 h-3.5" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <p className="font-bold text-slate-900 truncate">{notif.title}</p>
-                            {!notif.read && (
-                              <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0"></span>
-                            )}
-                          </div>
+                          <p className="font-bold text-slate-900 truncate">{notif.title}</p>
                           <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed break-words">{notif.message}</p>
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-1">
-                            <Clock className="w-3 h-3" />
-                            <span>{notif.date}</span>
-                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">{notif.date}</span>
                         </div>
                       </div>
                     ))
@@ -288,6 +332,7 @@ export function Navbar({
 
                 <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
                   <button
+                    type="button"
                     onClick={() => {
                       notifications.forEach(n => {
                         if (!n.read) onMarkNotificationRead(n.id);
@@ -295,16 +340,17 @@ export function Navbar({
                     }}
                     className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer px-2 py-1 rounded-md hover:bg-blue-50"
                   >
-                    Mark all as read
+                    Mark all read
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       setShowNotificationsDropdown(false);
                       setCurrentTab('notifications');
                     }}
                     className="text-[11px] text-slate-700 hover:text-slate-900 font-bold flex items-center gap-1 cursor-pointer px-2 py-1 rounded-md hover:bg-slate-200"
                   >
-                    <span>View all logs</span>
+                    <span>{t('view')}</span>
                     <ArrowRight className="w-3 h-3" />
                   </button>
                 </div>
@@ -312,37 +358,49 @@ export function Navbar({
             )}
           </div>
 
-          {/* User Log out */}
+          {/* Desktop Sign Out */}
           <button
+            type="button"
             onClick={onLogout}
-            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors cursor-pointer"
-            title="Sign Out"
+            className="hidden sm:flex w-10 h-10 items-center justify-center text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors cursor-pointer"
+            title={t('sign_out')}
           >
             <LogOut className="w-5 h-5" />
+          </button>
+
+          {/* Mobile App Launcher Drawer Trigger */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="lg:hidden w-10 h-10 flex items-center justify-center text-slate-200 hover:text-white bg-slate-800/90 hover:bg-slate-800 border border-slate-700 rounded-xl cursor-pointer"
+            aria-label={t('nav_menu')}
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </header>
 
-      {/* Navigation Tabs Bar */}
-      <div className="flex bg-white border-b border-slate-200 shadow-xs overflow-x-auto custom-scrollbar items-center px-2 sm:px-6">
-        <div className="flex space-x-1 py-2 min-w-max">
+      {/* Desktop Navigation Bar (Hidden on Mobile < lg so Mobile uses Clean Native Bottom Bar & App Grid Sheet) */}
+      <nav className="hidden lg:flex bg-white border-b border-slate-200 shadow-2xs overflow-x-auto custom-scrollbar items-center px-4 lg:px-6">
+        <div className="flex items-center gap-1 py-1.5 min-w-max">
           {filteredItems.map(item => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
               <button
                 key={item.id}
+                type="button"
                 onClick={() => setCurrentTab(item.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
-                  isActive 
-                    ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600 shadow-xs' 
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border-b-2 border-transparent'
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
                 <span>{t(item.labelKey) || item.defaultLabel}</span>
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-bold">
+                  <span className="ms-1 px-1.5 py-0.5 bg-amber-500 text-white rounded-md text-[10px] font-bold leading-none">
                     {item.badge}
                   </span>
                 )}
@@ -350,175 +408,203 @@ export function Navbar({
             );
           })}
         </div>
-      </div>
+      </nav>
 
-      {/* Mobile Navigation Drawer / Slide-Over */}
+      {/* Mobile Native App Launcher Sheet / Drawer */}
       {mobileMenuOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div 
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" 
-            onClick={() => setMobileMenuOpen(false)} 
+        <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end sm:justify-start sm:flex-row">
+          <div
+            className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs"
+            onClick={() => setMobileMenuOpen(false)}
           />
-          <div className="relative z-10 w-80 max-w-[85vw] bg-slate-900 text-white h-full flex flex-col p-4 shadow-2xl overflow-y-auto pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <img 
-                  src="/sofia-logo.png" 
-                  alt="Sofia Travel" 
-                  className="w-9 h-9 object-contain rounded-xl p-0.5 bg-white shadow-md shadow-cyan-500/20 border border-slate-700 shrink-0"
+          <div className="relative z-10 w-full sm:w-96 sm:max-w-[90vw] bg-slate-900 text-white max-h-[88dvh] sm:h-full sm:max-h-full rounded-t-3xl sm:rounded-none flex flex-col shadow-2xl overflow-hidden border-t sm:border-t-0 sm:border-e border-slate-800 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {/* Drag Handle on Phone */}
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+              <div className="w-10 h-1 rounded-full bg-slate-700" />
+            </div>
+
+            {/* Sheet Header with Attached Logo As-Is */}
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={SOFIA_LOGO_URL}
+                  alt={companyName}
+                  className="h-11 w-auto object-contain rounded-xl bg-white p-1 border border-slate-700 shrink-0 select-none"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+                    const img = e.currentTarget;
+                    if (!img.src.endsWith('/sofia-logo.png')) {
+                      img.src = '/sofia-logo.png';
+                    }
                   }}
                 />
-                <div>
-                  <span className="font-bold text-sm tracking-tight">{companyName}</span>
-                  <p className="text-[10px] text-cyan-400 font-semibold">Travel Management OS</p>
+                <div className="min-w-0">
+                  <p className="font-bold text-sm text-white truncate">{companyName}</p>
+                  <p className="text-[11px] text-slate-400 truncate">
+                    {username} · {userRole}
+                  </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-2 text-slate-400 hover:text-white rounded-xl bg-slate-800/80 hover:bg-slate-800 cursor-pointer"
-                aria-label="Close Navigation"
+                className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-white rounded-xl bg-slate-800 cursor-pointer shrink-0"
+                aria-label={t('close')}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* PWA Mobile Install Banner inside Drawer */}
-            <div className="py-3 border-b border-slate-800">
-              <PWAInstallButton variant="drawer" companyName={companyName} />
-            </div>
-
-            {/* User Profile Summary */}
-            <div className="py-3 border-b border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1">Active User</div>
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-slate-800 text-blue-400 flex items-center justify-center font-bold text-xs border border-slate-700">
-                    <User className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-200 font-bold">{username}</p>
-                    <p className="text-[10px] text-blue-400 font-semibold">{userRole}</p>
-                  </div>
-                </div>
-                {/* Cloud live indicator */}
-                <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>Cloud Live</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Language Switcher for Mobile */}
-            <div className="py-3 border-b border-slate-800">
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1 mb-2">
-                {t('language')}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setLanguage('en')}
-                  className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    language === 'en'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  English
-                </button>
-                <button
-                  onClick={() => setLanguage('ar')}
-                  className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    language === 'ar'
-                      ? 'bg-cyan-600 text-white shadow-xs'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  العربية
-                </button>
-              </div>
-            </div>
-
-            {/* Currency Selector for Mobile */}
-            <div className="py-3 border-b border-slate-800">
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1 mb-2">Display Currency</div>
-              <div className="grid grid-cols-5 gap-1">
-                {['USD', 'EUR', 'EGP', 'SAR', 'GBP'].map((curr) => (
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+              {/* App Grid Launcher (3-Column Native App Icons) */}
+              <div>
+                <div className="flex items-center justify-between mb-2.5 px-1">
+                  <span className="text-xs font-bold text-slate-300">{t('all_modules')}</span>
                   <button
-                    key={curr}
-                    onClick={() => setCurrentCurrency(curr)}
-                    className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      currentCurrency === curr
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    type="button"
+                    onClick={onVerifyDb}
+                    className={`flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border cursor-pointer ${
+                      dbConnected
+                        ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300'
+                        : 'bg-amber-950/60 border-amber-500/30 text-amber-300'
                     }`}
                   >
-                    {curr}
+                    <RefreshCw className="w-3 h-3" />
+                    <span>{dbConnected ? t('cloud_live') : t('cloud_offline')}</span>
                   </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Official Instagram Page Link on Mobile */}
-            <div className="py-3 border-b border-slate-800">
-              <a
-                href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-purple-900/60 via-pink-900/60 to-rose-900/60 border border-pink-500/40 text-pink-200 hover:text-white text-xs font-bold transition-all shadow-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <Instagram className="w-4 h-4 text-pink-400 shrink-0" />
-                  <span>Company Instagram Page</span>
                 </div>
-                <ArrowRight className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-              </a>
-            </div>
 
-            {/* Navigation Menu List */}
-            <div className="py-3 space-y-1 flex-1">
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider px-1 mb-2">
-                System Modules ({filteredItems.length})
+                <div className="grid grid-cols-3 gap-2.5">
+                  {filteredItems.map(item => {
+                    const Icon = item.icon;
+                    const isActive = currentTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setCurrentTab(item.id);
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`relative flex flex-col items-center justify-center text-center p-3 rounded-2xl min-h-[76px] transition-all cursor-pointer border ${
+                          isActive
+                            ? 'bg-blue-600 text-white border-blue-400 shadow-md'
+                            : 'bg-slate-800/80 text-slate-200 border-slate-700/70 hover:bg-slate-800 active:scale-95'
+                        }`}
+                      >
+                        <Icon className={`w-5 h-5 mb-1.5 ${isActive ? 'text-white' : 'text-cyan-400'}`} />
+                        <span className="text-[11px] font-semibold leading-tight line-clamp-2">
+                          {t(item.labelKey) || item.defaultLabel}
+                        </span>
+                        {item.badge !== undefined && item.badge > 0 && (
+                          <span className="absolute top-1.5 end-1.5 min-w-[18px] h-[18px] px-1 bg-amber-500 text-white rounded-full text-[10px] font-bold flex items-center justify-center">
+                            {item.badge}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              {filteredItems.map(item => {
-                const Icon = item.icon;
-                const isActive = currentTab === item.id;
-                return (
+
+              {/* Language & Currency Quick Controls */}
+              <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-800">
+                <div>
+                  <span className="text-[11px] text-slate-400 font-semibold block mb-1.5 px-1">
+                    {t('language')}
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLanguage('en')}
+                      className={`min-h-[42px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                        language === 'en' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      English
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLanguage('ar')}
+                      className={`min-h-[42px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                        language === 'ar' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      العربية
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-400 font-semibold block mb-1.5 px-1">
+                    {t('display_currency')}
+                  </span>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {['EGP', 'USD', 'EUR', 'SAR', 'GBP'].map((curr) => (
+                      <button
+                        key={curr}
+                        type="button"
+                        onClick={() => setCurrentCurrency(curr)}
+                        className={`min-h-[40px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                          currentCurrency === curr
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {curr}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* PWA Install + Instagram */}
+              <div className="space-y-2.5 pt-2 border-t border-slate-800">
+                <PWAInstallButton variant="drawer" companyName={companyName} />
+
+                <a
+                  href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700 text-pink-300 text-xs font-semibold min-h-[44px]"
+                >
+                  <div className="flex items-center gap-2">
+                    <Instagram className="w-4 h-4 text-pink-400 shrink-0" />
+                    <span>Sofia Travel Instagram</span>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
+                </a>
+
+                {/* Administrator-Only Delete All Data Action */}
+                {isAdmin && onOpenAdminReset && (
                   <button
-                    key={item.id}
+                    type="button"
                     onClick={() => {
-                      setCurrentTab(item.id);
                       setMobileMenuOpen(false);
+                      onOpenAdminReset();
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors min-h-[42px] cursor-pointer ${
-                      isActive ? 'bg-blue-600 text-white font-bold shadow-xs' : 'text-slate-300 hover:bg-slate-800 active:bg-slate-750'
-                    }`}
+                    className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-rose-950/70 hover:bg-rose-900 border border-rose-500/40 text-rose-300 hover:text-white text-xs font-bold transition-colors cursor-pointer min-h-[46px]"
                   >
-                    <div className="flex items-center gap-2.5">
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="truncate">{t(item.labelKey) || item.defaultLabel}</span>
-                    </div>
-                    {item.badge !== undefined && item.badge > 0 && (
-                      <span className="px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-bold shrink-0">
-                        {item.badge}
-                      </span>
-                    )}
+                    <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{t('admin_reset_title')}</span>
                   </button>
-                );
-              })}
-            </div>
+                )}
+              </div>
 
-            <div className="pt-3 border-t border-slate-800 space-y-2">
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onLogout();
-                }}
-                className="w-full flex items-center justify-center gap-2 bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/30 text-rose-400 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Sign Out of Account</span>
-              </button>
+              {/* Sign Out */}
+              <div className="pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onLogout();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-rose-500/20 text-rose-400 min-h-[46px] rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>{t('sign_out')}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -526,4 +612,3 @@ export function Navbar({
     </div>
   );
 }
-

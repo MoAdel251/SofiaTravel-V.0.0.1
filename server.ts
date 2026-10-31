@@ -253,7 +253,7 @@ async function loadFromFirestore() {
   }
 }
 
-async function wipeAllFirestoreTestData() {
+async function wipeAllFirestoreTestData(includeNonAdminEmployees = true, actingAdmin = 'Administrator') {
   const collections = [
     "customers", "suppliers", "hotels", "flights", "tour_packages",
     "vouchers", "reservations", "visas", "transfers", "cruises", "tours", "day_trips",
@@ -262,7 +262,7 @@ async function wipeAllFirestoreTestData() {
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs", "customer_inquiries"
   ];
-  console.log("Admin action: Wiping operational test data from Firestore (preserving employee accounts)...");
+  console.log(`Admin action by ${actingAdmin}: Wiping all operational data from Firestore...`);
   for (const col of collections) {
     try {
       const snap = await getDocs(collection(firestoreDb, col));
@@ -275,6 +275,37 @@ async function wipeAllFirestoreTestData() {
       db[col] = [];
     }
   }
+
+  if (includeNonAdminEmployees) {
+    try {
+      const empSnap = await getDocs(collection(firestoreDb, "employees"));
+      const keptEmployees: any[] = [];
+      for (const d of empSnap.docs) {
+        const data = d.data();
+        if (data.is_admin === true || data.position === 'Administrator' || data.role === 'Administrator') {
+          keptEmployees.push({ id: d.id, ...data });
+        } else {
+          await deleteDoc(doc(firestoreDb, "employees", d.id));
+        }
+      }
+      db.employees = keptEmployees;
+    } catch (e) {
+      console.warn("Could not wipe non-admin employees:", e);
+      db.employees = (db.employees || []).filter(
+        (emp: any) => emp.is_admin === true || emp.position === 'Administrator' || emp.role === 'Administrator'
+      );
+    }
+  }
+
+  try {
+    await setDoc(doc(firestoreDb, "settings", "system_status"), {
+      id: "system_status",
+      lastFactoryResetAt: new Date().toISOString(),
+      resetBy: actingAdmin,
+      readyForRepublish: true
+    }, { merge: true });
+  } catch {}
+
   console.log("All collections in Firestore and memory have been wiped clean.");
 }
 
@@ -314,19 +345,40 @@ app.use((req, res, next) => {
   next();
 });
 
-// Endpoint to completely clear all data from Firestore & Memory
+// Administrator-Only Endpoint to completely clear all data from Firestore & Memory
 app.post("/api/admin/clear-all-data", async (req, res) => {
+  const actingRole = (req.headers['x-acting-role'] as string) || req.body?.role;
+  const actingAdmin = (req.headers['x-acting-user'] as string) || req.body?.actingAdmin || 'Administrator';
+  if (actingRole !== 'Administrator') {
+    return res.status(403).json({ error: "Forbidden: Only the Administrator is authorized to delete all system data." });
+  }
+  const includeEmployees = req.body?.includeEmployees !== false;
   try {
-    await wipeAllFirestoreTestData();
-    res.json({ success: true, message: "All test data has been permanently cleared from database and memory." });
+    await wipeAllFirestoreTestData(includeEmployees, actingAdmin);
+    res.json({ success: true, message: "All existing data has been permanently cleared from database and memory." });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to wipe data" });
   }
 });
 
-// Health check endpoint for fast container readiness
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", service: "Sofia Travel Management API", timestamp: new Date().toISOString() });
+// Health & Database Connection Verification Endpoint
+app.get("/api/health", async (req, res) => {
+  let firestoreConnected = true;
+  try {
+    await getDocFromServer(doc(firestoreDb, "settings", "company_settings"));
+  } catch (e: any) {
+    if (e?.message?.includes("the client is offline")) {
+      firestoreConnected = false;
+    }
+  }
+  res.json({
+    status: "ok",
+    service: "Sofia Travel Management API",
+    firestoreConnected,
+    projectId: firebaseConfig.projectId,
+    databaseId: firestoreDatabaseId || "(default)",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // In-Memory Database Store with Rich Seed Data
@@ -630,7 +682,10 @@ app.get("/api/settings", async (req, res) => {
   try {
     const setSnap = await getDocs(collection(firestoreDb, 'settings'));
     if (!setSnap.empty) {
-      db.settings = { ...db.settings, ...setSnap.docs[0].data() };
+      const targetDoc = setSnap.docs.find(d => d.id === 'company_settings') || setSnap.docs.find(d => d.id === 'main') || setSnap.docs[0];
+      if (targetDoc && targetDoc.id !== 'system_status') {
+        db.settings = { ...db.settings, ...targetDoc.data(), logo: "/sofia-logo.png" };
+      }
     }
   } catch (err) {
     console.error("Error reading settings from Firestore:", err);
@@ -2347,6 +2402,7 @@ app.post("/api/invoices", async (req, res) => {
     const cust = db.customers.find(c => c.id === newInvoice.customer_id || c.customer_id === newInvoice.customer_id);
     if (cust) {
       cust.outstanding_balance = (cust.outstanding_balance || 0) + Number(newInvoice.balance_due || 0);
+      await saveToFirestore('customers', cust.id, cust);
     }
   }
 
@@ -2355,23 +2411,20 @@ app.post("/api/invoices", async (req, res) => {
     const sup = db.suppliers.find(s => s.id === newInvoice.supplier_id);
     if (sup) {
       sup.outstanding_balance = (sup.outstanding_balance || 0) + Number(newInvoice.balance_due || 0);
+      await saveToFirestore('suppliers', sup.id, sup);
     }
   }
 
-  const actorName = newInvoice.created_by_employee || "Ahmed Hassan";
+  const actorName = newInvoice.created_by_employee || "Sofia Travel Staff";
   const recipientName = newInvoice.recipient_type === 'Supplier' ? newInvoice.supplier_name : newInvoice.customer_name;
   await logActivity(actorName, `Issued ${newInvoice.recipient_type || 'Customer'} invoice ${newInvoice.invoice_number} to ${recipientName}`, "Invoicing", newInvoice.invoice_number);
-  
-  // Add a real-time notification with employee attribution
-  db.notifications.unshift({
-    id: "NOT-" + Math.random().toString(36).substring(2, 7).toUpperCase(),
-    title: `Invoice Issued by ${actorName}`,
-    message: `[${actorName}] Issued ${newInvoice.recipient_type || 'Customer'} invoice #${newInvoice.invoice_number} for ${recipientName} (${newInvoice.total_amount} ${newInvoice.currency}).`,
-    type: "payment",
-    date: new Date().toISOString().split('T')[0],
-    read: false,
-    link_id: newInvoice.id
-  });
+
+  await addNotification(
+    `Invoice Issued by ${actorName}`,
+    `[${actorName}] Issued ${newInvoice.recipient_type || 'Customer'} invoice #${newInvoice.invoice_number} for ${recipientName} (${newInvoice.total_amount} ${newInvoice.currency}).`,
+    "payment",
+    newInvoice.id
+  );
 
   await saveToFirestore('invoices', newInvoice.id, newInvoice);
   res.json(newInvoice);

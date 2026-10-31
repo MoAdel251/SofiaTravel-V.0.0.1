@@ -1,22 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download, Database } from 'lucide-react';
 import { CompanySettings, UserRole, InstallmentPartnerConfig, InstallmentPlanRule } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
+import { SOFIA_LOGO_URL } from './SofiaLogo';
+import { useLanguage } from '../context/LanguageContext';
+import { DatabaseConnectionStatus } from '../lib/firebase';
 
 interface SettingsViewProps {
   settings: CompanySettings;
   onUpdateSettings: (settings: CompanySettings) => void;
-  onClearAllData?: () => Promise<void>;
+  onClearAllData?: (includeEmployees?: boolean) => Promise<void>;
   userRole?: UserRole;
+  isAdmin?: boolean;
+  dbStatus?: DatabaseConnectionStatus | null;
+  onVerifyDatabase?: () => Promise<void>;
+  onOpenAdminReset?: () => void;
 }
 
 const SETTINGS_DRAFT_KEY = 'sofia_travel_settings_draft';
 const AUTO_SAVE_PREF_KEY = 'sofia_travel_settings_autosave';
 
-export function SettingsView({ settings, onUpdateSettings, onClearAllData, userRole }: SettingsViewProps) {
+export function SettingsView({
+  settings,
+  onUpdateSettings,
+  onClearAllData,
+  userRole,
+  isAdmin = false,
+  dbStatus,
+  onVerifyDatabase,
+  onOpenAdminReset,
+}: SettingsViewProps) {
+  const { language } = useLanguage();
+  const isAr = language === 'ar';
+  const isStrictAdmin = isAdmin || userRole === 'Administrator';
   const [formData, setFormData] = useState<CompanySettings>(settings);
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCheckingDb, setIsCheckingDb] = useState(false);
   const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -130,13 +150,17 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
   };
 
   return (
-    <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-slate-50 min-h-screen">
       {/* Top Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900">Company Settings & Configuration</h1>
-            <span className="px-2.5 py-0.5 bg-cyan-100 text-cyan-800 rounded-full text-xs font-bold">Cloud Sync</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+              {isAr ? 'إعدادات الشركة والنظام' : 'Company Settings & Configuration'}
+            </h1>
+            <span className="px-2.5 py-0.5 bg-cyan-100 text-cyan-800 rounded-md text-xs font-bold">
+              {isAr ? 'متصل بالسحابة' : 'Cloud Sync'}
+            </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">Configure company branding, official bank account numbers, currency abbreviations, and tax credentials.</p>
         </div>
@@ -244,28 +268,37 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
           {/* Official Brand Logo Card */}
           <div className="p-4 bg-linear-to-r from-slate-900 to-slate-950 rounded-2xl text-white flex flex-col sm:flex-row items-center justify-between gap-4 border border-slate-800 shadow-md">
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 bg-white rounded-2xl p-1.5 flex items-center justify-center shrink-0 shadow-lg">
+              <div className="h-20 w-auto bg-white rounded-2xl p-2 flex items-center justify-center shrink-0 shadow-lg border border-slate-200">
                 <img 
-                  src="/sofia-logo.png" 
+                  src={SOFIA_LOGO_URL} 
                   alt="Sofia Travel Official Logo" 
-                  className="w-full h-full object-contain"
+                  className="h-full w-auto object-contain"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+                    const img = e.currentTarget;
+                    if (!img.src.endsWith('/sofia-logo.png')) {
+                      img.src = '/sofia-logo.png';
+                    }
                   }}
                 />
               </div>
               <div>
                 <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-md text-[10px] font-black uppercase tracking-wider inline-block mb-1">
-                  Active Brand Asset
+                  {isAr ? 'الشعار الرسمي المعتمد' : 'Active Brand Asset'}
                 </span>
-                <h3 className="text-base font-extrabold tracking-wide uppercase">Official Sofia Travel Logo</h3>
-                <p className="text-xs text-slate-300 mt-0.5">Cyan S-curve flight ribbon with lavender airplane & serif typography</p>
+                <h3 className="text-base font-extrabold tracking-wide uppercase">
+                  {isAr ? 'شعار صوفيا ترافيل الرسمي (كما هو)' : 'Official Sofia Travel Logo (As-Is)'}
+                </h3>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  {isAr
+                    ? 'معروض بأبعاده الأصلية على الكمبيوتر والهاتف والفواتير والفاوتشرات'
+                    : 'Displayed uncropped & undistorted across Desktop, Mobile App, Vouchers & Invoices'}
+                </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 text-[11px] text-cyan-300 font-semibold bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-700 shrink-0">
               <Check className="w-4 h-4 text-emerald-400" />
-              <span>Deployed to Web, Mobile, Vouchers & Invoices</span>
+              <span>{isAr ? 'مفعل للكمبيوتر والموبايل والطباعة' : 'Deployed to Web, Mobile, Vouchers & Invoices'}</span>
             </div>
           </div>
 
@@ -641,42 +674,150 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
           </div>
         </div>
 
-        {/* Database Maintenance & Clear Test Data */}
-        <div className="bg-white rounded-2xl border border-rose-200 p-6 space-y-4 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-rose-100">
+        {/* Live Cloud Database Connection Status */}
+        <div className="bg-white rounded-2xl border border-emerald-200 p-4 sm:p-6 space-y-4 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-emerald-100">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                <Trash2 className="w-5 h-5" />
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                dbStatus?.connected !== false ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+              }`}>
+                <Database className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-base font-bold text-slate-900">Database Clean Slate & Production Preparation</h2>
-                <p className="text-xs text-slate-500">Permanently wipe all test records, mock data, and local cache to start fresh.</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-900">
+                    {isAr ? 'اتصال قاعدة البيانات السحابية (Cloud Firestore)' : 'Cloud Database Connection (Firestore)'}
+                  </h2>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold ${
+                    dbStatus?.connected !== false
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full ${dbStatus?.connected !== false ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                    {dbStatus?.connected !== false
+                      ? (isAr ? 'متصل ومباشر' : 'Connected & Live')
+                      : (isAr ? 'وضع عدم الاتصال المؤقت' : 'Offline Fallback')}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isAr
+                    ? 'تتم مزامنة جميع العملاء والفاوتشرات والفواتير والحسابات تلقائياً في الوقت الفعلي عبر الكمبيوتر والهاتف.'
+                    : 'All customers, vouchers, invoices, and accounting records sync automatically in real time across computer and mobile.'}
+                </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowClearConfirm(true)}
-              className="flex items-center space-x-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>Wipe All Test Data</span>
-            </button>
+
+            {onVerifyDatabase && (
+              <button
+                type="button"
+                disabled={isCheckingDb}
+                onClick={async () => {
+                  setIsCheckingDb(true);
+                  try {
+                    await onVerifyDatabase();
+                  } finally {
+                    setIsCheckingDb(false);
+                  }
+                }}
+                className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs shrink-0 min-h-[44px]"
+              >
+                <RefreshCw className={`w-4 h-4 ${isCheckingDb ? 'animate-spin' : ''}`} />
+                <span>{isAr ? 'فحص ومزامنة قاعدة البيانات' : 'Verify & Sync Database'}</span>
+              </button>
+            )}
           </div>
-          <div className="text-xs text-slate-500 space-y-1">
-            <p className="font-medium text-slate-700">What this does:</p>
-            <ul className="list-disc list-inside space-y-0.5 text-slate-600">
-              <li>Permanently clears all Firestore cloud collections (Trips, Hotels, Flights, Reservations, Suppliers, Customers, Invoices, Payments, Tasks, Logs).</li>
-              <li>Purges browser localStorage cache so deleted data never reappears.</li>
-              <li>Keeps your company branding and master settings intact.</li>
-            </ul>
-          </div>
-          {clearedSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 font-medium">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>All database collections and cache have been wiped clean! The system is ready for official work.</span>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+              <span className="text-slate-400 font-semibold block mb-0.5">{isAr ? 'محرك قاعدة البيانات' : 'Database Engine'}</span>
+              <span className="font-bold text-slate-800">Google Cloud Firestore</span>
             </div>
-          )}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+              <span className="text-slate-400 font-semibold block mb-0.5">{isAr ? 'المشروع السحابي' : 'Cloud Project'}</span>
+              <span className="font-mono font-bold text-slate-800 truncate block">{dbStatus?.projectId || 'tidal-dynamics-s54g5'}</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+              <span className="text-slate-400 font-semibold block mb-0.5">{isAr ? 'زمن الاستجابة' : 'Live Sync Latency'}</span>
+              <span className="font-bold text-emerald-700">
+                {dbStatus?.latencyMs !== undefined ? `${dbStatus.latencyMs} ms` : (isAr ? 'متزامن فورياً' : 'Real-time')}
+              </span>
+            </div>
+          </div>
         </div>
+
+        {/* Strictly Administrator-Only: Delete All Existing Data (Republish Clean) */}
+        {isStrictAdmin && (
+          <div className="bg-white rounded-2xl border-2 border-rose-200 p-4 sm:p-6 space-y-4 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-rose-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900">
+                      {isAr ? 'حذف جميع البيانات الحالية (إعادة النشر من البداية)' : 'Delete All Existing Data (Republish from Scratch)'}
+                    </h2>
+                    <span className="px-2 py-0.5 bg-rose-100 text-rose-700 rounded-md text-[10px] font-black uppercase">
+                      {isAr ? 'للمسؤول فقط (Admin Only)' : 'Administrator Only'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {isAr
+                      ? 'حذف نهائي لجميع السجلات والعملاء والفاوتشرات والفواتير والموردين من قاعدة البيانات السحابية والذاكرة المحلية للبدء من الصفر.'
+                      : 'Permanently delete all customers, vouchers, invoices, reservations, suppliers, services, and cache so the site can be republished clean.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenAdminReset) {
+                    onOpenAdminReset();
+                  } else {
+                    setShowClearConfirm(true);
+                  }
+                }}
+                className="flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm shrink-0 min-h-[44px]"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isAr ? 'حذف جميع البيانات' : 'Delete All Data'}</span>
+              </button>
+            </div>
+            <div className="text-xs text-slate-500 space-y-1">
+              <p className="font-medium text-slate-700">
+                {isAr ? 'ماذا يفعل هذا الزر:' : 'What this action performs:'}
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 text-slate-600">
+                <li>
+                  {isAr
+                    ? 'يمسح نهائياً جميع مجموعات قاعدة البيانات السحابية (العملاء، الاستفسارات، الفاوتشرات، الحجوزات، الفواتير، الموردين، الخدمات، الرواتب، المهام، السجلات).'
+                    : 'Permanently wipes all 26 Cloud Firestore operational collections (Customers, Inquiries, Vouchers, Reservations, Invoices, Suppliers, Services, Payroll, Tasks, Logs).'}
+                </li>
+                <li>
+                  {isAr
+                    ? 'يمسح ذاكرة التخزين المؤقت للمتصفح والخادم حتى لا تعود أي بيانات محذوفة.'
+                    : 'Purges server memory and browser localStorage cache so deleted records never reappear.'}
+                </li>
+                <li>
+                  {isAr
+                    ? 'يحافظ على شعار الشركة وإعداداتها وحساب المسؤول (Administrator).'
+                    : 'Preserves your official Sofia Travel logo, company settings, and Administrator login.'}
+                </li>
+              </ul>
+            </div>
+            {clearedSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  {isAr
+                    ? 'تم مسح جميع بيانات قاعدة البيانات والذاكرة المؤقتة بنجاح! الموقع جاهز للنشر من جديد.'
+                    : 'All database collections and cache have been wiped clean! The site is ready to be republished from scratch.'}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Bottom Save Bar */}
         <div className="flex items-center justify-between pt-2">
@@ -694,8 +835,8 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
         </div>
       </form>
 
-      {/* Confirmation Modal for Wiping Data */}
-      {showClearConfirm && (
+      {/* Fallback Confirmation Modal for Wiping Data (Strictly Admin Only) */}
+      {isStrictAdmin && showClearConfirm && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center gap-3 text-rose-600 mb-4">
@@ -703,17 +844,17 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
                 <AlertTriangle className="w-6 h-6 text-rose-600" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Clear All Database Test Data</h3>
+                <h3 className="text-base font-bold text-slate-900">Delete All Existing Data</h3>
                 <p className="text-xs text-slate-500">This action cannot be undone</p>
               </div>
             </div>
 
             <p className="text-xs text-slate-600 mb-6 leading-relaxed">
-              Are you sure you want to permanently delete all test data from the database and local cache?
-              All packages, reservations, flights, hotels, invoices, and supplier records will be removed, giving you a completely empty system ready for real operations.
+              Are you sure you want to permanently delete all existing data from Cloud Firestore and local cache?
+              All customers, vouchers, reservations, flights, hotels, invoices, and supplier records will be removed so the site can be republished from scratch.
             </p>
 
-            <div className="flex justify-end space-x-3">
+            <div className="flex justify-end gap-3">
               <button
                 type="button"
                 disabled={isClearing}
@@ -728,7 +869,7 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
                 onClick={async () => {
                   setIsClearing(true);
                   if (onClearAllData) {
-                    await onClearAllData();
+                    await onClearAllData(true);
                   }
                   setIsClearing(false);
                   setShowClearConfirm(false);
@@ -740,10 +881,10 @@ export function SettingsView({ settings, onUpdateSettings, onClearAllData, userR
                 {isClearing ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Wiping Database...</span>
+                    <span>Deleting All Data...</span>
                   </>
                 ) : (
-                  <span>Yes, Wipe All Data</span>
+                  <span>Yes, Delete All Data</span>
                 )}
               </button>
             </div>

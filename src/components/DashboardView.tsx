@@ -10,7 +10,9 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
-  ArrowUpRight
+  ArrowUpRight,
+  Trash2,
+  Database
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -26,39 +28,90 @@ import {
   CartesianGrid
 } from 'recharts';
 import { formatCurrency } from '../utils/currency';
+import { useLanguage } from '../context/LanguageContext';
 
 interface DashboardViewProps {
   stats: any;
   currentCurrency: string;
+  isAdmin?: boolean;
+  onOpenAdminReset?: () => void;
+  dbConnected?: boolean;
+  onVerifyDb?: () => void;
 }
 
-export function DashboardView({ stats, currentCurrency = 'EGP' }: DashboardViewProps) {
+export function DashboardView({
+  stats,
+  currentCurrency = 'EGP',
+  isAdmin = false,
+  onOpenAdminReset,
+  dbConnected = true,
+  onVerifyDb,
+}: DashboardViewProps) {
+  const { language } = useLanguage();
+  const isAr = language === 'ar';
+
   if (!stats) {
-    return <div className="p-8 text-center text-slate-500">Loading dashboard analytics...</div>;
+    return (
+      <div className="p-6 sm:p-8 text-center text-slate-500">
+        {isAr ? 'جاري تحميل تحليلات لوحة التحكم...' : 'Loading dashboard analytics...'}
+      </div>
+    );
   }
 
   const monthlyData = stats.monthlyData || [];
   const activeCurrency = currentCurrency || 'EGP';
 
   return (
-    <div className="p-8 space-y-6 bg-slate-50 min-h-screen">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6 bg-slate-50 min-h-full">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-sm text-slate-400">Real-time tourism operations overview and financial intelligence ({activeCurrency}).</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+            {isAr ? 'لوحة التحكم' : 'Dashboard'}
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500">
+            {isAr
+              ? `نظرة عامة فورية على العمليات السياحية والأداء المالي (${activeCurrency})`
+              : `Real-time tourism operations overview and financial intelligence (${activeCurrency}).`}
+          </p>
         </div>
-        <div className="flex items-center space-x-3">
-          <span className="inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-            <span className="w-2 h-2 mr-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-            Primary Company Currency: Egyptian Pound ({activeCurrency})
-          </span>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+          <button
+            type="button"
+            onClick={onVerifyDb}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border shadow-2xs transition-colors cursor-pointer min-h-[40px] ${
+              dbConnected
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+            }`}
+            title={isAr ? 'التحقق من اتصال قاعدة البيانات السحابية' : 'Verify Cloud Firestore connection'}
+          >
+            <Database className="w-3.5 h-3.5 shrink-0" />
+            <span className={`w-2 h-2 rounded-full ${dbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+            <span>
+              {dbConnected
+                ? (isAr ? `قاعدة البيانات متصلة (${activeCurrency})` : `Cloud DB Live (${activeCurrency})`)
+                : (isAr ? 'الوضع المحلي المؤقت' : 'Offline Cache')}
+            </span>
+          </button>
+
+          {isAdmin && onOpenAdminReset && (
+            <button
+              type="button"
+              onClick={onOpenAdminReset}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all cursor-pointer min-h-[40px]"
+              title={isAr ? 'حذف جميع البيانات الحالية وإعادة ضبط الموقع (للمسؤول فقط)' : 'Delete all existing data to republish clean (Administrator Only)'}
+            >
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span>{isAr ? 'حذف جميع البيانات' : 'Delete All Data'}</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Bento Grid Top Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl">
               <Users className="w-6 h-6" />
@@ -71,7 +124,7 @@ export function DashboardView({ stats, currentCurrency = 'EGP' }: DashboardViewP
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="p-2.5 bg-blue-50 text-blue-600 rounded-2xl">
               <BookmarkCheck className="w-6 h-6" />
@@ -79,12 +132,12 @@ export function DashboardView({ stats, currentCurrency = 'EGP' }: DashboardViewP
             <span className="text-xs font-bold text-blue-500">{stats.active_reservations} Active</span>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-slate-900">{stats.active_reservations}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900">{stats.active_reservations}</div>
             <div className="text-xs text-slate-400 mt-1 font-medium">Total Reservations</div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="p-2.5 bg-orange-50 text-orange-600 rounded-2xl">
               <Plane className="w-6 h-6" />
@@ -92,23 +145,23 @@ export function DashboardView({ stats, currentCurrency = 'EGP' }: DashboardViewP
             <span className="text-xs font-bold text-orange-500">Next 30 Days</span>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-slate-900">{stats.upcoming_trips}</div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900">{stats.upcoming_trips}</div>
             <div className="text-xs text-slate-400 mt-1 font-medium">Upcoming Trips</div>
           </div>
         </div>
 
-        <div className="bg-slate-900 p-6 rounded-3xl text-white flex flex-col justify-between overflow-hidden relative shadow-md">
+        <div className="bg-slate-900 p-4 sm:p-6 rounded-2xl sm:rounded-3xl text-white flex flex-col justify-between overflow-hidden relative shadow-md">
           <div className="relative z-10 flex items-center justify-between">
-            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Net Profit (MTD)</span>
+            <span className="text-[11px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">Net Profit</span>
             <div className="p-2 bg-blue-600/20 text-blue-400 rounded-xl">
               <DollarSign className="w-5 h-5" />
             </div>
           </div>
           <div className="relative z-10 mt-4">
-            <div className="text-2xl font-black text-emerald-400">
+            <div className="text-lg sm:text-2xl font-black text-emerald-400 truncate">
               {formatCurrency(stats.net_profit, activeCurrency)}
             </div>
-            <div className="text-xs text-slate-300 mt-1 font-medium">
+            <div className="text-[11px] sm:text-xs text-slate-300 mt-1 font-medium truncate">
               Sales: {formatCurrency(stats.total_sales, activeCurrency)}
             </div>
           </div>
@@ -117,8 +170,8 @@ export function DashboardView({ stats, currentCurrency = 'EGP' }: DashboardViewP
       </div>
 
       {/* Financial & Alerts Summary Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-4">
               <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">

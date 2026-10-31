@@ -1,15 +1,13 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  Ticket, 
-  Plus, 
-  MessageCircle, 
-  Menu,
-  ShieldCheck,
+import {
+  LayoutDashboard,
+  Ticket,
+  Plus,
   FileText,
-  Users
+  LayoutGrid,
 } from 'lucide-react';
 import { UserRole } from '../types';
+import { useLanguage } from '../context/LanguageContext';
 
 interface MobileBottomNavProps {
   currentTab: string;
@@ -26,74 +24,95 @@ export function MobileBottomNav({
   pendingPermissionCount = 0,
   onOpenQuickAdd,
   onOpenMobileMenu,
-  userRole
 }: MobileBottomNavProps) {
+  const { t } = useLanguage();
+
+  const isInvoicesActive =
+    currentTab === 'invoices' ||
+    currentTab === 'finance' ||
+    currentTab === 'customer-payments' ||
+    currentTab === 'supplier-payments';
+
+  const isVouchersActive = currentTab === 'vouchers' || currentTab === 'reservations';
+
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 py-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl">
-      <div className="flex items-center justify-around max-w-md mx-auto">
+    <nav
+      aria-label="Mobile Primary Navigation"
+      className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl"
+    >
+      <div className="grid grid-cols-5 items-center max-w-lg mx-auto">
         {/* Dashboard */}
         <button
+          type="button"
           onClick={() => setCurrentTab('dashboard')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer ${
-            currentTab === 'dashboard' 
-              ? 'text-blue-400 font-bold scale-105' 
+          className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+            currentTab === 'dashboard'
+              ? 'text-cyan-400 font-bold'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <LayoutDashboard className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight">Dashboard</span>
+          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_dashboard')}</span>
         </button>
 
         {/* Vouchers */}
         <button
+          type="button"
           onClick={() => setCurrentTab('vouchers')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer ${
-            currentTab === 'vouchers' 
-              ? 'text-blue-400 font-bold scale-105' 
+          className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+            isVouchersActive
+              ? 'text-cyan-400 font-bold'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <Ticket className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight">Vouchers</span>
+          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
         </button>
 
-        {/* Center Quick Add Action Button */}
-        <button
-          onClick={onOpenQuickAdd}
-          className="relative -top-3.5 flex flex-col items-center justify-center cursor-pointer group"
-          title="Quick Add Record"
-        >
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 text-white flex items-center justify-center shadow-lg shadow-blue-500/40 border-2 border-slate-900 group-hover:scale-105 group-active:scale-95 transition-all">
-            <Plus className="w-6 h-6 stroke-[2.5]" />
-          </div>
-          <span className="text-[10px] font-bold text-blue-300 mt-0.5">Add</span>
-        </button>
+        {/* Center Quick Add Button */}
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={onOpenQuickAdd}
+            className="relative -top-2.5 flex flex-col items-center justify-center cursor-pointer group"
+            aria-label={t('nav_quick_add')}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-slate-950 flex items-center justify-center shadow-lg border-2 border-slate-900 transition-transform">
+              <Plus className="w-6 h-6 stroke-[2.5]" />
+            </div>
+            <span className="text-[10px] font-bold text-cyan-300 mt-0.5 leading-none">{t('nav_quick_add')}</span>
+          </button>
+        </div>
 
-        {/* Customer Inquiries / Customers */}
+        {/* Invoices */}
         <button
-          onClick={() => setCurrentTab('customer-inquiries')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer ${
-            currentTab === 'customer-inquiries' 
-              ? 'text-blue-400 font-bold scale-105' 
+          type="button"
+          onClick={() => setCurrentTab('invoices')}
+          className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+            isInvoicesActive
+              ? 'text-cyan-400 font-bold'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <MessageCircle className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight">Inquiries</span>
+          <FileText className="w-5 h-5 mb-0.5" />
+          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
         </button>
 
-        {/* All Menus Drawer Toggle */}
+        {/* All Modules App Drawer */}
         <button
+          type="button"
           onClick={onOpenMobileMenu}
-          className="flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 hover:text-slate-200 transition-all cursor-pointer relative"
+          className="relative flex flex-col items-center justify-center min-h-[48px] rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
         >
-          <Menu className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight">Menu</span>
+          <LayoutGrid className="w-5 h-5 mb-0.5" />
+          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_menu')}</span>
           {pendingPermissionCount > 0 && (
-            <span className="absolute top-0 right-1 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="absolute top-1 end-3 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+              {pendingPermissionCount}
+            </span>
           )}
         </button>
       </div>
-    </div>
+    </nav>
   );
 }

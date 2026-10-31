@@ -6,7 +6,9 @@ import firebaseConfig from '../../firebase-applet-config.json';
 // Silence non-critical SDK internal bloom filter / network warnings
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
   return (...args: any[]) => {
-    const combined = args.map(a => (typeof a === 'object' && a !== null ? (a.message || a.stack || JSON.stringify(a)) : String(a))).join(' ');
+    const combined = args
+      .map(a => (typeof a === 'object' && a !== null ? (a.message || a.stack || JSON.stringify(a)) : String(a)))
+      .join(' ');
     if (combined.includes('BloomFilter') || combined.includes('Invalid hash count')) {
       return;
     }
@@ -61,29 +63,67 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
       userId: auth?.currentUser?.uid || null,
       email: auth?.currentUser?.email || null,
       emailVerified: auth?.currentUser?.emailVerified || false,
-      isAnonymous: auth?.currentUser?.isAnonymous || true,
+      isAnonymous: auth?.currentUser?.isAnonymous ?? true,
       tenantId: auth?.currentUser?.tenantId || null,
-      providerInfo: auth?.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
+      providerInfo:
+        auth?.currentUser?.providerData?.map(provider => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || [],
     },
     operationType,
-    path
+    path,
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
+export interface DatabaseConnectionStatus {
+  connected: boolean;
+  databaseId: string;
+  projectId: string;
+  latencyMs: number;
+  checkedAt: string;
+  error?: string;
+}
+
 // Validate connection per skill instructions
-export async function testConnection() {
+export async function testConnection(): Promise<boolean> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
+    return true;
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn("Please check your Firebase configuration or network status.");
+      console.warn('Please check your Firebase configuration or network status.');
+      return false;
     }
+    return true;
   }
 }
-testConnection();
 
+export async function verifyDatabaseConnection(): Promise<DatabaseConnectionStatus> {
+  const start = Date.now();
+  try {
+    await getDocFromServer(doc(db, 'settings', 'company_settings'));
+    return {
+      connected: true,
+      databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+      projectId: firebaseConfig.projectId,
+      latencyMs: Math.max(1, Date.now() - start),
+      checkedAt: new Date().toISOString(),
+    };
+  } catch (error: any) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const isOffline = msg.includes('the client is offline') || msg.includes('Failed to get document because the client is offline');
+    return {
+      connected: !isOffline,
+      databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+      projectId: firebaseConfig.projectId,
+      latencyMs: Math.max(1, Date.now() - start),
+      checkedAt: new Date().toISOString(),
+      error: isOffline ? msg : undefined,
+    };
+  }
+}
+
+testConnection();

@@ -1,4 +1,7 @@
 import React from 'react';
+import sofiaAttachedLogo from '../assets/images/sofia_travel_logo_1790154418169.jpg';
+
+export const SOFIA_LOGO_URL = sofiaAttachedLogo;
 
 interface SofiaLogoProps {
   className?: string;
@@ -7,74 +10,54 @@ interface SofiaLogoProps {
   theme?: 'light' | 'dark' | 'auto';
 }
 
-export function SofiaLogo({ className = '', variant = 'full', size = 'md', theme = 'auto' }: SofiaLogoProps) {
-  const sizeMap = {
-    xs: 'h-6',
-    sm: 'h-8',
-    md: 'h-11',
-    lg: 'h-16',
-    xl: 'h-24'
-  };
-
-  const iconSizeMap = {
-    xs: 'w-6 h-6',
-    sm: 'w-8 h-8',
-    md: 'w-10 h-10',
-    lg: 'w-16 h-16',
-    xl: 'w-24 h-24'
+export function SofiaLogo({ className = '', variant = 'full', size = 'md' }: SofiaLogoProps) {
+  const heightMap = {
+    xs: 'h-8',
+    sm: 'h-10',
+    md: 'h-14',
+    lg: 'h-20',
+    xl: 'h-28'
   };
 
   if (variant === 'icon-only') {
+    const boxMap = {
+      xs: 'h-8 w-8',
+      sm: 'h-10 w-10',
+      md: 'h-12 w-12',
+      lg: 'h-16 w-16',
+      xl: 'h-24 w-24'
+    };
     return (
-      <div className={`inline-flex items-center justify-center shrink-0 rounded-xl overflow-hidden bg-white p-1 shadow-sm border border-slate-200/80 ${iconSizeMap[size]} ${className}`}>
-        <img 
-          src="/sofia-logo.png" 
-          alt="Sofia Travel" 
-          className="w-full h-full object-contain"
+      <div className={`inline-flex items-center justify-center shrink-0 rounded-xl overflow-hidden bg-white p-0.5 border border-slate-200/80 shadow-xs ${boxMap[size]} ${className}`}>
+        <img
+          src={SOFIA_LOGO_URL}
+          alt="Sofia Travel"
+          className="w-full h-full object-contain select-none"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+            const img = e.currentTarget;
+            if (!img.src.endsWith('/sofia-logo.png')) {
+              img.src = '/sofia-logo.png';
+            }
           }}
         />
       </div>
     );
   }
 
-  if (variant === 'horizontal') {
-    return (
-      <div className={`flex items-center gap-2.5 ${className}`}>
-        <img 
-          src="/sofia-logo.png" 
-          alt="Sofia Travel" 
-          className={`${sizeMap[size]} object-contain shrink-0 rounded-lg p-0.5 bg-white shadow-2xs border border-slate-100`}
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = "/sofia-logo.svg";
-          }}
-        />
-        <div className="flex flex-col">
-          <span className={`font-serif tracking-widest font-bold uppercase leading-none text-sm sm:text-base ${
-            theme === 'dark' ? 'text-white' : 'text-slate-900'
-          }`}>
-            Sofia Travel
-          </span>
-          <span className="text-[9px] tracking-wider text-cyan-600 font-bold uppercase mt-0.5">
-            Travel Management OS
-          </span>
-        </div>
-      </div>
-    );
-  }
-
+  // Render the exact attached Sofia Travel logo as-is (contains cyan S + lavender plane + SOFIA TRAVEL wordmark)
   return (
-    <div className={`inline-flex items-center justify-center ${className}`}>
-      <img 
-        src="/sofia-logo.png" 
-        alt="Sofia Travel Logo" 
-        className={`${sizeMap[size]} object-contain drop-shadow-md rounded-xl bg-white p-1 border border-slate-100`}
+    <div className={`inline-flex items-center justify-center shrink-0 ${className}`}>
+      <img
+        src={SOFIA_LOGO_URL}
+        alt="Sofia Travel"
+        className={`${heightMap[size]} w-auto object-contain rounded-xl bg-white p-1 border border-slate-200/80 shadow-xs select-none`}
         onError={(e) => {
-          (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+          const img = e.currentTarget;
+          if (!img.src.endsWith('/sofia-logo.png')) {
+            img.src = '/sofia-logo.png';
+          }
         }}
       />
     </div>
   );
 }
-

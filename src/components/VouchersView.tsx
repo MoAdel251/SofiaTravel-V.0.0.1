@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { downloadElementAsPDF } from '../utils/pdfGenerator';
 import { printElement } from '../utils/printHelper';
+import { SOFIA_LOGO_URL } from './SofiaLogo';
 import { 
   Ticket, 
   Search, 
@@ -1349,15 +1350,18 @@ export function VouchersView({
                 <div className="space-y-1">
                   <div className="flex items-center gap-3">
                     <img 
-                      src="/sofia-logo.png" 
+                      src={SOFIA_LOGO_URL} 
                       alt="Sofia Travel" 
-                      className="h-12 w-auto object-contain rounded-xl p-1 bg-white border border-slate-200 shadow-xs"
+                      className="h-14 w-auto object-contain rounded-xl p-1 bg-white border border-slate-200 shadow-xs shrink-0"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = "/sofia-logo.svg";
+                        const img = e.currentTarget;
+                        if (!img.src.endsWith('/sofia-logo.png')) {
+                          img.src = '/sofia-logo.png';
+                        }
                       }}
                     />
                     <div>
-                      <span className="text-xl font-black text-slate-900 tracking-tight block uppercase">{settings?.company_name || 'Sofia Travel'}</span>
+                      <span className="text-lg font-black text-slate-900 tracking-tight block uppercase">{settings?.company_name || 'Sofia Travel'}</span>
                       <span className="text-[10px] font-bold text-cyan-700 tracking-widest uppercase">Official Booking Voucher</span>
                     </div>
                   </div>
