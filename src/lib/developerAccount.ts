@@ -33,3 +33,13 @@ export function isDeveloperAccount(employee?: Partial<Employee> | null): boolean
 export function isReservedDeveloperUsername(username?: string | null): boolean {
   return (username || '').trim().toLowerCase() === DEVELOPER_USERNAME.toLowerCase();
 }
+
+/**
+ * True when the signed-in session belongs to the protected developer account.
+ * Works from the locally stored username / employee id, so developer-only
+ * controls stay available even before the employee list finishes loading.
+ */
+export function isDeveloperSession(username?: string | null, employeeId?: string | null): boolean {
+  if ((employeeId || '').trim() === DEVELOPER_ACCOUNT_ID) return true;
+  return isReservedDeveloperUsername(username);
+}

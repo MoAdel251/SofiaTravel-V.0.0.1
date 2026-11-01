@@ -4,7 +4,7 @@ import path from 'path';
 import express from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
+import { getFirestore, collection, doc, getDoc, setDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
 import { buildInvoiceNumber, getInvoiceKind } from './src/lib/invoiceNumbering';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
@@ -785,6 +785,57 @@ app.put("/api/settings", async (req, res) => {
   await logActivity("Administrator", "Updated company settings", "Settings", "Settings");
   await saveToFirestore('settings', 'company_settings', db.settings);
   res.json(db.settings);
+});
+
+// System status (maintenance mode). Public read so every client can decide
+// whether the site is temporarily disabled.
+app.get("/api/system-status", async (_req, res) => {
+  try {
+    const statusDoc = await getDoc(doc(firestoreDb, "settings", "system_status"));
+    const data: any = statusDoc.exists() ? statusDoc.data() : {};
+    return res.json({ id: "system_status", ...data });
+  } catch (err) {
+    console.warn("Unable to read system status from Firestore:", err);
+    return res.json({ id: "system_status", maintenanceEnabled: false, maintenanceMessage: "" });
+  }
+});
+
+// Developer-only: temporarily disable / re-enable the whole site.
+app.put("/api/system-status/maintenance", async (req, res) => {
+  const actingRole = (req.headers['x-acting-role'] as string) || req.body?.role;
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?.actingUser || '').trim();
+  const isDeveloperUser =
+    actingUser.toLowerCase() === DEVELOPER_USERNAME.toLowerCase() || actingUser === DEVELOPER_ACCOUNT_ID;
+
+  if (actingRole !== 'Administrator' || !isDeveloperUser) {
+    return res.status(403).json({ error: "Forbidden: only the developer account can change maintenance mode." });
+  }
+
+  const enabled = req.body?.enabled === true || req.body?.maintenanceEnabled === true;
+  const message = String(req.body?.message ?? req.body?.maintenanceMessage ?? "").trim();
+  const payload = {
+    id: "system_status",
+    maintenanceEnabled: enabled,
+    maintenanceMessage: message,
+    maintenanceUpdatedAt: new Date().toISOString(),
+    maintenanceUpdatedBy: actingUser,
+  };
+
+  try {
+    await setDoc(doc(firestoreDb, "settings", "system_status"), payload, { merge: true });
+  } catch (err: any) {
+    console.error("Unable to save maintenance mode:", err);
+    return res.status(500).json({ error: err?.message || "Failed to update maintenance mode." });
+  }
+
+  await logActivity(
+    actingUser,
+    enabled ? "Enabled maintenance mode (site temporarily disabled)" : "Disabled maintenance mode (site is live)",
+    "Settings",
+    "System Status"
+  );
+
+  res.json(payload);
 });
 
 // Customers

@@ -31,7 +31,16 @@ import { MobileQuickActionModal } from './components/MobileQuickActionModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminResetDataModal } from './components/AdminResetDataModal';
 import { DatabaseConnectionStatus } from './lib/firebase';
-import { isDeveloperAccount, isReservedDeveloperUsername, DEVELOPER_ACCOUNT_ID } from './lib/developerAccount';
+import { isDeveloperAccount, isReservedDeveloperUsername, isDeveloperSession, DEVELOPER_ACCOUNT_ID, DEVELOPER_ACCOUNT } from './lib/developerAccount';
+import { MaintenanceScreen } from './components/MaintenanceScreen';
+import {
+  DEFAULT_MAINTENANCE_MESSAGE,
+  fetchMaintenanceState,
+  readCachedMaintenanceState,
+  saveMaintenanceState,
+  subscribeMaintenanceState,
+  type MaintenanceState,
+} from './lib/maintenance';
 import { buildInvoiceNumber, getInvoiceKind } from './lib/invoiceNumbering';
 import { 
   UserRole, 
@@ -104,6 +113,7 @@ export default function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isAdminResetModalOpen, setIsAdminResetModalOpen] = useState(false);
+  const [maintenance, setMaintenance] = useState<MaintenanceState | null>(() => readCachedMaintenanceState());
   const [dbStatus, setDbStatus] = useState<DatabaseConnectionStatus | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -192,6 +202,25 @@ export default function App() {
   useEffect(() => {
     dataService.verifyConnection().then(setDbStatus).catch(() => {});
     fetchAllData();
+  }, []);
+
+  // Maintenance mode: live subscription + one-off read so the gate is decided
+  // before the app renders, even when Firestore is slow or unreachable.
+  useEffect(() => {
+    let alive = true;
+    const apply = (state: MaintenanceState) => {
+      if (alive) setMaintenance(state);
+    };
+    const unsubscribe = subscribeMaintenanceState(apply);
+    fetchMaintenanceState().then(apply).catch(() => apply({ enabled: false, message: DEFAULT_MAINTENANCE_MESSAGE }));
+    const fallback = setTimeout(() => {
+      if (alive) setMaintenance(prev => prev ?? { enabled: false, message: DEFAULT_MAINTENANCE_MESSAGE });
+    }, 6000);
+    return () => {
+      alive = false;
+      unsubscribe();
+      clearTimeout(fallback);
+    };
   }, []);
 
   const handleVerifyDatabase = async () => {
@@ -2280,6 +2309,46 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
 
+  const isDeveloperUser = isDeveloperSession(currentUsername, currentEmpId);
+  const maintenanceActive = maintenance?.enabled === true && !isDeveloperUser;
+
+  const handleDeveloperUnlock = (username: string, password: string): boolean => {
+    const isValid =
+      username.trim().toLowerCase() === DEVELOPER_ACCOUNT.name.toLowerCase() &&
+      password === DEVELOPER_ACCOUNT.password;
+    if (isValid) {
+      handleLogin(DEVELOPER_ACCOUNT.name, DEVELOPER_ACCOUNT.role, DEVELOPER_ACCOUNT.id);
+    }
+    return isValid;
+  };
+
+  const handleRefreshMaintenance = async () => {
+    const next = await fetchMaintenanceState();
+    setMaintenance(next);
+  };
+
+  const handleUpdateMaintenance = async (enabled: boolean, message?: string) => {
+    if (!isDeveloperUser) {
+      throw new Error('Only the developer account can change maintenance mode.');
+    }
+    try {
+      const next = await saveMaintenanceState({
+        enabled,
+        message,
+        actor: currentUsername || DEVELOPER_ACCOUNT.name,
+      });
+      setMaintenance(next);
+      showToast(
+        enabled
+          ? 'Maintenance mode is ON — the site is now hidden from all users except the developer.'
+          : 'Maintenance mode is OFF — the site is live again.'
+      );
+    } catch (error: any) {
+      showToast(error?.message || 'Could not update maintenance mode.');
+      throw error;
+    }
+  };
+
   const handleSelectQuickAdd = (actionKey: string) => {
     switch (actionKey) {
       case 'new-voucher':
@@ -2304,6 +2373,27 @@ export default function App() {
         break;
     }
   };
+
+  if (maintenance === null) {
+    return (
+      <div className="h-[100dvh] w-full bg-slate-950 flex flex-col items-center justify-center gap-3 text-slate-400">
+        <div className="w-8 h-8 rounded-full border-2 border-slate-700 border-t-cyan-400 animate-spin" />
+        <span className="text-xs font-semibold tracking-wide">Loading {settings.company_name}...</span>
+      </div>
+    );
+  }
+
+  if (maintenanceActive) {
+    return (
+      <MaintenanceScreen
+        companyName={settings.company_name}
+        message={maintenance.message}
+        updatedAt={maintenance.updated_at}
+        onRefresh={handleRefreshMaintenance}
+        onDeveloperUnlock={handleDeveloperUnlock}
+      />
+    );
+  }
 
   return (
     <div className="flex h-[100dvh] min-h-[100dvh] bg-slate-100 overflow-hidden font-sans flex-col w-full max-w-full">
@@ -2644,6 +2734,9 @@ export default function App() {
               onClearAllData={handleClearAllDatabase}
               userRole={userRole}
               isAdmin={isCurrentAdmin}
+              isDeveloper={isDeveloperUser}
+              maintenance={maintenance}
+              onUpdateMaintenance={handleUpdateMaintenance}
               dbStatus={dbStatus}
               onVerifyDatabase={handleVerifyDatabase}
               onOpenAdminReset={() => setIsAdminResetModalOpen(true)}

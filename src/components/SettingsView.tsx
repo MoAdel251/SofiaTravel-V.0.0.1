@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download, Database } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download, Database, Wrench, Power, ShieldCheck } from 'lucide-react';
 import { CompanySettings, UserRole, InstallmentPartnerConfig, InstallmentPlanRule } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
 import { useLanguage } from '../context/LanguageContext';
 import { DatabaseConnectionStatus } from '../lib/firebase';
+import { DEFAULT_MAINTENANCE_MESSAGE, type MaintenanceState } from '../lib/maintenance';
 
 interface SettingsViewProps {
   settings: CompanySettings;
@@ -12,6 +13,10 @@ interface SettingsViewProps {
   onClearAllData?: (includeEmployees?: boolean) => Promise<void>;
   userRole?: UserRole;
   isAdmin?: boolean;
+  /** True only for the protected developer (IT) account. */
+  isDeveloper?: boolean;
+  maintenance?: MaintenanceState | null;
+  onUpdateMaintenance?: (enabled: boolean, message?: string) => Promise<void>;
   dbStatus?: DatabaseConnectionStatus | null;
   onVerifyDatabase?: () => Promise<void>;
   onOpenAdminReset?: () => void;
@@ -26,6 +31,9 @@ export function SettingsView({
   onClearAllData,
   userRole,
   isAdmin = false,
+  isDeveloper = false,
+  maintenance,
+  onUpdateMaintenance,
   dbStatus,
   onVerifyDatabase,
   onOpenAdminReset,
@@ -40,11 +48,37 @@ export function SettingsView({
   const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showMaintenanceConfirm, setShowMaintenanceConfirm] = useState(false);
+  const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  const [maintenanceError, setMaintenanceError] = useState('');
+  const [maintenanceMessageDraft, setMaintenanceMessageDraft] = useState<string>(
+    maintenance?.message || DEFAULT_MAINTENANCE_MESSAGE
+  );
   const [isClearing, setIsClearing] = useState(false);
   const [clearedSuccess, setClearedSuccess] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
     return localStorage.getItem(AUTO_SAVE_PREF_KEY) !== 'false';
   });
+
+  const maintenanceEnabled = maintenance?.enabled === true;
+
+  useEffect(() => {
+    if (maintenance?.message) setMaintenanceMessageDraft(maintenance.message);
+  }, [maintenance?.message]);
+
+  const applyMaintenance = async (enabled: boolean) => {
+    if (!onUpdateMaintenance || maintenanceBusy) return;
+    setMaintenanceBusy(true);
+    setMaintenanceError('');
+    try {
+      await onUpdateMaintenance(enabled, maintenanceMessageDraft);
+      setShowMaintenanceConfirm(false);
+    } catch (err: any) {
+      setMaintenanceError(err?.message || (isAr ? 'تعذر تحديث حالة الموقع.' : 'Could not update the site status.'));
+    } finally {
+      setMaintenanceBusy(false);
+    }
+  };
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef(true);
@@ -756,6 +790,102 @@ export function SettingsView({
           </div>
         </div>
 
+        {/* Developer-Only: Temporarily Disable the Site (Maintenance Mode) */}
+        {isDeveloper && (
+          <div className="bg-white rounded-2xl border-2 border-amber-200 p-4 sm:p-6 space-y-4 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-amber-100">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${maintenanceEnabled ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                  <Wrench className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900">
+                      {isAr ? 'وضع الصيانة (إيقاف الموقع مؤقتاً)' : 'Maintenance Mode (Temporarily Disable the Site)'}
+                    </h2>
+                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md text-[10px] font-black uppercase">
+                      {isAr ? 'للمطور فقط' : 'Developer Only'}
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold ${
+                      maintenanceEnabled ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${maintenanceEnabled ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+                      {maintenanceEnabled ? (isAr ? 'الموقع متوقف' : 'Site Disabled') : (isAr ? 'الموقع يعمل' : 'Site Online')}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {isAr
+                      ? 'أوقف الموقع مؤقتاً أثناء التحديث. سيشاهد كل المستخدمين صفحة الصيانة، بينما يظل حساب المطور يعمل بشكل كامل.'
+                      : 'Temporarily disable the site during an update. Every user sees the maintenance page while the developer account keeps full access.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={maintenanceBusy || !onUpdateMaintenance}
+                onClick={() => {
+                  if (maintenanceEnabled) {
+                    applyMaintenance(false);
+                  } else {
+                    setMaintenanceError('');
+                    setShowMaintenanceConfirm(true);
+                  }
+                }}
+                className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm shrink-0 min-h-[44px] disabled:opacity-60 ${
+                  maintenanceEnabled
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-amber-500 hover:bg-amber-600 text-white'
+                }`}
+              >
+                {maintenanceBusy ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : maintenanceEnabled ? (
+                  <Power className="w-4 h-4" />
+                ) : (
+                  <Wrench className="w-4 h-4" />
+                )}
+                <span>
+                  {maintenanceBusy
+                    ? (isAr ? 'جارٍ التحديث...' : 'Updating...')
+                    : maintenanceEnabled
+                      ? (isAr ? 'إعادة تشغيل الموقع' : 'Re-enable Site')
+                      : (isAr ? 'إيقاف الموقع للتحديث' : 'Disable Site for Update')}
+                </span>
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                {isAr ? 'رسالة تظهر للمستخدمين' : 'Message shown to users'}
+              </label>
+              <textarea
+                rows={2}
+                value={maintenanceMessageDraft}
+                onChange={(e) => setMaintenanceMessageDraft(e.target.value)}
+                placeholder={DEFAULT_MAINTENANCE_MESSAGE}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-amber-500 resize-y"
+              />
+              <p className="text-[11px] text-slate-500 mt-1.5 flex items-start gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-600" />
+                <span>
+                  {isAr
+                    ? 'تبدأ الصيانة فوراً على جميع الأجهزة المتصلة، ويظل دخولك بحساب المطور متاحاً لإعادة تشغيل الموقع بعد انتهاء التحديث.'
+                    : 'Maintenance applies instantly on every connected device, and your developer login stays available so you can re-enable the site when the update is done.'}
+                </span>
+              </p>
+              {maintenanceError && (
+                <p className="mt-2 text-[11px] font-semibold text-rose-600">{maintenanceError}</p>
+              )}
+              {maintenance?.updated_at && (
+                <p className="mt-2 text-[10px] text-slate-400 font-mono">
+                  {isAr ? 'آخر تغيير:' : 'Last change:'} {new Date(maintenance.updated_at).toLocaleString()}
+                  {maintenance.updated_by ? ` • ${maintenance.updated_by}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Strictly Administrator-Only: Delete All Existing Data (Republish Clean) */}
         {isStrictAdmin && (
           <div className="bg-white rounded-2xl border-2 border-rose-200 p-4 sm:p-6 space-y-4 shadow-xs">
@@ -845,6 +975,63 @@ export function SettingsView({
           </button>
         </div>
       </form>
+
+      {/* Developer-Only Confirmation: Disable the Site */}
+      {isDeveloper && showMaintenanceConfirm && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center gap-3 text-amber-600 mb-4">
+              <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {isAr ? 'إيقاف الموقع مؤقتاً؟' : 'Temporarily disable the site?'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {isAr ? 'يمكنك إعادة تشغيله في أي وقت' : 'You can turn it back on at any time'}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+              {isAr
+                ? 'سيظهر لكل المستخدمين (باستثناء حساب المطور) صفحة صيانة فوراً، ولن يستطيعوا استخدام النظام حتى تعيد تشغيله.'
+                : 'Every user except the developer account will immediately see the maintenance page and will not be able to use the system until you re-enable it.'}
+            </p>
+
+            {maintenanceError && (
+              <p className="mb-4 text-[11px] font-semibold text-rose-600">{maintenanceError}</p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={maintenanceBusy}
+                onClick={() => setShowMaintenanceConfirm(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                {isAr ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                disabled={maintenanceBusy}
+                onClick={() => applyMaintenance(true)}
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                {maintenanceBusy ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{isAr ? 'جارٍ الإيقاف...' : 'Disabling...'}</span>
+                  </>
+                ) : (
+                  <span>{isAr ? 'نعم، أوقف الموقع' : 'Yes, disable the site'}</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Fallback Confirmation Modal for Wiping Data (Strictly Admin Only) */}
       {isStrictAdmin && showClearConfirm && (

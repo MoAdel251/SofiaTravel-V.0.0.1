@@ -68,6 +68,21 @@ export function printElement(elementId: string, documentTitle = 'Sofia_Travel_Do
           padding: 10px !important;
           background: #ffffff !important;
         }
+        /* Long documents flow onto extra pages instead of being clipped. */
+        .printable-a4,
+        .avoid-page-break {
+          position: static !important;
+          max-width: none !important;
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          border: none !important;
+          border-radius: 0 !important;
+          page-break-inside: auto !important;
+          break-inside: auto !important;
+        }
+        thead { display: table-header-group !important; }
+        tr { page-break-inside: avoid !important; break-inside: avoid !important; }
         .print\\:hidden, button, .modal-toolbar {
           display: none !important;
         }

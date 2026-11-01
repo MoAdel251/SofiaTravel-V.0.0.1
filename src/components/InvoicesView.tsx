@@ -2003,7 +2003,9 @@ export function InvoicesView({
                 <button
                   onClick={() => downloadElementAsPDF({
                     elementId: 'invoice-a4-preview-card',
-                    filename: `Sofia_Travel_Invoice_${viewInvoice.invoice_number || 'INV'}.pdf`
+                    filename: `Sofia_Travel_Invoice_${viewInvoice.invoice_number || 'INV'}.pdf`,
+                    title: `Invoice ${viewInvoice.invoice_number || 'INV'}`,
+                    footerText: `Sofia Travel • Invoice ${viewInvoice.invoice_number || 'INV'}`
                   })}
                   className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-xs"
                   title="Download Invoice as PDF file"
@@ -2030,7 +2032,7 @@ export function InvoicesView({
             </div>
 
             {/* PRINTABLE INVOICE CONTENT */}
-            <div id="invoice-a4-preview-card" className="printable-a4 avoid-page-break pt-4 space-y-6">
+            <div id="invoice-a4-preview-card" className="printable-a4 pt-4 space-y-6">
               {/* Header with Sofia Logo & Company Info */}
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6 pb-6 border-b-2 border-slate-900">
                 <div>
@@ -2231,7 +2233,9 @@ export function InvoicesView({
                   <button
                     onClick={() => downloadElementAsPDF({
                       elementId: 'receipt-a4-card',
-                      filename: `Sofia_Travel_Receipt_${receiptData.receiptNumber}.pdf`
+                      filename: `Sofia_Travel_Receipt_${receiptData.receiptNumber}.pdf`,
+                      title: `Receipt ${receiptData.receiptNumber}`,
+                      footerText: `Sofia Travel • Receipt ${receiptData.receiptNumber}`
                     })}
                     className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-xs"
                     title="Download this receipt as a PDF file"
@@ -2257,7 +2261,7 @@ export function InvoicesView({
                 </div>
               </div>
 
-              <div id="receipt-a4-card" className="printable-a4 avoid-page-break pt-4 space-y-6">
+              <div id="receipt-a4-card" className="printable-a4 pt-4 space-y-6">
                 {/* Company Header */}
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-5 border-b-2 border-slate-900">
                   <div>
