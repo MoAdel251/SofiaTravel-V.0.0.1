@@ -1256,7 +1256,7 @@ export function InvoicesView({
 
                 <div className="flex flex-col items-center">
                   <ManagerSignature managerName={viewInvoice.manager_name || 'Ahmed Ali'} />
-                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mt-1">Authorized Agency Signatory</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mt-1">Chief executive officer</span>
                 </div>
               </div>
             </div>
