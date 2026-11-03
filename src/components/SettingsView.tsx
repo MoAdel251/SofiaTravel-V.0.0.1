@@ -391,6 +391,23 @@ export function SettingsView({
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
               />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                {isAr ? 'المسمى الوظيفي للمدير (أسفل التوقيع في الفاتورة)' : "Manager's Title (Below Invoice Signature)"}
+              </label>
+              <input
+                type="text"
+                value={formData.manager_title ?? 'Authorized Manager & Finance Director'}
+                onChange={(e) => handleFieldChange({ manager_title: e.target.value })}
+                placeholder={isAr ? 'مثال: المدير المفوض ومدير المالية' : 'e.g. Authorized Manager & Finance Director'}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-cyan-500 focus:bg-white"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                {isAr
+                  ? 'يظهر هذا المسمى مباشرة أسفل توقيع المدير في الفاتورة.'
+                  : "Appears directly below the manager's signature on the invoice."}
+              </p>
+            </div>
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-700 mb-1">Physical Office Address</label>
               <input

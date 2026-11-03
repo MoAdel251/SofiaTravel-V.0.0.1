@@ -185,6 +185,7 @@ export default function App() {
     website: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
     instagram_url: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
     tax_number: "TR-98765",
+    manager_title: "Authorized Manager & Finance Director",
     default_currency: "EGP",
     invoice_prefix: "INV-",
     reservation_prefix: "RES-",

@@ -811,6 +811,7 @@ export interface CompanySettings {
   website: string;
   instagram_url?: string;
   tax_number: string;
+  manager_title?: string;
   bank_name?: string;
   bank_account_number?: string;
   bank_iban_swift?: string;

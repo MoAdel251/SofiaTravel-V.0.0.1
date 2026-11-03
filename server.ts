@@ -86,6 +86,7 @@ let db = {
     email: "operations@sofiatravel.com",
     website: "https://www.sofiatravel.com",
     tax_number: "TR-987654321-001",
+    manager_title: "Authorized Manager & Finance Director",
     bank_name: "National Bank of Egypt (NBE) - Tahrir Branch",
     bank_account_number: "EG540003001500000010987654321",
     bank_iban_swift: "SWIFT: NBEGEGCX054 / IBAN: EG540003001500000010987654321",
