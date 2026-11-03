@@ -289,7 +289,7 @@ export function DashboardView({
 
           <button
             type="button"
-            onClick={() => onNavigateTab && onNavigateTab('employees')}
+            onClick={() => onNavigateTab && onNavigateTab('attendance')}
             className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-start transition-colors cursor-pointer col-span-2 sm:col-span-1"
           >
             <div className="flex items-center justify-between text-emerald-600 mb-1">

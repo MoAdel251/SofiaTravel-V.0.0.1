@@ -3,7 +3,13 @@ import {
   Briefcase, Plus, Phone, Mail, X, Edit2, Trash2, AlertTriangle, Check, Save, Shield, UserX, UserCheck, Lock, Copy, Clock
 } from 'lucide-react';
 import { Employee, UserRole, AttendanceRecord } from '../types';
-import { calculateWorkingHours, formatWorkingHoursLabel, normalizeTimeHHMM } from '../utils/attendance';
+import {
+  calculateWorkingHours,
+  formatWorkingHoursLabel,
+  getPreviousTwoDaysDates,
+  isAttendanceShiftOpen,
+  normalizeTimeHHMM,
+} from '../utils/attendance';
 import { useLanguage } from '../context/LanguageContext';
 
 interface EmployeesViewProps {
@@ -165,7 +171,9 @@ export function EmployeesView({
   // Manual Attendance Modal state (IT Developer Account)
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
   const [attendanceFilterDate, setAttendanceFilterDate] = useState<string>('');
+  const [filterPrevTwoDays, setFilterPrevTwoDays] = useState<boolean>(false);
   const [attendanceFilterEmp, setAttendanceFilterEmp] = useState<string>('ALL');
+  const prevTwoDays = useMemo(() => getPreviousTwoDaysDates(), []);
   const [manualAttForm, setManualAttForm] = useState<{
     id?: string;
     employee_id: string;
@@ -295,18 +303,19 @@ export function EmployeesView({
   const sortedFilteredAttendance = useMemo(() => {
     return [...attendanceRecords]
       .filter(r => {
-        if (attendanceFilterDate && r.date !== attendanceFilterDate) return false;
+        if (filterPrevTwoDays && !prevTwoDays.dates.includes(r.date)) return false;
+        if (!filterPrevTwoDays && attendanceFilterDate && r.date !== attendanceFilterDate) return false;
         if (attendanceFilterEmp !== 'ALL' && r.employee_id !== attendanceFilterEmp && r.employee_name !== attendanceFilterEmp) {
           return false;
         }
         return true;
       })
       .sort((a, b) => {
-        const keyA = `${a.date || ''} ${a.clock_in || ''}`;
-        const keyB = `${b.date || ''} ${b.clock_in || ''}`;
+        const keyA = `${a.date || ''} ${a.clock_in || a.check_in_time || ''}`;
+        const keyB = `${b.date || ''} ${b.clock_in || b.check_in_time || ''}`;
         return keyB.localeCompare(keyA);
       });
-  }, [attendanceRecords, attendanceFilterDate, attendanceFilterEmp]);
+  }, [attendanceRecords, attendanceFilterDate, filterPrevTwoDays, prevTwoDays, attendanceFilterEmp]);
 
   const totalHoursFiltered = useMemo(() => {
     return Math.round(sortedFilteredAttendance.reduce((sum, r) => sum + (Number(r.working_hours) || 0), 0) * 100) / 100;
@@ -667,7 +676,7 @@ export function EmployeesView({
             <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               {/* Self Clock-In / Clock-Out button */}
               {(onSelfClockIn || onSelfClockOut) && (
-                todaySelfAttendance && todaySelfAttendance.status === 'Clocked In' ? (
+                isAttendanceShiftOpen(todaySelfAttendance) ? (
                   <button
                     type="button"
                     onClick={onSelfClockOut}
@@ -676,8 +685,8 @@ export function EmployeesView({
                     <Clock className="w-4 h-4" />
                     <span>
                       {isAr
-                        ? `تسجيل انصراف الآن (حضور: ${todaySelfAttendance.clock_in})`
-                        : `Clock Out Now (In: ${todaySelfAttendance.clock_in})`}
+                        ? `تسجيل انصراف الآن (حضور: ${todaySelfAttendance?.clock_in || todaySelfAttendance?.check_in_time})`
+                        : `Clock Out Now (In: ${todaySelfAttendance?.clock_in || todaySelfAttendance?.check_in_time})`}
                     </span>
                   </button>
                 ) : (
@@ -736,16 +745,38 @@ export function EmployeesView({
                 <input
                   type="date"
                   value={attendanceFilterDate}
-                  onChange={(e) => setAttendanceFilterDate(e.target.value)}
+                  onChange={(e) => {
+                    setFilterPrevTwoDays(false);
+                    setAttendanceFilterDate(e.target.value);
+                  }}
                   className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 font-semibold text-slate-800"
                 />
-                {attendanceFilterDate && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttendanceFilterDate('');
+                    setFilterPrevTwoDays(prev => !prev);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold cursor-pointer transition-colors ${
+                    filterPrevTwoDays
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
+                  }`}
+                >
+                  {isAr
+                    ? `اليومين السابقين (${prevTwoDays.twoDaysAgo} & ${prevTwoDays.yesterday})`
+                    : `Previous 2 Days (${prevTwoDays.twoDaysAgo} & ${prevTwoDays.yesterday})`}
+                </button>
+                {(attendanceFilterDate || filterPrevTwoDays) && (
                   <button
                     type="button"
-                    onClick={() => setAttendanceFilterDate('')}
+                    onClick={() => {
+                      setAttendanceFilterDate('');
+                      setFilterPrevTwoDays(false);
+                    }}
                     className="text-slate-400 hover:text-slate-700 px-2 py-1 font-bold cursor-pointer"
                   >
-                    {isAr ? 'الكل' : 'Clear'}
+                    {isAr ? 'الكل' : 'All'}
                   </button>
                 )}
               </div>
@@ -788,17 +819,22 @@ export function EmployeesView({
                     </tr>
                   ) : (
                     sortedFilteredAttendance.map(rec => {
-                      const computed = calculateWorkingHours(rec.clock_in, rec.clock_out);
-                      const hoursNum = rec.clock_out ? (rec.working_hours ?? computed.working_hours) : 0;
-                      const hoursFmt = rec.clock_out ? (rec.working_hours_formatted || computed.working_hours_formatted) : undefined;
+                      const inVal = rec.clock_in || rec.check_in_time || '';
+                      const rawOutVal = rec.clock_out || rec.check_out_time || '';
+                      const outVal = rawOutVal === '--' ? '' : rawOutVal;
+                      const shiftOpen = isAttendanceShiftOpen(rec);
+                      const computed = calculateWorkingHours(inVal, outVal || undefined);
+                      const hoursNum = !shiftOpen ? (rec.working_hours || computed.working_hours) : 0;
+                      const hoursFmt = !shiftOpen ? (rec.working_hours_formatted || rec.total_working_hours || computed.working_hours_formatted) : undefined;
+                      const lateMins = Number(rec.late_minutes) || 0;
                       return (
                         <tr key={rec.id} className="hover:bg-slate-50/80">
                           <td className="py-3 px-4 font-mono font-bold text-slate-800">{rec.date}</td>
                           <td className="py-3 px-4 font-bold text-slate-900">{rec.employee_name}</td>
-                          <td className="py-3 px-4 font-mono font-semibold text-emerald-700">{rec.clock_in || '-'}</td>
-                          <td className="py-3 px-4 font-mono font-semibold text-blue-700">{rec.clock_out || (isAr ? 'قيد العمل...' : 'Active Shift...')}</td>
+                          <td className="py-3 px-4 font-mono font-semibold text-emerald-700">{inVal || '-'}</td>
+                          <td className="py-3 px-4 font-mono font-semibold text-blue-700">{outVal || (isAr ? 'قيد العمل...' : 'Active Shift...')}</td>
                           <td className="py-3 px-4">
-                            {rec.clock_out ? (
+                            {!shiftOpen && outVal ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold">
                                 <Clock className="w-3.5 h-3.5 text-emerald-600" />
                                 {formatWorkingHoursLabel(hoursNum, hoursFmt, isAr)}
@@ -812,14 +848,19 @@ export function EmployeesView({
                           <td className="py-3 px-4">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                rec.clock_out
+                                !shiftOpen && outVal
                                   ? 'bg-emerald-100 text-emerald-800'
                                   : 'bg-amber-100 text-amber-800'
                               }`}>
-                                {rec.clock_out
+                                {!shiftOpen && outVal
                                   ? (isAr ? 'مكتمل' : 'Completed')
                                   : (isAr ? 'متواجد بالعمل' : 'Clocked In')}
                               </span>
+                              {lateMins > 0 && (
+                                <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold">
+                                  {isAr ? `تأخير ${lateMins} د` : `Late ${lateMins}m`}
+                                </span>
+                              )}
                               <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold">
                                 {rec.entry_source === 'IT Manual'
                                   ? (isAr ? 'إدخال يدوي (IT)' : 'Manual (IT)')

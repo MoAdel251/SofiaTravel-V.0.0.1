@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { CustomersView } from './components/CustomersView';
@@ -12,6 +12,7 @@ import { SuppliersView } from './components/SuppliersView';
 import { FinanceView } from './components/FinanceView';
 import { InvoicesView } from './components/InvoicesView';
 import { EmployeesView } from './components/EmployeesView';
+import { AttendanceDepartureView } from './components/AttendanceDepartureView';
 import { CalendarView } from './components/CalendarView';
 import { TasksView } from './components/TasksView';
 import { DocumentsView } from './components/DocumentsView';
@@ -62,13 +63,35 @@ import {
   TourService,
   DayTripService,
   CustomerInquiry,
-  AttendanceRecord
+  AttendanceRecord,
+  WorkSchedule,
+  AttendanceSettings
 } from './types';
 import { dataService } from './services/dataService';
-import { calculateWorkingHours, isITDeveloperAccount, normalizeTimeHHMM } from './utils/attendance';
+import {
+  calculateWorkingHours,
+  extractAttendanceAndLoginLogs,
+  getLocalDateYYYYMMDD,
+  isAttendanceShiftOpen,
+  isITDeveloperAccount,
+  normalizeAttendanceRecord,
+  normalizeTimeHHMM
+} from './utils/attendance';
 import { SiteMaintenanceOverlay, ITMaintenanceControlModal } from './components/SiteMaintenanceOverlay';
 import { useLanguage } from './context/LanguageContext';
-import { Wrench, Power } from 'lucide-react';
+import { Wrench, Power, BellRing, X } from 'lucide-react';
+import {
+  PhoneNotificationSupportStatus,
+  enableEmployeePhoneNotifications,
+  ensurePushServiceWorkerReady,
+  getPhoneNotificationSupportStatus,
+  isNotificationReadByUser,
+  isNotificationVisibleToUser,
+  resolveEmployeeDesignatedSchedule,
+  showPhoneNotificationViaSW,
+  sortNotificationsNewestFirst,
+  syncExistingEmployeePushSubscription,
+} from './services/pushNotificationService';
 
 export default function App() {
   const { language } = useLanguage();
@@ -89,6 +112,13 @@ export default function App() {
   const [currentCurrency, setCurrentCurrency] = useState<string>('EGP');
   const [isITSiteModalOpen, setIsITSiteModalOpen] = useState(false);
   const [showITLoginFromMaintenance, setShowITLoginFromMaintenance] = useState(false);
+  const [phonePermStatus, setPhonePermStatus] = useState<PhoneNotificationSupportStatus>(() =>
+    getPhoneNotificationSupportStatus()
+  );
+  const [pushBannerDismissed, setPushBannerDismissed] = useState<boolean>(false);
+  const [isActivatingBannerPush, setIsActivatingBannerPush] = useState<boolean>(false);
+  const seenNotificationIdsRef = useRef<Set<string> | null>(null);
+  const localReminderKeysRef = useRef<Set<string>>(new Set());
 
   // Selected package for booking flow auto-population
   const [selectedBookingPackage, setSelectedBookingPackage] = useState<TourPackage | null>(null);
@@ -162,7 +192,9 @@ export default function App() {
     exchange_rates: []
   });
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [rawAttendanceRecords, setRawAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [workSchedules, setWorkSchedules] = useState<WorkSchedule[]>([]);
+  const [attendanceSettings, setAttendanceSettings] = useState<AttendanceSettings | null>(null);
   const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
   const [permissionModalState, setPermissionModalState] = useState<{
     isOpen: boolean;
@@ -184,11 +216,29 @@ export default function App() {
     (e.username === currentUsername || e.name === currentUsername)
   );
 
-  const isCurrentAdmin = userRole === 'Administrator' || currentEmployee?.is_admin === true || currentEmployee?.position === 'Administrator';
-  const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
   const isITAccount = isITDeveloperAccount(currentUsername, currentEmpId, currentEmployee);
+  const isCurrentAdmin =
+    isITAccount ||
+    userRole === 'Administrator' ||
+    currentEmployee?.is_admin === true ||
+    currentEmployee?.position === 'Administrator';
+  const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
 
-  const isAuthorizedToDirectlyModify = userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant';
+  // Merge & normalize attendance records and employee login/logout logs retrieved from Firestore
+  const attendanceLoginLogs = useMemo(
+    () => extractAttendanceAndLoginLogs(activityLogs, financeAuditLogs, employees),
+    [activityLogs, financeAuditLogs, employees]
+  );
+
+  const attendanceRecords = useMemo(
+    () =>
+      rawAttendanceRecords.map(rec =>
+        normalizeAttendanceRecord(rec, employees, attendanceLoginLogs)
+      ),
+    [rawAttendanceRecords, employees, attendanceLoginLogs]
+  );
+
+  const isAuthorizedToDirectlyModify = isITAccount || userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant';
 
   // Helper to log employee entries immediately so Management sees live website activity on the Dashboard
   const recordEmployeeActivity = async (action: string, moduleName: string, recordRef: string) => {
@@ -246,7 +296,14 @@ export default function App() {
       dataService.subscribeCollection<EmployeeAdvance>('employee_advances', setAdvances),
       dataService.subscribeCollection<CommissionRecord>('commission_records', setCommissions),
       dataService.subscribeCollection<FinanceAuditLog>('finance_audit_logs', setFinanceAuditLogs),
-      dataService.subscribeCollection<AttendanceRecord>('employee_attendance', setAttendanceRecords),
+      dataService.subscribeMergedAttendance<AttendanceRecord>(setRawAttendanceRecords),
+      dataService.subscribeCollection<WorkSchedule>('work_schedules', setWorkSchedules),
+      dataService.subscribeDocument<AttendanceSettings>(
+        'attendance_settings',
+        'main',
+        { id: 'main', default_start_time: '10:00', default_end_time: '18:00', default_grace_period_minutes: 0 },
+        setAttendanceSettings
+      ),
     ];
 
     const onWindowFocus = () => {
@@ -529,8 +586,9 @@ export default function App() {
     const totalServicesCount =
       visas.length + flights.length + hotels.length + transfers.length + cruises.length + tours.length + dayTrips.length;
 
-    const todayAttendance = attendanceRecords.filter(a => a.date === todayStr);
-    const clockedInCount = attendanceRecords.filter(a => a.status === 'Clocked In').length;
+    const localTodayStr = getLocalDateYYYYMMDD();
+    const todayAttendance = attendanceRecords.filter(a => a.date === localTodayStr || a.date === todayStr);
+    const clockedInCount = attendanceRecords.filter(a => isAttendanceShiftOpen(a)).length;
     const todayWorkingHours = Math.round(todayAttendance.reduce((acc, a) => acc + (Number(a.working_hours) || 0), 0) * 100) / 100;
 
     // Sort newest entries first so Management immediately sees the latest employee entries
@@ -639,7 +697,9 @@ export default function App() {
         commRes,
         fAuditRes,
         inqRes,
-        attRes
+        attRes,
+        wsRes,
+        attSettRes
       ] = await Promise.all([
         dataService.getCollection<Customer>('customers', '/api/customers', customers),
         dataService.getCollection<Reservation>('reservations', '/api/reservations', reservations),
@@ -669,7 +729,14 @@ export default function App() {
         dataService.getCollection<CommissionRecord>('commission_records', '/api/commission-records', commissions),
         dataService.getCollection<FinanceAuditLog>('finance_audit_logs', '/api/finance-audit-logs', financeAuditLogs),
         dataService.getCollection<CustomerInquiry>('customer_inquiries', '/api/customer-inquiries', customerInquiries),
-        dataService.getCollection<AttendanceRecord>('employee_attendance', '/api/attendance', attendanceRecords)
+        dataService.getMergedAttendanceRecords<AttendanceRecord>(rawAttendanceRecords),
+        dataService.getCollection<WorkSchedule>('work_schedules', '/api/work-schedules', workSchedules),
+        dataService.getDocument<AttendanceSettings>(
+          'attendance_settings',
+          'main',
+          '/api/attendance-settings',
+          attendanceSettings || { id: 'main', default_start_time: '10:00', default_end_time: '18:00', default_grace_period_minutes: 0 }
+        )
       ]);
 
       setCustomers(custRes || []);
@@ -700,7 +767,9 @@ export default function App() {
       setAdvances(advRes || []);
       setCommissions(commRes || []);
       setFinanceAuditLogs(fAuditRes || []);
-      setAttendanceRecords(attRes || []);
+      setRawAttendanceRecords(attRes || []);
+      setWorkSchedules(wsRes || []);
+      if (attSettRes) setAttendanceSettings(attSettRes);
 
     } catch (err) {
       console.error("Error fetching data:", err);
@@ -2295,10 +2364,105 @@ export default function App() {
     fetchAllData();
   };
 
+  const readerKeys = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            currentEmployee?.id,
+            currentEmployee?.employee_id,
+            currentEmpId,
+            currentUsername,
+          ]
+            .map(v => String(v || '').trim())
+            .filter(Boolean)
+        )
+      ),
+    [currentEmployee, currentEmpId, currentUsername]
+  );
+
+  const visibleNotifications = useMemo(() => {
+    const filtered = notifications.filter(n =>
+      isNotificationVisibleToUser(n, {
+        isAdminOrIT: Boolean(isCurrentAdmin || isITAccount),
+        employee: currentEmployee,
+        empId: currentEmpId,
+        username: currentUsername,
+      })
+    );
+    const sorted = sortNotificationsNewestFirst(filtered);
+    return sorted.map(n => ({
+      ...n,
+      read: isNotificationReadByUser(n, readerKeys),
+    }));
+  }, [notifications, isCurrentAdmin, isITAccount, currentEmployee, currentEmpId, currentUsername, readerKeys]);
+
   const handleMarkNotificationRead = async (id: string) => {
-    setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)));
-    await dataService.saveDocument('notifications', id, { read: true }, `/api/notifications/${id}/read`, 'PUT');
-    fetchAllData();
+    const primaryReader = currentEmployee?.id || currentEmpId || currentUsername || 'Employee';
+    const targetNotif = notifications.find(n => n.id === id);
+    const nextReadBy = Array.from(new Set([...(targetNotif?.read_by || []), primaryReader]));
+    const markGlobalRead = targetNotif?.target_scope !== 'ALL';
+
+    setNotifications(prev =>
+      prev.map(n =>
+        n.id === id
+          ? { ...n, read: markGlobalRead ? true : n.read, read_by: nextReadBy }
+          : n
+      )
+    );
+
+    try {
+      await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': primaryReader,
+        },
+        body: JSON.stringify({ reader: primaryReader }),
+      });
+    } catch {}
+    await dataService.saveDocument('notifications', id, {
+      ...(markGlobalRead ? { read: true } : {}),
+      read_by: nextReadBy,
+    });
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    const primaryReader = currentEmployee?.id || currentEmpId || currentUsername || 'Employee';
+    const unreadVisible = visibleNotifications.filter(n => !n.read);
+    if (unreadVisible.length === 0) return;
+
+    const unreadIds = new Set(unreadVisible.map(n => n.id));
+    setNotifications(prev =>
+      prev.map(n => {
+        if (!unreadIds.has(n.id)) return n;
+        const nextReadBy = Array.from(new Set([...(n.read_by || []), primaryReader]));
+        const markGlobalRead = n.target_scope !== 'ALL';
+        return { ...n, read: markGlobalRead ? true : n.read, read_by: nextReadBy };
+      })
+    );
+
+    try {
+      await fetch('/api/notifications/read-all', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': primaryReader,
+        },
+        body: JSON.stringify({ reader: primaryReader }),
+      });
+    } catch {}
+
+    await Promise.all(
+      unreadVisible.map(n => {
+        const nextReadBy = Array.from(new Set([...(n.read_by || []), primaryReader]));
+        const markGlobalRead = n.target_scope !== 'ALL';
+        return dataService.saveDocument('notifications', n.id, {
+          ...(markGlobalRead ? { read: true } : {}),
+          read_by: nextReadBy,
+        });
+      })
+    );
   };
 
   const handleUpdateSettings = async (newSettings: CompanySettings) => {
@@ -2356,14 +2520,14 @@ export default function App() {
   };
 
   // Unified Attendance & Working Hours Logic (Identical calculation for Employee Self Clock-In/Out & IT Manual Entry)
-  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayDateStr = getLocalDateYYYYMMDD();
   const activeSelfId = currentEmployee?.id || currentEmpId || currentUsername;
   const activeSelfName = currentEmployee?.name || currentUsername;
 
   const todaySelfAttendance: AttendanceRecord | null =
     attendanceRecords.find(
       a =>
-        a.status === 'Clocked In' &&
+        isAttendanceShiftOpen(a) &&
         (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
     ) ||
     attendanceRecords.find(
@@ -2377,34 +2541,41 @@ export default function App() {
     const now = new Date();
     const clockInHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const calc = calculateWorkingHours(clockInHHMM, '');
-    const newAttId = 'ATT-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 5).toUpperCase();
+    const ts = Date.now();
+    const newAttId = `ATT-${ts}-${activeSelfId}`;
 
     const newRec: AttendanceRecord = {
       id: newAttId,
+      attendance_id: `ATT-${ts}`,
       employee_id: activeSelfId,
       employee_name: activeSelfName,
       date: todayDateStr,
       clock_in: clockInHHMM,
       clock_out: '',
+      check_in_time: clockInHHMM,
+      check_out_time: '',
       working_hours: calc.working_hours,
       working_hours_formatted: calc.working_hours_formatted,
+      total_working_hours: '--',
       status: calc.status,
       entry_source: 'Employee',
       recorded_by: activeSelfName,
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
 
-    setAttendanceRecords(prev => [newRec, ...prev]);
-    await dataService.saveDocument('employee_attendance', newAttId, newRec, '/api/attendance', 'POST');
-    await recordEmployeeActivity(`Clocked in at ${clockInHHMM}`, 'Attendance', newAttId);
+    setRawAttendanceRecords(prev => [newRec, ...prev]);
+    await dataService.saveDocument('attendance', newAttId, newRec, '/api/attendance', 'POST');
+    await recordEmployeeActivity(`Self Log In`, 'Attendance', activeSelfId);
     showToast(isAr ? `تم تسجيل الحضور في ${clockInHHMM}` : `Clocked in at ${clockInHHMM}`);
   };
 
   const handleSelfClockOut = async () => {
     const openRec = attendanceRecords.find(
       a =>
-        a.status === 'Clocked In' &&
+        isAttendanceShiftOpen(a) &&
         (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
     );
     if (!openRec) {
@@ -2414,24 +2585,30 @@ export default function App() {
 
     const now = new Date();
     const clockOutHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const checkInRef = openRec.clock_in || openRec.check_in_time || '';
     // Calculate working hours using the unified calculator
-    const calc = calculateWorkingHours(openRec.clock_in, clockOutHHMM);
+    const calc = calculateWorkingHours(checkInRef, clockOutHHMM);
 
     const updatedRec: AttendanceRecord = {
       ...openRec,
+      clock_in: checkInRef,
       clock_out: clockOutHHMM,
+      check_in_time: checkInRef,
+      check_out_time: clockOutHHMM,
       working_hours: calc.working_hours,
       working_hours_formatted: calc.working_hours_formatted,
+      total_working_hours: calc.working_hours_formatted,
       status: calc.status,
+      updated_at: now.toISOString(),
       updatedAt: now.toISOString(),
     };
 
-    setAttendanceRecords(prev => prev.map(a => (a.id === openRec.id ? updatedRec : a)));
-    await dataService.saveDocument('employee_attendance', openRec.id, updatedRec, `/api/attendance/${openRec.id}`, 'PUT');
+    setRawAttendanceRecords(prev => prev.map(a => (a.id === openRec.id ? updatedRec : a)));
+    await dataService.saveDocument('attendance', openRec.id, updatedRec, `/api/attendance/${openRec.id}`, 'PUT');
     await recordEmployeeActivity(
-      `Clocked out at ${clockOutHHMM} — Working hours: ${calc.working_hours_formatted} (${calc.working_hours} hrs)`,
+      `Self Log Out (${clockOutHHMM} — ${calc.working_hours_formatted})`,
       'Attendance',
-      openRec.id
+      activeSelfId
     );
     showToast(
       isAr
@@ -2464,27 +2641,35 @@ export default function App() {
       ? attendanceRecords.find(a => a.id === data.id)
       : attendanceRecords.find(a => a.employee_id === data.employee_id && a.date === data.date);
 
-    const targetId = existing?.id || data.id || ('ATT-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 5).toUpperCase());
+    const ts = Date.now();
+    const targetId = existing?.id || data.id || `ATT-${ts}-${data.employee_id}`;
     const nowIso = new Date().toISOString();
 
     const record: AttendanceRecord = {
+      ...(existing || {}),
       id: targetId,
+      attendance_id: existing?.attendance_id || `ATT-${ts}`,
       employee_id: data.employee_id,
       employee_name: data.employee_name,
       date: data.date,
       clock_in: normalizedIn,
       clock_out: normalizedOut,
+      check_in_time: normalizedIn,
+      check_out_time: normalizedOut,
       working_hours: calc.working_hours,
       working_hours_formatted: calc.working_hours_formatted,
+      total_working_hours: normalizedOut ? calc.working_hours_formatted : '--',
       status: calc.status,
       entry_source: 'IT Manual',
       recorded_by: 'IT',
       notes: data.notes || '',
+      created_at: existing?.created_at || existing?.createdAt || nowIso,
+      updated_at: nowIso,
       createdAt: existing?.createdAt || nowIso,
       updatedAt: nowIso,
     };
 
-    setAttendanceRecords(prev => {
+    setRawAttendanceRecords(prev => {
       const exists = prev.some(a => a.id === targetId);
       return exists ? prev.map(a => (a.id === targetId ? record : a)) : [record, ...prev];
     });
@@ -2499,10 +2684,10 @@ export default function App() {
         body: JSON.stringify(record),
       });
     } catch {}
-    await dataService.saveDocument('employee_attendance', targetId, record);
+    await dataService.saveDocument('attendance', targetId, record);
 
     await recordEmployeeActivity(
-      `Manual attendance saved for ${record.employee_name} (${record.date}: ${record.clock_in}${record.clock_out ? ` → ${record.clock_out}, ${record.working_hours_formatted}` : ''})`,
+      `Attendance Edited (${record.employee_name} — ${record.date}: ${record.clock_in}${record.clock_out ? ` → ${record.clock_out}, ${record.working_hours_formatted}` : ''})`,
       'Attendance',
       targetId
     );
@@ -2520,13 +2705,14 @@ export default function App() {
 
   const handleDeleteAttendanceByIT = async (id: string) => {
     if (!isITAccount) return;
-    setAttendanceRecords(prev => prev.filter(a => a.id !== id));
+    setRawAttendanceRecords(prev => prev.filter(a => a.id !== id));
     try {
       await fetch(`/api/attendance/${id}`, {
         method: 'DELETE',
         headers: { 'x-acting-user': 'IT' },
       });
     } catch {}
+    await dataService.deleteDocument('attendance', id);
     await dataService.deleteDocument('employee_attendance', id);
   };
 
@@ -2567,7 +2753,7 @@ export default function App() {
     setDocuments([]);
     setNotifications([]);
     setActivityLogs([]);
-    setAttendanceRecords([]);
+    setRawAttendanceRecords([]);
     setPermissionRequests([]);
     if (includeEmployees) {
       setEmployees(prev => prev.filter(e => e.is_admin === true || e.position === 'Administrator'));
@@ -2577,7 +2763,195 @@ export default function App() {
     showToast('All existing operational data has been permanently deleted. Ready for clean republish!');
   };
 
-  const unreadNotifsCount = notifications.filter(n => !n.read).length;
+  const myDesignatedSchedule = useMemo(
+    () =>
+      resolveEmployeeDesignatedSchedule(
+        {
+          id: activeSelfId,
+          employee_id: currentEmployee?.employee_id || activeSelfId,
+          name: activeSelfName,
+          username: currentEmployee?.username || currentUsername,
+        },
+        workSchedules,
+        attendanceSettings
+      ),
+    [activeSelfId, activeSelfName, currentEmployee, currentUsername, workSchedules, attendanceSettings]
+  );
+
+  // Register & auto-update Service Worker on installed phone web app + browser
+  useEffect(() => {
+    ensurePushServiceWorkerReady(setCurrentTab).catch(() => {});
+    const updatePerm = () => setPhonePermStatus(getPhoneNotificationSupportStatus());
+    document.addEventListener('visibilitychange', updatePerm);
+    return () => document.removeEventListener('visibilitychange', updatePerm);
+  }, []);
+
+  // Automatically sync Web Push subscription when an employee has allowed notifications
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const status = getPhoneNotificationSupportStatus();
+    setPhonePermStatus(status);
+    if (status === 'granted') {
+      syncExistingEmployeePushSubscription({
+        employee_id: activeSelfId,
+        employee_name: activeSelfName,
+        username: currentUsername,
+        user_role: isITAccount ? 'IT Developer' : userRole,
+        language,
+        designated_check_in: myDesignatedSchedule.checkIn,
+        designated_check_out: myDesignatedSchedule.checkOut,
+      }).catch(() => {});
+    }
+  }, [
+    isAuthenticated,
+    activeSelfId,
+    activeSelfName,
+    currentUsername,
+    isITAccount,
+    userRole,
+    language,
+    myDesignatedSchedule.checkIn,
+    myDesignatedSchedule.checkOut,
+  ]);
+
+  // Real-time live phone alert delivery for newly created notifications (deduplicated with Web Push via tag)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (seenNotificationIdsRef.current === null) {
+      seenNotificationIdsRef.current = new Set(notifications.map(n => n.id));
+      return;
+    }
+
+    const newlyArrived = notifications.filter(n => !seenNotificationIdsRef.current!.has(n.id));
+    notifications.forEach(n => seenNotificationIdsRef.current!.add(n.id));
+
+    if (newlyArrived.length === 0 || getPhoneNotificationSupportStatus() !== 'granted') {
+      return;
+    }
+
+    const nowMs = Date.now();
+    newlyArrived.forEach(notif => {
+      // Only show if targeted to ALL or to this specific employee (not other employees' private schedule alerts viewed by Admin)
+      const isForMe = isNotificationVisibleToUser(notif, {
+        isAdminOrIT: false,
+        employee: currentEmployee,
+        empId: currentEmpId,
+        username: currentUsername,
+      });
+      if (!isForMe) return;
+
+      // Avoid replaying old historical notifications on delayed sync
+      if (notif.created_at) {
+        const createdMs = new Date(notif.created_at).getTime();
+        if (!isNaN(createdMs) && nowMs - createdMs > 2 * 60 * 1000) return;
+      }
+
+      // Skip welcome notification since enableEmployeePhoneNotifications already showed it
+      if (String(notif.id || '').startsWith('NOTIF-WELCOME-')) return;
+
+      showPhoneNotificationViaSW({
+        id: notif.id,
+        title: notif.title,
+        body: notif.message,
+        lang: language,
+        tab: notif.type === 'attendance_reminder' ? 'attendance' : 'notifications',
+      }).catch(() => {});
+    });
+  }, [notifications, isAuthenticated, currentEmployee, currentEmpId, currentUsername, language]);
+
+  // Client-side designated check-in & check-out reminder safeguard (runs when phone app/browser is open even if offline)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const runClientScheduleCheck = () => {
+      if (getPhoneNotificationSupportStatus() !== 'granted') return;
+      const now = new Date();
+      const dateStr = getLocalDateYYYYMMDD(now);
+      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      if (Array.isArray(myDesignatedSchedule.workingDays) && myDesignatedSchedule.workingDays.length > 0) {
+        const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const todayWeekday = weekdays[now.getDay()];
+        const worksToday = myDesignatedSchedule.workingDays.some(
+          d =>
+            d.trim().toLowerCase() === todayWeekday.toLowerCase() ||
+            d.trim().toLowerCase().startsWith(todayWeekday.substring(0, 3).toLowerCase())
+        );
+        if (!worksToday) return;
+      }
+
+      if (hhmm === myDesignatedSchedule.checkIn) {
+        const slotKey = `${dateStr}_${activeSelfId}_checkin`;
+        if (!localReminderKeysRef.current.has(slotKey)) {
+          localReminderKeysRef.current.add(slotKey);
+          const notifId = `NOTIF-AUTO-${slotKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          showPhoneNotificationViaSW({
+            id: notifId,
+            title: isAr
+              ? `حان موعد تسجيل الحضور (${myDesignatedSchedule.checkIn})`
+              : `Check-In Time Now (${myDesignatedSchedule.checkIn})`,
+            body: isAr
+              ? `مرحباً ${activeSelfName}، حان موعد حضورك المحدد (${myDesignatedSchedule.checkIn}). موعد انصرافك المحدد اليوم هو ${myDesignatedSchedule.checkOut}.`
+              : `Hello ${activeSelfName}, it is your designated check-in time (${myDesignatedSchedule.checkIn}). Your designated check-out today is ${myDesignatedSchedule.checkOut}.`,
+            lang: language,
+            tab: 'attendance',
+          }).catch(() => {});
+        }
+      } else if (hhmm === myDesignatedSchedule.checkOut) {
+        const slotKey = `${dateStr}_${activeSelfId}_checkout`;
+        if (!localReminderKeysRef.current.has(slotKey)) {
+          localReminderKeysRef.current.add(slotKey);
+          const notifId = `NOTIF-AUTO-${slotKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          showPhoneNotificationViaSW({
+            id: notifId,
+            title: isAr
+              ? `حان موعد تسجيل الانصراف (${myDesignatedSchedule.checkOut})`
+              : `Check-Out Time Now (${myDesignatedSchedule.checkOut})`,
+            body: isAr
+              ? `مرحباً ${activeSelfName}، حان موعد انصرافك المحدد (${myDesignatedSchedule.checkOut}) بعد دوام بدأ ${myDesignatedSchedule.checkIn}.`
+              : `Hello ${activeSelfName}, it is your designated check-out time (${myDesignatedSchedule.checkOut}) for your ${myDesignatedSchedule.checkIn}–${myDesignatedSchedule.checkOut} shift.`,
+            lang: language,
+            tab: 'attendance',
+          }).catch(() => {});
+        }
+      }
+    };
+
+    const interval = setInterval(runClientScheduleCheck, 30 * 1000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, activeSelfId, activeSelfName, myDesignatedSchedule, isAr, language]);
+
+  const handleQuickAllowPhonePush = async () => {
+    setIsActivatingBannerPush(true);
+    try {
+      const result = await enableEmployeePhoneNotifications({
+        employee_id: activeSelfId,
+        employee_name: activeSelfName,
+        username: currentUsername,
+        user_role: isITAccount ? 'IT Developer' : userRole,
+        language,
+        designated_check_in: myDesignatedSchedule.checkIn,
+        designated_check_out: myDesignatedSchedule.checkOut,
+      });
+      setPhonePermStatus(result.status);
+      if (result.granted) {
+        showToast(
+          isAr
+            ? `تم تفعيل إشعارات الهاتف وإرسال تنبيه فوري لهاتفك! (حضور ${result.schedule.checkIn} • انصراف ${result.schedule.checkOut})`
+            : `Phone alerts enabled & instant notification sent! (Check-In ${result.schedule.checkIn} • Check-Out ${result.schedule.checkOut})`
+        );
+      } else if (result.status === 'ios_install_required') {
+        showToast(
+          isAr
+            ? 'على iPhone: اضغط مشاركة في Safari ثم "إضافة إلى الشاشة الرئيسية" لتفعيل إشعارات الهاتف.'
+            : 'On iPhone: Tap Share in Safari -> "Add to Home Screen" first to enable Web Push alerts.'
+        );
+      }
+    } finally {
+      setIsActivatingBannerPush(false);
+    }
+  };
+
+  const unreadNotifsCount = visibleNotifications.filter(n => !n.read).length;
 
   const handleLogin = (name: string, role: UserRole, empId?: string) => {
     setCurrentUsername(name);
@@ -2712,9 +3086,10 @@ export default function App() {
         setCurrentCurrency={setCurrentCurrency}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenAi={() => setIsAiOpen(true)}
-        notifications={notifications}
+        notifications={visibleNotifications}
         pendingPermissionCount={permissionRequests.filter(r => r.status === 'Pending').length}
         onMarkNotificationRead={handleMarkNotificationRead}
+        onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         username={currentUsername}
@@ -2733,6 +3108,40 @@ export default function App() {
         onClockIn={handleSelfClockIn}
         onClockOut={handleSelfClockOut}
       />
+
+      {/* One-Tap Phone Push Notification Permission Strip for Employees */}
+      {isAuthenticated && phonePermStatus === 'default' && !pushBannerDismissed && currentTab !== 'notifications' && (
+        <div className="bg-slate-900 border-b border-slate-800 text-white px-3 sm:px-6 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-30">
+          <div className="flex items-center gap-2 min-w-0">
+            <BellRing className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span className="font-semibold text-slate-200 truncate">
+              {isAr
+                ? `فعّل إشعارات الهاتف الفورية لتذكيرك بموعد حضورك (${myDesignatedSchedule.checkIn}) وانصرافك (${myDesignatedSchedule.checkOut})`
+                : `Enable direct phone push alerts & check-in (${myDesignatedSchedule.checkIn}) / check-out (${myDesignatedSchedule.checkOut}) reminders`}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0 ms-auto">
+            <button
+              type="button"
+              onClick={handleQuickAllowPhonePush}
+              disabled={isActivatingBannerPush}
+              className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-[11px] cursor-pointer transition-colors"
+            >
+              {isActivatingBannerPush
+                ? (isAr ? 'جاري التفعيل...' : 'Enabling...')
+                : (isAr ? 'السماح بالإشعارات' : 'Allow Notifications')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPushBannerDismissed(true)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              aria-label="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto overscroll-y-contain w-full max-w-full">
         <main className="flex-1 pb-24 lg:pb-6 w-full max-w-full overflow-x-hidden">
@@ -2977,7 +3386,7 @@ export default function App() {
               onEditEmployee={handleEditEmployee}
               onDeleteEmployee={handleDeleteEmployee}
               onDeactivateEmployee={handleDeactivateEmployee}
-              userRole={userRole}
+              userRole={isITAccount ? 'Administrator' : userRole}
               userPermissions={currentUserPermissions}
               onAddAuditLog={handleAddAuditLog}
               currentUsername={currentUsername}
@@ -2991,6 +3400,26 @@ export default function App() {
               onSelfClockIn={handleSelfClockIn}
               onSelfClockOut={handleSelfClockOut}
               todaySelfAttendance={todaySelfAttendance}
+            />
+          )}
+          {currentTab === 'attendance' && (
+            <AttendanceDepartureView
+              employees={employees}
+              attendanceRecords={attendanceRecords}
+              loginLogs={attendanceLoginLogs}
+              workSchedules={workSchedules}
+              attendanceSettings={attendanceSettings}
+              userRole={userRole}
+              currentUsername={currentUsername}
+              currentEmpId={activeSelfId}
+              isAdmin={isCurrentAdmin}
+              isITAccount={isITAccount}
+              todaySelfAttendance={todaySelfAttendance}
+              onSelfClockIn={handleSelfClockIn}
+              onSelfClockOut={handleSelfClockOut}
+              onSaveManualAttendance={handleSaveManualAttendanceByIT}
+              onDeleteAttendance={handleDeleteAttendanceByIT}
+              onSyncFromDatabase={fetchAllData}
             />
           )}
           {currentTab === 'calendar' && (
@@ -3050,7 +3479,22 @@ export default function App() {
             />
           )}
           {currentTab === 'notifications' && (
-            <NotificationsView notifications={notifications} onMarkRead={handleMarkNotificationRead} />
+            <NotificationsView
+              notifications={visibleNotifications}
+              onMarkRead={handleMarkNotificationRead}
+              onMarkAllRead={handleMarkAllNotificationsRead}
+              employees={employees}
+              workSchedules={workSchedules}
+              attendanceSettings={attendanceSettings}
+              currentEmployee={currentEmployee}
+              currentUsername={currentUsername}
+              currentEmpId={activeSelfId}
+              userRole={userRole}
+              isAdmin={isCurrentAdmin}
+              isITAccount={isITAccount}
+              onPermissionStatusChange={setPhonePermStatus}
+              onShowToast={showToast}
+            />
           )}
           {currentTab === 'settings' && (
             <SettingsView 

@@ -1,12 +1,14 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import webpush from 'web-push';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -175,7 +177,11 @@ let db = {
   commission_records: [],
   finance_audit_logs: [],
   customer_inquiries: [],
-  employee_attendance: []
+  attendance: [],
+  work_schedules: [],
+  attendance_settings: [],
+  employee_attendance: [],
+  push_subscriptions: []
 };
 
 async function getCollectionDocs(collectionName: string): Promise<any[]> {
@@ -232,14 +238,21 @@ async function loadFromFirestore() {
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries", "employee_attendance"
+    "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "attendance_settings", "employee_attendance",
+    "push_subscriptions"
   ];
   try {
     console.log("Loading persistent data from Firestore...");
     const setSnap = await getDocs(collection(firestoreDb, "settings"));
+    const reservedSettingIds = new Set(['system_status', 'web_push_vapid', 'schedule_reminder_state']);
     if (!setSnap.empty) {
-      const foundDoc = setSnap.docs.find(d => d.id === 'company_settings') || setSnap.docs.find(d => d.id === 'main') || setSnap.docs[0];
-      db.settings = { ...db.settings, ...foundDoc.data() };
+      const foundDoc =
+        setSnap.docs.find(d => d.id === 'company_settings') ||
+        setSnap.docs.find(d => d.id === 'main') ||
+        setSnap.docs.find(d => !reservedSettingIds.has(d.id));
+      if (foundDoc) {
+        db.settings = { ...db.settings, ...foundDoc.data() };
+      }
     } else {
       await setDoc(doc(firestoreDb, "settings", "company_settings"), db.settings);
     }
@@ -261,7 +274,7 @@ async function wipeAllFirestoreTestData(includeNonAdminEmployees = true, actingA
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries", "employee_attendance"
+    "finance_audit_logs", "customer_inquiries", "attendance", "employee_attendance"
   ];
   console.log(`Admin action by ${actingAdmin}: Wiping all operational data from Firestore...`);
   for (const col of collections) {
@@ -340,6 +353,19 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-acting-user, x-acting-role");
+  // Ensure installed phone PWAs always pull updated Service Worker and manifest immediately
+  if (
+    req.path === '/sw.js' ||
+    req.path === '/push-sw.js' ||
+    req.path === '/registerSW.js' ||
+    req.path === '/manifest.webmanifest' ||
+    req.path === '/manifest.json'
+  ) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Service-Worker-Allowed', '/');
+  }
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
@@ -402,19 +428,35 @@ async function logActivity(userName: string, action: string, module: string, rec
   await saveToFirestore('activity_logs', newLog.id, newLog);
 }
 
-// Helper function to add notifications
-async function addNotification(title: string, message: string, type: string = 'action', link_id?: string) {
+// Helper function to add notifications (with optional targeting & Web Push metadata)
+async function addNotification(
+  title: string,
+  message: string,
+  type: string = 'action',
+  link_id?: string,
+  extraFields: Record<string, any> = {}
+) {
+  const nowIso = new Date().toISOString();
   const notif = {
-    id: 'NOTIF-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+    id: extraFields.id || ('NOTIF-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6)),
     title,
     message,
     type: type as any,
-    date: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    date: extraFields.date || nowIso.replace('T', ' ').substring(0, 16),
+    created_at: extraFields.created_at || nowIso,
     read: false,
-    link_id
+    read_by: Array.isArray(extraFields.read_by) ? extraFields.read_by : [],
+    target_scope: extraFields.target_scope || 'ALL',
+    link_id,
+    ...extraFields,
   };
   if (!db.notifications) db.notifications = [];
-  db.notifications.unshift(notif);
+  const existingIdx = db.notifications.findIndex((n: any) => n.id === notif.id);
+  if (existingIdx >= 0) {
+    db.notifications[existingIdx] = notif;
+  } else {
+    db.notifications.unshift(notif);
+  }
   await saveToFirestore('notifications', notif.id, notif);
   return notif;
 }
@@ -683,9 +725,13 @@ app.post("/api/permission-requests/:id/reject", async (req, res) => {
 app.get("/api/settings", async (req, res) => {
   try {
     const setSnap = await getDocs(collection(firestoreDb, 'settings'));
+    const reservedSettingIds = new Set(['system_status', 'web_push_vapid', 'schedule_reminder_state']);
     if (!setSnap.empty) {
-      const targetDoc = setSnap.docs.find(d => d.id === 'company_settings') || setSnap.docs.find(d => d.id === 'main') || setSnap.docs[0];
-      if (targetDoc && targetDoc.id !== 'system_status') {
+      const targetDoc =
+        setSnap.docs.find(d => d.id === 'company_settings') ||
+        setSnap.docs.find(d => d.id === 'main') ||
+        setSnap.docs.find(d => !reservedSettingIds.has(d.id));
+      if (targetDoc) {
         db.settings = { ...db.settings, ...targetDoc.data(), logo: "/sofia-logo.png" };
       }
     }
@@ -802,10 +848,158 @@ function calculateServerWorkingHours(clockIn?: string | null, clockOut?: string 
   };
 }
 
-// Employee Attendance & Working Hours API
+function normalizeServerAttendanceRecord(raw: any, employeesList: any[] = []) {
+  const rawIn = raw.clock_in || raw.check_in_time || '';
+  const rawOutCandidate = raw.clock_out || raw.check_out_time || '';
+  const rawOut = rawOutCandidate === '--' || rawOutCandidate === '-' ? '' : rawOutCandidate;
+  const calc = calculateServerWorkingHours(rawIn, rawOut || null);
+
+  const empId = String(raw.employee_id || '').trim();
+  const empNameRaw = String(raw.employee_name || '').trim();
+  const matchedEmp = employeesList.find(
+    (e: any) =>
+      (empId && (e.id === empId || e.employee_id === empId)) ||
+      (empNameRaw && (e.id === empNameRaw || e.employee_id === empNameRaw || e.name === empNameRaw || e.username === empNameRaw))
+  );
+  const resolvedName = matchedEmp
+    ? (matchedEmp.name || matchedEmp.full_name || matchedEmp.username || empNameRaw)
+    : (empNameRaw || empId || 'Employee');
+
+  const shiftCompleted = Boolean(rawIn && rawOut);
+  return {
+    ...raw,
+    id: raw.id || raw.attendance_id,
+    attendance_id: raw.attendance_id || raw.id,
+    employee_id: empId || matchedEmp?.id || '',
+    employee_name: resolvedName,
+    date: raw.date || '',
+    clock_in: rawIn,
+    clock_out: rawOut,
+    check_in_time: rawIn,
+    check_out_time: rawOut,
+    working_hours: shiftCompleted ? calc.working_hours : 0,
+    working_hours_formatted: shiftCompleted ? calc.working_hours_formatted : '0h 00m',
+    total_working_hours: shiftCompleted ? calc.working_hours_formatted : '--',
+    late_minutes: Number(raw.late_minutes) || 0,
+    early_departure_minutes: Number(raw.early_departure_minutes) || 0,
+    attendance_status: raw.attendance_status || (raw.status === 'Late' || Number(raw.late_minutes) > 0 ? 'Late' : 'Present'),
+    status: shiftCompleted ? 'Completed' : 'Clocked In',
+  };
+}
+
+async function loadMergedAttendanceFromFirestore() {
+  const [primaryAtt, legacyAtt, emps] = await Promise.all([
+    getCollectionDocs('attendance'),
+    getCollectionDocs('employee_attendance'),
+    getCollectionDocs('employees'),
+  ]);
+  const map = new Map<string, any>();
+  legacyAtt.forEach((docItem: any) => {
+    map.set(docItem.id, normalizeServerAttendanceRecord(docItem, emps));
+  });
+  primaryAtt.forEach((docItem: any) => {
+    const prev = map.get(docItem.id) || {};
+    map.set(docItem.id, normalizeServerAttendanceRecord({ ...prev, ...docItem }, emps));
+  });
+  const merged = Array.from(map.values()).sort((a, b) =>
+    `${b.date || ''} ${b.clock_in || ''}`.localeCompare(`${a.date || ''} ${a.clock_in || ''}`)
+  );
+  db.attendance = merged;
+  return merged;
+}
+
+// Employee Attendance, Departure & Working Hours API (Connected to Firestore 'attendance')
 app.get("/api/attendance", async (req, res) => {
-  const records = await getCollectionDocs('employee_attendance');
+  const records = await loadMergedAttendanceFromFirestore();
   res.json(records);
+});
+
+app.get("/api/work-schedules", async (req, res) => {
+  const schedules = await getCollectionDocs('work_schedules');
+  res.json(schedules);
+});
+
+app.get("/api/attendance-settings", async (req, res) => {
+  const settingsDocs = await getCollectionDocs('attendance_settings');
+  const mainDoc = settingsDocs.find((d: any) => d.id === 'main') || settingsDocs[0] || null;
+  res.json(mainDoc);
+});
+
+// Retrieve Attendance & Log-In Data for the Previous Two Days from Cloud Firestore
+app.get("/api/attendance/previous-two-days", async (req, res) => {
+  const now = new Date();
+  const fmtLocal = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+  const d1 = new Date(base);
+  d1.setDate(base.getDate() - 1);
+  const d2 = new Date(base);
+  d2.setDate(base.getDate() - 2);
+  const twoDaysAgo = fmtLocal(d2);
+  const yesterday = fmtLocal(d1);
+  const today = fmtLocal(base);
+  const targetDates = new Set([twoDaysAgo, yesterday]);
+
+  const [allAttendance, actLogs, finLogs] = await Promise.all([
+    loadMergedAttendanceFromFirestore(),
+    getCollectionDocs('activity_logs'),
+    getCollectionDocs('finance_audit_logs'),
+  ]);
+
+  const attendancePreviousTwoDays = allAttendance.filter((r: any) => targetDates.has(r.date));
+
+  const loginMap = new Map<string, any>();
+  actLogs.forEach((act: any) => {
+    const mod = String(act.module || '').toLowerCase();
+    const action = String(act.action || '').toLowerCase();
+    if (
+      (mod.includes('attendance') || action.includes('log in') || action.includes('log out') || action.includes('clocked')) &&
+      targetDates.has(act.date)
+    ) {
+      const key = String(act.id || '').replace(/^ACT-/, '');
+      loginMap.set(key, {
+        id: key,
+        employee_name: act.user_name,
+        action: act.action,
+        details: act.action,
+        date: act.date,
+        time: act.time,
+        record_id: act.record,
+      });
+    }
+  });
+
+  finLogs.forEach((fin: any) => {
+    const recType = String(fin.record_type || '').toLowerCase();
+    const val = String(fin.new_value || '').toLowerCase();
+    if (!recType.includes('attendance') && !val.includes('logged in') && !val.includes('logged out')) return;
+    const key = String(fin.id || '').replace(/^ACT-/, '');
+    const existing = loginMap.get(key);
+    let dateStr = existing?.date || '';
+    if (!dateStr && fin.updatedAt) {
+      const dt = new Date(fin.updatedAt);
+      if (!isNaN(dt.getTime())) dateStr = fmtLocal(dt);
+    }
+    if (!targetDates.has(dateStr)) return;
+    const timeMatch = String(fin.new_value || '').match(/at\s+(\d{1,2}:\d{2})/i);
+    loginMap.set(key, {
+      id: key,
+      employee_name: fin.user_name || existing?.employee_name,
+      user_role: fin.user_role,
+      action: existing?.action || fin.action,
+      details: fin.new_value || existing?.details || fin.action,
+      date: dateStr,
+      time: timeMatch ? timeMatch[1] : (existing?.time || ''),
+      record_id: fin.record_id || existing?.record_id,
+    });
+  });
+
+  res.json({
+    today,
+    dates: [twoDaysAgo, yesterday],
+    attendance: attendancePreviousTwoDays,
+    login_logs: Array.from(loginMap.values()),
+  });
 });
 
 app.post("/api/attendance", async (req, res) => {
@@ -815,39 +1009,47 @@ app.post("/api/attendance", async (req, res) => {
     return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can manually add employee clock-in/clock-out times.' });
   }
 
-  const attId = req.body.id || ("ATT-" + Math.random().toString(36).substring(2, 8).toUpperCase());
-  const calc = calculateServerWorkingHours(req.body.clock_in, req.body.clock_out);
+  const attId = req.body.id || ("ATT-" + Date.now() + "-" + (req.body.employee_id || Math.random().toString(36).substring(2, 6).toUpperCase()));
+  const rawIn = req.body.clock_in || req.body.check_in_time || '';
+  const rawOut = req.body.clock_out || req.body.check_out_time || '';
+  const calc = calculateServerWorkingHours(rawIn, rawOut || null);
   const nowIso = new Date().toISOString();
+  const shiftCompleted = Boolean(rawIn && rawOut);
 
   const record = {
     ...req.body,
     id: attId,
+    attendance_id: req.body.attendance_id || attId,
     date: req.body.date || nowIso.split('T')[0],
-    working_hours: calc.working_hours,
-    working_hours_formatted: calc.working_hours_formatted,
+    clock_in: rawIn,
+    clock_out: rawOut,
+    check_in_time: rawIn,
+    check_out_time: rawOut,
+    working_hours: shiftCompleted ? calc.working_hours : 0,
+    working_hours_formatted: shiftCompleted ? calc.working_hours_formatted : '0h 00m',
+    total_working_hours: shiftCompleted ? calc.working_hours_formatted : '--',
     status: calc.status,
     entry_source: isManualRequest ? 'IT Manual' : (req.body.entry_source || 'Employee'),
     recorded_by: actingUser || req.body.employee_name || 'Employee',
+    created_at: req.body.created_at || req.body.createdAt || nowIso,
+    updated_at: nowIso,
     createdAt: req.body.createdAt || nowIso,
     updatedAt: nowIso
   };
 
-  if (!db.employee_attendance) db.employee_attendance = [];
-  const idx = db.employee_attendance.findIndex((a: any) => a.id === attId);
-  if (idx >= 0) {
-    db.employee_attendance[idx] = record;
-  } else {
-    db.employee_attendance.unshift(record);
-  }
+  if (!db.attendance) db.attendance = [];
+  const idx = db.attendance.findIndex((a: any) => a.id === attId);
+  if (idx >= 0) db.attendance[idx] = record;
+  else db.attendance.unshift(record);
 
-  await saveToFirestore('employee_attendance', attId, record);
+  await saveToFirestore('attendance', attId, record);
   await logActivity(
     record.recorded_by,
     isManualRequest
       ? `Manual attendance recorded for ${record.employee_name} (${record.working_hours_formatted})`
-      : `${record.status === 'Completed' ? 'Clocked out' : 'Clocked in'} (${record.employee_name})`,
+      : `${record.status === 'Completed' ? 'Self Log Out' : 'Self Log In'}`,
     'Attendance',
-    record.id
+    record.employee_id || record.id
   );
   res.json(record);
 });
@@ -860,43 +1062,46 @@ app.put("/api/attendance/:id", async (req, res) => {
     return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can manually modify employee clock-in/clock-out times.' });
   }
 
-  if (!db.employee_attendance) db.employee_attendance = [];
-  let idx = db.employee_attendance.findIndex((a: any) => a.id === id);
-  if (idx === -1) {
-    await getCollectionDocs('employee_attendance');
-    idx = db.employee_attendance.findIndex((a: any) => a.id === id);
-  }
-  const existing = idx !== -1 ? db.employee_attendance[idx] : { id };
-  const mergedClockIn = req.body.clock_in !== undefined ? req.body.clock_in : existing.clock_in;
-  const mergedClockOut = req.body.clock_out !== undefined ? req.body.clock_out : existing.clock_out;
-  const calc = calculateServerWorkingHours(mergedClockIn, mergedClockOut);
+  await loadMergedAttendanceFromFirestore();
+  const idx = (db.attendance || []).findIndex((a: any) => a.id === id);
+  const existing = idx !== -1 ? db.attendance[idx] : { id };
+  const mergedClockIn =
+    req.body.clock_in !== undefined
+      ? req.body.clock_in
+      : (req.body.check_in_time !== undefined ? req.body.check_in_time : (existing.clock_in || existing.check_in_time));
+  const mergedClockOut =
+    req.body.clock_out !== undefined
+      ? req.body.clock_out
+      : (req.body.check_out_time !== undefined ? req.body.check_out_time : (existing.clock_out || existing.check_out_time));
+  const calc = calculateServerWorkingHours(mergedClockIn, mergedClockOut || null);
+  const shiftCompleted = Boolean(mergedClockIn && mergedClockOut);
+  const nowIso = new Date().toISOString();
 
   const updated = {
     ...existing,
     ...req.body,
     id,
     clock_in: mergedClockIn,
-    clock_out: mergedClockOut,
-    working_hours: calc.working_hours,
-    working_hours_formatted: calc.working_hours_formatted,
+    clock_out: mergedClockOut || '',
+    check_in_time: mergedClockIn,
+    check_out_time: mergedClockOut || '',
+    working_hours: shiftCompleted ? calc.working_hours : 0,
+    working_hours_formatted: shiftCompleted ? calc.working_hours_formatted : '0h 00m',
+    total_working_hours: shiftCompleted ? calc.working_hours_formatted : '--',
     status: calc.status,
-    updatedAt: new Date().toISOString()
+    updated_at: nowIso,
+    updatedAt: nowIso
   };
 
-  if (idx !== -1) {
-    db.employee_attendance[idx] = updated;
-  } else {
-    db.employee_attendance.unshift(updated);
-  }
+  if (idx !== -1) db.attendance[idx] = updated;
+  else db.attendance.unshift(updated);
 
-  await saveToFirestore('employee_attendance', id, updated);
+  await saveToFirestore('attendance', id, updated);
   await logActivity(
     actingUser || updated.employee_name || 'Employee',
-    isManualRequest
-      ? `Updated attendance for ${updated.employee_name} (${updated.working_hours_formatted})`
-      : `Clocked out (${updated.employee_name} - ${updated.working_hours_formatted})`,
+    isManualRequest ? 'Attendance Edited' : 'Self Log Out',
     'Attendance',
-    id
+    updated.employee_id || id
   );
   res.json(updated);
 });
@@ -907,7 +1112,9 @@ app.delete("/api/attendance/:id", async (req, res) => {
     return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can delete attendance records.' });
   }
   const { id } = req.params;
+  db.attendance = (db.attendance || []).filter((a: any) => a.id !== id);
   db.employee_attendance = (db.employee_attendance || []).filter((a: any) => a.id !== id);
+  await deleteFromFirestore('attendance', id);
   await deleteFromFirestore('employee_attendance', id);
   await logActivity(actingUser || 'IT', `Deleted attendance record ${id}`, 'Attendance', id);
   res.json({ success: true });
@@ -2671,18 +2878,946 @@ app.delete("/api/invoices/:id", async (req, res) => {
   res.json({ success: true });
 });
 
+// ============================================================================
+// WEB PUSH NOTIFICATIONS, IMMEDIATE PHONE ALERTS, SCHEDULE REMINDERS & ADMIN/IT CUSTOM BROADCASTS
+// ============================================================================
+
+let vapidKeysCache: { publicKey: string; privateKey: string } | null = null;
+let vapidInitPromise: Promise<{ publicKey: string; privateKey: string }> | null = null;
+
+async function ensureVapidConfigured(): Promise<{ publicKey: string; privateKey: string }> {
+  if (vapidKeysCache) return vapidKeysCache;
+  if (vapidInitPromise) return vapidInitPromise;
+
+  vapidInitPromise = (async () => {
+    try {
+      const snap = await getDoc(doc(firestoreDb, 'settings', 'web_push_vapid'));
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        if (data?.publicKey && data?.privateKey) {
+          vapidKeysCache = { publicKey: data.publicKey, privateKey: data.privateKey };
+          webpush.setVapidDetails('mailto:operations@sofiatravel.com', data.publicKey, data.privateKey);
+          return vapidKeysCache;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not read existing VAPID config from Firestore, generating fresh keys:', e);
+    }
+
+    const generated = webpush.generateVAPIDKeys();
+    vapidKeysCache = {
+      publicKey: generated.publicKey,
+      privateKey: generated.privateKey,
+    };
+    webpush.setVapidDetails('mailto:operations@sofiatravel.com', generated.publicKey, generated.privateKey);
+    try {
+      await setDoc(
+        doc(firestoreDb, 'settings', 'web_push_vapid'),
+        {
+          id: 'web_push_vapid',
+          publicKey: generated.publicKey,
+          privateKey: generated.privateKey,
+          createdAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (saveErr) {
+      console.warn('Could not persist VAPID keys to Firestore:', saveErr);
+    }
+    return vapidKeysCache;
+  })();
+
+  try {
+    return await vapidInitPromise;
+  } finally {
+    vapidInitPromise = null;
+  }
+}
+
+function makeSubscriptionDocId(endpoint: string): string {
+  return 'SUB-' + crypto.createHash('sha256').update(String(endpoint)).digest('hex').substring(0, 24);
+}
+
+function normalizeHHMMServer(raw?: string | null, fallback = '10:00'): string {
+  const sec = parseServerTimeToSeconds(raw);
+  if (sec === null) return fallback;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function resolveEmployeeScheduleFromDb(empQuery: {
+  id?: string;
+  employee_id?: string;
+  name?: string;
+  username?: string;
+}) {
+  const schedules: any[] = db.work_schedules || [];
+  const attSettingsList: any[] = db.attendance_settings || [];
+  const mainAttSetting = attSettingsList.find((d: any) => d.id === 'main') || attSettingsList[0] || null;
+
+  const defaultStart = normalizeHHMMServer(mainAttSetting?.default_start_time, '10:00');
+  const defaultEnd = normalizeHHMMServer(mainAttSetting?.default_end_time, '18:00');
+  const defaultWorkingDays: string[] = Array.isArray(mainAttSetting?.default_working_days)
+    ? mainAttSetting.default_working_days
+    : [];
+
+  const qIds = [empQuery.id, empQuery.employee_id]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  const qNames = [empQuery.name, empQuery.username]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  const matched = schedules.find((ws: any) => {
+    const wsId = String(ws.employee_id || ws.id || '').trim().toLowerCase();
+    const wsName = String(ws.employee_name || '').trim().toLowerCase();
+    if (wsId && qIds.includes(wsId)) return true;
+    if (wsName && (qNames.includes(wsName) || qIds.includes(wsName))) return true;
+    return false;
+  });
+
+  if (matched) {
+    return {
+      start_time: normalizeHHMMServer(matched.start_time, defaultStart),
+      end_time: normalizeHHMMServer(matched.end_time, defaultEnd),
+      grace_period_minutes: Number(matched.grace_period_minutes) || 0,
+      working_days: Array.isArray(matched.working_days) ? matched.working_days : defaultWorkingDays,
+    };
+  }
+
+  return {
+    start_time: defaultStart,
+    end_time: defaultEnd,
+    grace_period_minutes: Number(mainAttSetting?.default_grace_period_minutes) || 0,
+    working_days: defaultWorkingDays,
+  };
+}
+
+function doesSubscriptionMatchEmployee(sub: any, emp: { id?: string; employee_id?: string; name?: string; username?: string }): boolean {
+  const subIds = [sub.employee_id, sub.username].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+  const subNames = [sub.employee_name, sub.username].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+
+  const targetIds = [emp.id, emp.employee_id].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+  const targetNames = [emp.name, emp.username].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+
+  if (targetIds.some(t => subIds.includes(t) || subNames.includes(t))) return true;
+  if (targetNames.some(t => subNames.includes(t) || subIds.includes(t))) return true;
+  return false;
+}
+
+async function dispatchWebPushToSubscriptions(
+  targetSubs: any[],
+  buildPayload: ((sub: any) => Record<string, any>) | Record<string, any>
+): Promise<{ sent: number; failed: number; pruned: number }> {
+  if (!targetSubs || targetSubs.length === 0) {
+    return { sent: 0, failed: 0, pruned: 0 };
+  }
+  await ensureVapidConfigured();
+
+  let sent = 0;
+  let failed = 0;
+  let pruned = 0;
+
+  await Promise.all(
+    targetSubs.map(async (sub: any) => {
+      if (!sub?.subscription?.endpoint || !sub?.subscription?.keys) {
+        failed++;
+        return;
+      }
+      const payloadObj = typeof buildPayload === 'function' ? buildPayload(sub) : buildPayload;
+      try {
+        await webpush.sendNotification(sub.subscription, JSON.stringify(payloadObj), {
+          TTL: 60 * 60 * 12,
+          urgency: 'high',
+        });
+        sent++;
+      } catch (err: any) {
+        const statusCode = Number(err?.statusCode || 0);
+        if (statusCode === 404 || statusCode === 410) {
+          pruned++;
+          db.push_subscriptions = (db.push_subscriptions || []).filter((s: any) => s.id !== sub.id);
+          await deleteFromFirestore('push_subscriptions', sub.id);
+        } else {
+          failed++;
+          console.warn(`Web push send error for ${sub.id} (status ${statusCode}):`, err?.message || err);
+        }
+      }
+    })
+  );
+
+  return { sent, failed, pruned };
+}
+
+function isAuthorizedAdminOrIT(req: express.Request): { authorized: boolean; actorName: string; actorRole: string } {
+  const headerUser = String((req.headers['x-acting-user'] as string) || req.body?.sender_name || '').trim();
+  const headerRole = String((req.headers['x-acting-role'] as string) || req.body?.sender_role || '').trim();
+  const isIT = headerUser === 'IT' || req.body?.is_it === true;
+  const isAdminRole = headerRole === 'Administrator';
+  const matchedEmp = (db.employees || []).find(
+    (e: any) =>
+      (headerUser && (e.name === headerUser || e.username === headerUser || e.id === headerUser)) &&
+      (e.is_admin === true || e.position === 'Administrator')
+  );
+  const authorized = Boolean(isIT || isAdminRole || matchedEmp);
+  return {
+    authorized,
+    actorName: headerUser || (isIT ? 'IT' : 'Administrator'),
+    actorRole: isIT ? 'IT Developer' : (headerRole || 'Administrator'),
+  };
+}
+
+// Public VAPID Key endpoint for browser & installed mobile PWA push subscription
+app.get("/api/push/vapid-public-key", async (req, res) => {
+  try {
+    const keys = await ensureVapidConfigured();
+    res.json({
+      publicKey: keys.publicKey,
+      subscriptionsCount: (db.push_subscriptions || []).length,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to initialize Web Push VAPID keys" });
+  }
+});
+
+// Check push subscription status for the current employee / Admin & IT overview
+app.get("/api/push/status", async (req, res) => {
+  const subs = await getCollectionDocs('push_subscriptions');
+  const employeeId = String(req.query.employee_id || '').trim();
+  const employeeName = String(req.query.employee_name || '').trim();
+
+  const matchingDevices = subs.filter((s: any) =>
+    doesSubscriptionMatchEmployee(s, { id: employeeId, employee_id: employeeId, name: employeeName, username: employeeName })
+  );
+
+  res.json({
+    totalSubscribedDevices: subs.length,
+    employeeSubscribedDevices: matchingDevices.length,
+    subscribedEmployees: Array.from(
+      new Set(subs.map((s: any) => s.employee_name || s.username || s.employee_id).filter(Boolean))
+    ),
+  });
+});
+
+// Subscribe employee phone/browser & IMMEDIATELY send push alert directly to the employee's phone
+app.post("/api/push/subscribe", async (req, res) => {
+  try {
+    await ensureVapidConfigured();
+    const {
+      subscription,
+      employee_id,
+      employee_name,
+      username,
+      user_role,
+      language = 'en',
+      timezone = 'Africa/Cairo',
+      is_standalone = false,
+      user_agent = '',
+      sendImmediateAlert = true,
+    } = req.body || {};
+
+    if (!subscription || !subscription.endpoint || !subscription.keys) {
+      return res.status(400).json({ error: "Valid Web Push subscription object is required." });
+    }
+
+    await Promise.all([
+      getCollectionDocs('work_schedules'),
+      getCollectionDocs('attendance_settings'),
+      getCollectionDocs('push_subscriptions'),
+    ]);
+
+    const cleanName = String(employee_name || username || 'Employee').trim();
+    const cleanId = String(employee_id || username || cleanName).trim();
+    const schedule = resolveEmployeeScheduleFromDb({
+      id: cleanId,
+      employee_id: cleanId,
+      name: cleanName,
+      username: String(username || '').trim(),
+    });
+
+    const subId = makeSubscriptionDocId(subscription.endpoint);
+    const nowIso = new Date().toISOString();
+    const existing = (db.push_subscriptions || []).find((s: any) => s.id === subId);
+
+    const record = {
+      id: subId,
+      endpoint: subscription.endpoint,
+      subscription,
+      employee_id: cleanId,
+      employee_name: cleanName,
+      username: String(username || cleanName).trim(),
+      user_role: String(user_role || 'Employee').trim(),
+      language: language === 'ar' ? 'ar' : 'en',
+      timezone: String(timezone || 'Africa/Cairo'),
+      is_standalone: Boolean(is_standalone),
+      user_agent: String(user_agent || req.headers['user-agent'] || '').substring(0, 300),
+      designated_check_in: schedule.start_time,
+      designated_check_out: schedule.end_time,
+      created_at: existing?.created_at || nowIso,
+      updated_at: nowIso,
+    };
+
+    if (!db.push_subscriptions) db.push_subscriptions = [];
+    const idx = db.push_subscriptions.findIndex((s: any) => s.id === subId);
+    if (idx >= 0) db.push_subscriptions[idx] = record;
+    else db.push_subscriptions.unshift(record);
+
+    await saveToFirestore('push_subscriptions', subId, record);
+
+    let immediatePushSent = false;
+    if (sendImmediateAlert) {
+      const isAr = language === 'ar';
+      const companyTitle = db.settings?.company_name || 'Sofia Travel';
+      const welcomeTitle = isAr
+        ? `تم تفعيل إشعارات الهاتف بنجاح — ${companyTitle}`
+        : `Phone Alerts Activated — ${companyTitle}`;
+      const welcomeBody = isAr
+        ? `مرحباً ${cleanName}! ستصلك التنبيهات فوراً على هاتفك. مواعيد دوامك المحددة: الحضور ${schedule.start_time} • الانصراف ${schedule.end_time}.`
+        : `Welcome ${cleanName}! Browser alerts are now active on your phone. Your designated times: Check-In ${schedule.start_time} • Check-Out ${schedule.end_time}.`;
+
+      const welcomeNotifId = `NOTIF-WELCOME-${subId}-${Date.now()}`;
+      await addNotification(welcomeTitle, welcomeBody, 'attendance_reminder', undefined, {
+        id: welcomeNotifId,
+        target_scope: 'EMPLOYEE',
+        target_employee_id: cleanId,
+        target_employee_name: cleanName,
+        sender_name: 'System',
+        sender_role: 'Automated Push Service',
+        category: 'Phone Push Activated',
+        designated_check_in: schedule.start_time,
+        designated_check_out: schedule.end_time,
+      });
+
+      const pushResult = await dispatchWebPushToSubscriptions([record], {
+        id: welcomeNotifId,
+        tag: welcomeNotifId,
+        title: welcomeTitle,
+        body: welcomeBody,
+        lang: isAr ? 'ar' : 'en',
+        dir: isAr ? 'rtl' : 'ltr',
+        tab: 'attendance',
+        url: '/?tab=attendance',
+        timestamp: Date.now(),
+      });
+      immediatePushSent = pushResult.sent > 0;
+    }
+
+    res.json({
+      success: true,
+      subscriptionId: subId,
+      immediatePushSent,
+      designatedSchedule: {
+        checkIn: schedule.start_time,
+        checkOut: schedule.end_time,
+      },
+    });
+  } catch (err: any) {
+    console.error("Push subscribe error:", err);
+    res.status(500).json({ error: err?.message || "Failed to register push subscription" });
+  }
+});
+
+// Unsubscribe device endpoint
+app.post("/api/push/unsubscribe", async (req, res) => {
+  const endpoint = req.body?.endpoint;
+  if (!endpoint) return res.status(400).json({ error: "Missing endpoint" });
+  const subId = makeSubscriptionDocId(endpoint);
+  db.push_subscriptions = (db.push_subscriptions || []).filter((s: any) => s.id !== subId && s.endpoint !== endpoint);
+  await deleteFromFirestore('push_subscriptions', subId);
+  res.json({ success: true });
+});
+
+// Employee self-test push notification (verifies immediate phone delivery & designated check-in/out schedule)
+app.post("/api/push/test-self", async (req, res) => {
+  try {
+    await Promise.all([
+      getCollectionDocs('push_subscriptions'),
+      getCollectionDocs('work_schedules'),
+      getCollectionDocs('attendance_settings'),
+    ]);
+    const { employee_id, employee_name, username, language = 'en', endpoint } = req.body || {};
+    const cleanName = String(employee_name || username || 'Employee').trim();
+    const cleanId = String(employee_id || username || cleanName).trim();
+    const schedule = resolveEmployeeScheduleFromDb({
+      id: cleanId,
+      employee_id: cleanId,
+      name: cleanName,
+      username: String(username || '').trim(),
+    });
+
+    let matchingSubs = (db.push_subscriptions || []).filter((s: any) =>
+      endpoint
+        ? s.endpoint === endpoint
+        : doesSubscriptionMatchEmployee(s, { id: cleanId, employee_id: cleanId, name: cleanName, username })
+    );
+
+    const isAr = language === 'ar';
+    const title = isAr
+      ? `تنبيه فوري ومواعيد الدوام — ${cleanName}`
+      : `Instant Phone Alert & Shift Schedule — ${cleanName}`;
+    const body = isAr
+      ? `موعد الحضور المحدد: ${schedule.start_time} | موعد الانصراف المحدد: ${schedule.end_time}. الإشعارات تعمل بنجاح على هاتفك.`
+      : `Designated Check-In: ${schedule.start_time} | Designated Check-Out: ${schedule.end_time}. Push notifications are active on your phone.`;
+
+    const tagId = `NOTIF-TEST-${Date.now()}`;
+    const result = await dispatchWebPushToSubscriptions(matchingSubs, {
+      id: tagId,
+      tag: tagId,
+      title,
+      body,
+      lang: isAr ? 'ar' : 'en',
+      dir: isAr ? 'rtl' : 'ltr',
+      tab: 'attendance',
+      url: '/?tab=attendance',
+      timestamp: Date.now(),
+    });
+
+    res.json({
+      success: true,
+      sent: result.sent,
+      title,
+      body,
+      designatedSchedule: {
+        checkIn: schedule.start_time,
+        checkOut: schedule.end_time,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to send test push notification" });
+  }
+});
+
+// Admin & Developer ("IT") Custom Notification Sender (All Employees or Specific Selected Employees)
+app.post("/api/push/send-custom", async (req, res) => {
+  try {
+    await Promise.all([
+      getCollectionDocs('employees'),
+      getCollectionDocs('push_subscriptions'),
+    ]);
+
+    const authCheck = isAuthorizedAdminOrIT(req);
+    if (!authCheck.authorized) {
+      return res.status(403).json({
+        error: "Forbidden: Only the Administrator or the IT developer account can send custom notifications to employees.",
+      });
+    }
+
+    const {
+      title,
+      message,
+      target_scope = 'ALL',
+      target_employees = [],
+      category = 'Announcement',
+      tab = 'notifications',
+      language = 'en',
+    } = req.body || {};
+
+    const cleanTitle = String(title || '').trim();
+    const cleanMessage = String(message || '').trim();
+    if (!cleanTitle || !cleanMessage) {
+      return res.status(400).json({ error: "Both notification title and message are required." });
+    }
+
+    const createdNotifications: any[] = [];
+    let targetSubs: any[] = [];
+
+    if (target_scope === 'ALL' || !Array.isArray(target_employees) || target_employees.length === 0) {
+      const notifId = `NOTIF-CUSTOM-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const savedNotif = await addNotification(cleanTitle, cleanMessage, 'custom', undefined, {
+        id: notifId,
+        target_scope: 'ALL',
+        sender_name: authCheck.actorName,
+        sender_role: authCheck.actorRole,
+        category,
+      });
+      createdNotifications.push(savedNotif);
+      targetSubs = db.push_subscriptions || [];
+
+      await dispatchWebPushToSubscriptions(targetSubs, (sub: any) => ({
+        id: notifId,
+        tag: notifId,
+        title: cleanTitle,
+        body: cleanMessage,
+        lang: sub.language || language || 'en',
+        dir: (sub.language || language) === 'ar' ? 'rtl' : 'ltr',
+        tab,
+        url: `/?tab=${encodeURIComponent(tab)}`,
+        timestamp: Date.now(),
+      }));
+    } else {
+      // Send targeted custom notifications to selected employees
+      const matchedSubIds = new Set<string>();
+      for (const empTarget of target_employees) {
+        const empId = String(empTarget.id || empTarget.employee_id || empTarget).trim();
+        const empObj = (db.employees || []).find(
+          (e: any) => e.id === empId || e.employee_id === empId || e.name === empId || e.username === empId
+        );
+        const empName = String(
+          empTarget.name || empObj?.name || empObj?.full_name || empObj?.username || empId
+        ).trim();
+
+        const notifId = `NOTIF-CUSTOM-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const savedNotif = await addNotification(cleanTitle, cleanMessage, 'custom', undefined, {
+          id: notifId,
+          target_scope: 'EMPLOYEE',
+          target_employee_id: empObj?.id || empId,
+          target_employee_name: empName,
+          sender_name: authCheck.actorName,
+          sender_role: authCheck.actorRole,
+          category,
+        });
+        createdNotifications.push(savedNotif);
+
+        const subsForEmp = (db.push_subscriptions || []).filter((s: any) =>
+          doesSubscriptionMatchEmployee(s, {
+            id: empObj?.id || empId,
+            employee_id: empObj?.employee_id || empId,
+            name: empName,
+            username: empObj?.username || empName,
+          })
+        );
+        subsForEmp.forEach((s: any) => {
+          if (!matchedSubIds.has(s.id)) {
+            matchedSubIds.add(s.id);
+            targetSubs.push({ ...s, _notifId: notifId });
+          }
+        });
+      }
+
+      await dispatchWebPushToSubscriptions(targetSubs, (sub: any) => ({
+        id: sub._notifId || `NOTIF-CUSTOM-${Date.now()}`,
+        tag: sub._notifId || `NOTIF-CUSTOM-${Date.now()}`,
+        title: cleanTitle,
+        body: cleanMessage,
+        lang: sub.language || language || 'en',
+        dir: (sub.language || language) === 'ar' ? 'rtl' : 'ltr',
+        tab,
+        url: `/?tab=${encodeURIComponent(tab)}`,
+        timestamp: Date.now(),
+      }));
+    }
+
+    await logActivity(
+      authCheck.actorName,
+      `Sent custom notification "${cleanTitle}" (${target_scope === 'ALL' ? 'All Employees' : `${createdNotifications.length} employee(s)`})`,
+      'Notifications',
+      createdNotifications[0]?.id || 'CUSTOM'
+    );
+
+    res.json({
+      success: true,
+      notificationsCreated: createdNotifications.length,
+      devicesNotified: targetSubs.length,
+      notifications: createdNotifications,
+    });
+  } catch (err: any) {
+    console.error("Send custom notification error:", err);
+    res.status(500).json({ error: err?.message || "Failed to send custom notification" });
+  }
+});
+
+// Helper: Build unified roster of all active employees + subscribed employee accounts
+function buildAllActiveEmployeesRoster(): Array<{
+  id: string;
+  employee_id: string;
+  name: string;
+  username: string;
+}> {
+  const rosterMap = new Map<string, { id: string; employee_id: string; name: string; username: string }>();
+
+  (db.employees || []).forEach((emp: any) => {
+    const status = emp.account_status || emp.status || 'Active';
+    if (status === 'Inactive' || status === 'Suspended' || emp.login_access_enabled === false) return;
+    const id = String(emp.id || emp.employee_id || emp.name || '').trim();
+    if (!id) return;
+    const name = String(emp.name || emp.full_name || emp.username || id).trim();
+    rosterMap.set(id.toLowerCase(), {
+      id,
+      employee_id: String(emp.employee_id || id).trim(),
+      name,
+      username: String(emp.username || name).trim(),
+    });
+  });
+
+  // Also include any employee with an explicit work_schedule or push_subscription
+  (db.work_schedules || []).forEach((ws: any) => {
+    const id = String(ws.employee_id || ws.id || '').trim();
+    const name = String(ws.employee_name || id).trim();
+    if (!id) return;
+    const exists = Array.from(rosterMap.values()).some(
+      r => r.id.toLowerCase() === id.toLowerCase() || r.employee_id.toLowerCase() === id.toLowerCase() || r.name.toLowerCase() === name.toLowerCase()
+    );
+    if (!exists) {
+      rosterMap.set(id.toLowerCase(), { id, employee_id: id, name, username: name });
+    }
+  });
+
+  (db.push_subscriptions || []).forEach((sub: any) => {
+    const id = String(sub.employee_id || sub.username || '').trim();
+    const name = String(sub.employee_name || sub.username || id).trim();
+    if (!id) return;
+    const exists = Array.from(rosterMap.values()).some(
+      r => r.id.toLowerCase() === id.toLowerCase() || r.employee_id.toLowerCase() === id.toLowerCase() || r.name.toLowerCase() === name.toLowerCase()
+    );
+    if (!exists) {
+      rosterMap.set(id.toLowerCase(), { id, employee_id: id, name, username: String(sub.username || name).trim() });
+    }
+  });
+
+  return Array.from(rosterMap.values());
+}
+
+// Admin & Developer ("IT") On-Demand Trigger: Remind all employees of each employee's designated check-in & check-out times
+app.post("/api/push/send-schedule-reminders", async (req, res) => {
+  try {
+    await Promise.all([
+      getCollectionDocs('employees'),
+      getCollectionDocs('work_schedules'),
+      getCollectionDocs('attendance_settings'),
+      getCollectionDocs('push_subscriptions'),
+    ]);
+
+    const authCheck = isAuthorizedAdminOrIT(req);
+    if (!authCheck.authorized) {
+      return res.status(403).json({
+        error: "Forbidden: Only the Administrator or IT developer account can broadcast schedule reminders.",
+      });
+    }
+
+    const roster = buildAllActiveEmployeesRoster();
+    let totalSentDevices = 0;
+    const createdNotifs: any[] = [];
+
+    for (const emp of roster) {
+      const schedule = resolveEmployeeScheduleFromDb(emp);
+      const empSubs = (db.push_subscriptions || []).filter((s: any) => doesSubscriptionMatchEmployee(s, emp));
+      const prefersAr = empSubs.some((s: any) => s.language === 'ar') || req.body?.language === 'ar';
+
+      const title = prefersAr
+        ? `تذكير بمواعيد الحضور والانصراف — ${emp.name}`
+        : `Check-In & Check-Out Time Reminder — ${emp.name}`;
+      const body = prefersAr
+        ? `مرحباً ${emp.name}، نذكرك بمواعيد دوامك المحددة: وقت الحضور ${schedule.start_time} • وقت الانصراف ${schedule.end_time}. يرجى الالتزام بتسجيل الحضور والانصراف.`
+        : `Hello ${emp.name}, reminder of your designated schedule: Check-In Time ${schedule.start_time} • Check-Out Time ${schedule.end_time}. Please remember to clock in and clock out on time.`;
+
+      const notifId = `NOTIF-SCHED-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const saved = await addNotification(title, body, 'attendance_reminder', undefined, {
+        id: notifId,
+        target_scope: 'EMPLOYEE',
+        target_employee_id: emp.id,
+        target_employee_name: emp.name,
+        sender_name: authCheck.actorName,
+        sender_role: authCheck.actorRole,
+        category: 'Shift Schedule Reminder',
+        designated_check_in: schedule.start_time,
+        designated_check_out: schedule.end_time,
+      });
+      createdNotifs.push(saved);
+
+      if (empSubs.length > 0) {
+        const pushRes = await dispatchWebPushToSubscriptions(empSubs, (sub: any) => {
+          const subAr = sub.language === 'ar';
+          return {
+            id: notifId,
+            tag: notifId,
+            title: subAr
+              ? `تذكير بمواعيد الحضور والانصراف — ${emp.name}`
+              : `Check-In & Check-Out Time Reminder — ${emp.name}`,
+            body: subAr
+              ? `مرحباً ${emp.name}، مواعيد دوامك المحددة: وقت الحضور ${schedule.start_time} • وقت الانصراف ${schedule.end_time}.`
+              : `Hello ${emp.name}, your designated times: Check-In ${schedule.start_time} • Check-Out ${schedule.end_time}.`,
+            lang: subAr ? 'ar' : 'en',
+            dir: subAr ? 'rtl' : 'ltr',
+            tab: 'attendance',
+            url: '/?tab=attendance',
+            timestamp: Date.now(),
+          };
+        });
+        totalSentDevices += pushRes.sent;
+      }
+    }
+
+    await logActivity(
+      authCheck.actorName,
+      `Sent designated check-in & check-out reminders to ${roster.length} employee(s)`,
+      'Attendance',
+      'SCHEDULE-REMINDERS'
+    );
+
+    res.json({
+      success: true,
+      employeesReminded: roster.length,
+      devicesNotified: totalSentDevices,
+    });
+  } catch (err: any) {
+    console.error("Schedule reminder broadcast error:", err);
+    res.status(500).json({ error: err?.message || "Failed to send schedule reminders" });
+  }
+});
+
+// Automatic Background Scheduler: Reminds every employee of their designated check-in time & check-out time
+let reminderStateLoaded = false;
+let sentScheduleReminderKeys: Record<string, string> = {};
+
+function getWallClockInTimezone(tz: string): { dateStr: string; hhmm: string; minutesOfDay: number; weekdayEn: string } {
+  const safeTz = tz || 'Africa/Cairo';
+  try {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: safeTz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      weekday: 'long',
+      hour12: false,
+    }).formatToParts(now);
+
+    const getPart = (t: string) => parts.find(p => p.type === t)?.value || '';
+    const year = getPart('year');
+    const month = getPart('month');
+    const day = getPart('day');
+    let hour = parseInt(getPart('hour'), 10);
+    if (hour === 24) hour = 0;
+    const minute = parseInt(getPart('minute'), 10);
+    const weekdayEn = getPart('weekday');
+
+    return {
+      dateStr: `${year}-${month}-${day}`,
+      hhmm: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+      minutesOfDay: hour * 60 + minute,
+      weekdayEn,
+    };
+  } catch {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const h = now.getHours();
+    const min = now.getMinutes();
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return {
+      dateStr: `${y}-${m}-${d}`,
+      hhmm: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
+      minutesOfDay: h * 60 + min,
+      weekdayEn: days[now.getDay()],
+    };
+  }
+}
+
+async function runScheduledAttendanceRemindersTick() {
+  try {
+    if (!reminderStateLoaded) {
+      reminderStateLoaded = true;
+      try {
+        const snap = await getDoc(doc(firestoreDb, 'settings', 'schedule_reminder_state'));
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          if (data?.sentKeys && typeof data.sentKeys === 'object') {
+            sentScheduleReminderKeys = data.sentKeys;
+          }
+        }
+      } catch {}
+    }
+
+    const roster = buildAllActiveEmployeesRoster();
+    if (roster.length === 0) return;
+
+    let stateDirty = false;
+    const cutoffMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
+
+    for (const emp of roster) {
+      const schedule = resolveEmployeeScheduleFromDb(emp);
+      const empSubs = (db.push_subscriptions || []).filter((s: any) => doesSubscriptionMatchEmployee(s, emp));
+      const empTimezone = empSubs[0]?.timezone || 'Africa/Cairo';
+      const clock = getWallClockInTimezone(empTimezone);
+
+      // Respect employee's configured working days if specified
+      if (Array.isArray(schedule.working_days) && schedule.working_days.length > 0) {
+        const matchesDay = schedule.working_days.some(
+          d => String(d).trim().toLowerCase() === clock.weekdayEn.toLowerCase() ||
+               String(d).trim().toLowerCase().startsWith(clock.weekdayEn.substring(0, 3).toLowerCase())
+        );
+        if (!matchesDay) continue;
+      }
+
+      const startSec = parseServerTimeToSeconds(schedule.start_time);
+      const endSec = parseServerTimeToSeconds(schedule.end_time);
+      const startMins = startSec !== null ? Math.floor(startSec / 60) : -999;
+      const endMins = endSec !== null ? Math.floor(endSec / 60) : -999;
+      const preCheckInMins = startMins >= 10 ? startMins - 10 : -999;
+
+      type TriggerEvent = {
+        slotKey: string;
+        kind: 'pre_checkin' | 'checkin' | 'checkout';
+      };
+      const triggers: TriggerEvent[] = [];
+
+      if (clock.minutesOfDay === preCheckInMins) {
+        triggers.push({ slotKey: `${clock.dateStr}_${emp.id}_pre_checkin`, kind: 'pre_checkin' });
+      }
+      if (clock.minutesOfDay === startMins) {
+        triggers.push({ slotKey: `${clock.dateStr}_${emp.id}_checkin`, kind: 'checkin' });
+      }
+      if (clock.minutesOfDay === endMins) {
+        triggers.push({ slotKey: `${clock.dateStr}_${emp.id}_checkout`, kind: 'checkout' });
+      }
+
+      for (const trig of triggers) {
+        if (sentScheduleReminderKeys[trig.slotKey]) continue;
+        sentScheduleReminderKeys[trig.slotKey] = new Date().toISOString();
+        stateDirty = true;
+
+        const prefersAr = empSubs.some((s: any) => s.language === 'ar');
+        const buildLocalizedText = (isAr: boolean) => {
+          if (trig.kind === 'pre_checkin') {
+            return {
+              title: isAr
+                ? `تذكير بقرب موعد الحضور (${schedule.start_time})`
+                : `Upcoming Check-In Reminder (${schedule.start_time})`,
+              body: isAr
+                ? `مرحباً ${emp.name}، يبدأ دوامك بعد 10 دقائق الساعة ${schedule.start_time} (وموعد الانصراف ${schedule.end_time}).`
+                : `Hello ${emp.name}, your designated check-in is in 10 minutes at ${schedule.start_time} (designated check-out: ${schedule.end_time}).`,
+            };
+          }
+          if (trig.kind === 'checkin') {
+            return {
+              title: isAr
+                ? `حان موعد تسجيل الحضور (${schedule.start_time})`
+                : `Check-In Time Now (${schedule.start_time})`,
+              body: isAr
+                ? `مرحباً ${emp.name}، حان موعد حضورك المحدد (${schedule.start_time}). موعد انصرافك المحدد اليوم هو ${schedule.end_time}. يرجى تسجيل الحضور.`
+                : `Hello ${emp.name}, it is your designated check-in time (${schedule.start_time}). Your designated check-out time today is ${schedule.end_time}. Please clock in now.`,
+            };
+          }
+          return {
+            title: isAr
+              ? `حان موعد تسجيل الانصراف (${schedule.end_time})`
+              : `Check-Out Time Now (${schedule.end_time})`,
+            body: isAr
+              ? `مرحباً ${emp.name}، حان موعد انصرافك المحدد (${schedule.end_time}) بعد دوام بدأ ${schedule.start_time}. لا تنسَ تسجيل الانصراف.`
+              : `Hello ${emp.name}, it is your designated check-out time (${schedule.end_time}) for your ${schedule.start_time}–${schedule.end_time} shift. Please remember to clock out.`,
+          };
+        };
+
+        const primaryCopy = buildLocalizedText(prefersAr);
+        const notifId = `NOTIF-AUTO-${trig.slotKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+        await addNotification(primaryCopy.title, primaryCopy.body, 'attendance_reminder', undefined, {
+          id: notifId,
+          target_scope: 'EMPLOYEE',
+          target_employee_id: emp.id,
+          target_employee_name: emp.name,
+          sender_name: 'Attendance System',
+          sender_role: 'Scheduled Reminder',
+          category: trig.kind === 'checkout' ? 'Check-Out Reminder' : 'Check-In Reminder',
+          designated_check_in: schedule.start_time,
+          designated_check_out: schedule.end_time,
+        });
+
+        if (empSubs.length > 0) {
+          await dispatchWebPushToSubscriptions(empSubs, (sub: any) => {
+            const copy = buildLocalizedText(sub.language === 'ar');
+            return {
+              id: notifId,
+              tag: notifId,
+              title: copy.title,
+              body: copy.body,
+              lang: sub.language === 'ar' ? 'ar' : 'en',
+              dir: sub.language === 'ar' ? 'rtl' : 'ltr',
+              tab: 'attendance',
+              url: '/?tab=attendance',
+              timestamp: Date.now(),
+            };
+          });
+        }
+      }
+    }
+
+    if (stateDirty) {
+      // Prune entries older than 3 days to keep document compact
+      for (const [k, isoVal] of Object.entries(sentScheduleReminderKeys)) {
+        const ts = new Date(isoVal).getTime();
+        if (!isNaN(ts) && ts < cutoffMs) {
+          delete sentScheduleReminderKeys[k];
+        }
+      }
+      try {
+        await setDoc(
+          doc(firestoreDb, 'settings', 'schedule_reminder_state'),
+          {
+            id: 'schedule_reminder_state',
+            sentKeys: sentScheduleReminderKeys,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch {}
+    }
+  } catch (err) {
+    console.warn("Scheduled attendance reminder tick warning:", err);
+  }
+}
+
 // Notifications
 app.get("/api/notifications", async (req, res) => {
   const notifs = await getCollectionDocs('notifications');
   res.json(notifs);
 });
 
+app.post("/api/notifications", async (req, res) => {
+  const body = req.body || {};
+  const notif = await addNotification(
+    body.title || 'System Notification',
+    body.message || '',
+    body.type || 'action',
+    body.link_id,
+    body
+  );
+  res.json(notif);
+});
+
 app.put("/api/notifications/:id/read", async (req, res) => {
   const { id } = req.params;
-  const notif = db.notifications.find(n => n.id === id);
+  const reader = String(req.body?.reader || (req.headers['x-acting-user'] as string) || '').trim();
+  let notif = (db.notifications || []).find((n: any) => n.id === id);
+  if (!notif) {
+    await getCollectionDocs('notifications');
+    notif = (db.notifications || []).find((n: any) => n.id === id);
+  }
   if (notif) {
-    notif.read = true;
+    const readByList = Array.isArray(notif.read_by) ? [...notif.read_by] : [];
+    if (reader && !readByList.includes(reader)) {
+      readByList.push(reader);
+    }
+    notif.read_by = readByList;
+    if (notif.target_scope !== 'ALL' || !reader) {
+      notif.read = true;
+    }
     await saveToFirestore('notifications', notif.id, notif);
+  }
+  res.json({ success: true });
+});
+
+app.put("/api/notifications/read-all", async (req, res) => {
+  const reader = String(req.body?.reader || (req.headers['x-acting-user'] as string) || '').trim();
+  await getCollectionDocs('notifications');
+  for (const notif of db.notifications || []) {
+    const readByList = Array.isArray(notif.read_by) ? [...notif.read_by] : [];
+    let changed = false;
+    if (reader && !readByList.includes(reader)) {
+      readByList.push(reader);
+      notif.read_by = readByList;
+      changed = true;
+    }
+    if (notif.target_scope !== 'ALL' && !notif.read) {
+      notif.read = true;
+      changed = true;
+    }
+    if (changed) {
+      await saveToFirestore('notifications', notif.id, notif);
+    }
   }
   res.json({ success: true });
 });
@@ -2715,7 +3850,7 @@ app.get("/api/dashboard-stats", async (req, res) => {
       getCollectionDocs('suppliers'),
       getCollectionDocs('tasks'),
       getCollectionDocs('activity_logs'),
-      getCollectionDocs('employee_attendance')
+      loadMergedAttendanceFromFirestore()
     ]);
 
     const resvIds = new Set(db.reservations.map((r: any) => r.id || r.reservation_id));
@@ -2846,8 +3981,11 @@ app.get("/api/dashboard-stats", async (req, res) => {
       (db.tours?.length || 0) +
       (db.day_trips?.length || 0);
 
-    const todayAttendanceList = (db.employee_attendance || []).filter((a: any) => a.date === todayStr);
-    const clocked_in_count = (db.employee_attendance || []).filter((a: any) => a.status === 'Clocked In').length;
+    const allAttList = db.attendance || [];
+    const todayAttendanceList = allAttList.filter((a: any) => a.date === todayStr);
+    const clocked_in_count = allAttList.filter(
+      (a: any) => Boolean(a.clock_in || a.check_in_time) && !a.clock_out && (!a.check_out_time || a.check_out_time === '--')
+    ).length;
     const today_working_hours = Math.round(todayAttendanceList.reduce((acc: number, a: any) => acc + (Number(a.working_hours) || 0), 0) * 100) / 100;
 
     const sortedRecentBookings = [...combinedBookings].sort((a, b) => {
@@ -2958,8 +4096,24 @@ async function startServer() {
     } else if (!fs.existsSync(distPath) && fs.existsSync(path.join(appDirname, 'index.html'))) {
       distPath = appDirname;
     }
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (
+          filePath.endsWith('sw.js') ||
+          filePath.endsWith('push-sw.js') ||
+          filePath.endsWith('registerSW.js') ||
+          filePath.endsWith('manifest.webmanifest') ||
+          filePath.endsWith('index.html')
+        ) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+        }
+      }
+    }));
     app.get('*', (req, res) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: `API route not found: ${req.path}` });
+      }
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
@@ -2969,12 +4123,24 @@ async function startServer() {
     console.log(`Sofia Travel Management System running on http://localhost:${PORT}`);
   });
 
-  // Load all persistent data from Firestore on startup
+  // Load all persistent data from Firestore & start automatic employee check-in/out schedule reminder engine
   (async () => {
     try {
       await testConnection();
       await loadFromFirestore();
-      console.log("Persistent data successfully synchronized from Firestore. Database ready for live operations.");
+      await ensureVapidConfigured();
+      console.log("Persistent data & Web Push VAPID keys synchronized from Firestore. Starting schedule reminder engine...");
+      runScheduledAttendanceRemindersTick();
+      setInterval(() => {
+        Promise.all([
+          getCollectionDocs('employees'),
+          getCollectionDocs('work_schedules'),
+          getCollectionDocs('attendance_settings'),
+          getCollectionDocs('push_subscriptions'),
+        ])
+          .then(() => runScheduledAttendanceRemindersTick())
+          .catch(() => {});
+      }, 30 * 1000);
     } catch (e) {
       console.warn("Background Firestore initialization note:", e);
     }

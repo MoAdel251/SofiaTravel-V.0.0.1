@@ -48,6 +48,7 @@ export const OPERATIONAL_COLLECTIONS = [
   'employee_advances',
   'commission_records',
   'finance_audit_logs',
+  'attendance',
   'employee_attendance'
 ] as const;
 
@@ -150,6 +151,88 @@ export const dataService = {
       return cached;
     }
     return fallbackDefault;
+  },
+
+  // Read & merge employee attendance from primary 'attendance' collection + 'employee_attendance' collection in Cloud Firestore
+  async getMergedAttendanceRecords<T extends { id: string }>(fallbackDefault: T[] = []): Promise<T[]> {
+    const cacheKey = `${CACHE_PREFIX}attendance_merged`;
+    try {
+      const [primarySnap, legacySnap] = await Promise.all([
+        getDocs(collection(db, 'attendance')),
+        getDocs(collection(db, 'employee_attendance')),
+      ]);
+      const map = new Map<string, T>();
+      legacySnap.docs.forEach(d => {
+        map.set(d.id, { id: d.id, ...d.data() } as T);
+      });
+      primarySnap.docs.forEach(d => {
+        const prev = map.get(d.id) || ({} as any);
+        map.set(d.id, { ...prev, id: d.id, ...d.data() } as T);
+      });
+      const merged = Array.from(map.values());
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(merged));
+      } catch {}
+      return merged;
+    } catch (fsErr) {
+      console.warn('Firestore merged attendance read fallback to /api/attendance:', fsErr);
+    }
+
+    try {
+      const res = await fetch(`/api/attendance?t=${Date.now()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(data));
+          } catch {}
+          return data as T[];
+        }
+      }
+    } catch {}
+
+    try {
+      const local = localStorage.getItem(cacheKey);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) return parsed as T[];
+      }
+    } catch {}
+
+    return fallbackDefault;
+  },
+
+  // Live listener across both 'attendance' and 'employee_attendance' collections in Firestore
+  subscribeMergedAttendance<T extends { id: string }>(onUpdate: (items: T[]) => void): () => void {
+    let primaryDocs: T[] = [];
+    let legacyDocs: T[] = [];
+    const emitMerged = () => {
+      const map = new Map<string, T>();
+      legacyDocs.forEach(item => map.set(item.id, item));
+      primaryDocs.forEach(item => {
+        const prev = map.get(item.id) || ({} as any);
+        map.set(item.id, { ...prev, ...item });
+      });
+      const combined = Array.from(map.values());
+      try {
+        localStorage.setItem(`${CACHE_PREFIX}attendance_merged`, JSON.stringify(combined));
+      } catch {}
+      onUpdate(combined);
+    };
+
+    const unsubPrimary = dataService.subscribeCollection<T>('attendance', (items) => {
+      primaryDocs = items;
+      emitMerged();
+    });
+    const unsubLegacy = dataService.subscribeCollection<T>('employee_attendance', (items) => {
+      legacyDocs = items;
+      emitMerged();
+    });
+
+    return () => {
+      try { unsubPrimary(); } catch {}
+      try { unsubLegacy(); } catch {}
+    };
   },
 
   // Clear all local storage operational cache & drafts

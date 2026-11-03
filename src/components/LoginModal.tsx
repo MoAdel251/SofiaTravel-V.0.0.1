@@ -88,7 +88,7 @@ export function LoginModal({ onLogin, companyName, employees = [], isSiteDisable
       }
 
       let role: UserRole = 'Sales';
-      if (matchedEmployee.is_admin || matchedEmployee.position === 'Administrator') {
+      if (isEmpIT || matchedEmployee.is_admin || matchedEmployee.position === 'Administrator') {
         role = 'Administrator';
       } else if (
         matchedEmployee.position === 'Manager' ||

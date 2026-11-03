@@ -37,6 +37,7 @@ export const translations: Translations = {
   nav_invoices_short: { en: 'Invoices', ar: 'الفواتير' },
   nav_packages: { en: 'Tour Packages', ar: 'البرامج السياحية' },
   nav_employees: { en: 'Employees', ar: 'الموظفين' },
+  nav_attendance: { en: 'Attendance & Departure', ar: 'الحضور والانصراف' },
   nav_calendar: { en: 'Calendar', ar: 'التقويم' },
   nav_tasks: { en: 'Tasks', ar: 'المهام' },
   nav_documents: { en: 'Documents', ar: 'المستندات' },

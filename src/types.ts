@@ -750,10 +750,50 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'trip' | 'flight' | 'hotel' | 'payment' | 'supplier' | 'task' | 'reservation' | 'cancellation' | 'action' | 'permission';
+  type:
+    | 'trip'
+    | 'flight'
+    | 'hotel'
+    | 'payment'
+    | 'supplier'
+    | 'task'
+    | 'reservation'
+    | 'cancellation'
+    | 'action'
+    | 'permission'
+    | 'attendance_reminder'
+    | 'custom'
+    | 'system';
   date: string;
   read: boolean;
+  read_by?: string[];
   link_id?: string;
+  target_scope?: 'ALL' | 'EMPLOYEE';
+  target_employee_id?: string;
+  target_employee_name?: string;
+  sender_name?: string;
+  sender_role?: string;
+  category?: string;
+  designated_check_in?: string;
+  designated_check_out?: string;
+  created_at?: string;
+  updatedAt?: string;
+}
+
+export interface PushSubscriptionDevice {
+  id: string;
+  endpoint: string;
+  employee_id: string;
+  employee_name: string;
+  username?: string;
+  user_role?: string;
+  language?: 'en' | 'ar';
+  timezone?: string;
+  is_standalone?: boolean;
+  designated_check_in?: string;
+  designated_check_out?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ExchangeRate {
@@ -790,19 +830,66 @@ export interface CompanySettings {
 
 export interface AttendanceRecord {
   id: string;
+  attendance_id?: string;
   employee_id: string;
   employee_name: string;
   date: string;
   clock_in: string;
   clock_out?: string;
+  check_in_time?: string;
+  check_out_time?: string;
   working_hours: number;
   working_hours_formatted?: string;
-  status: 'Clocked In' | 'Completed';
+  total_working_hours?: string;
+  late_minutes?: number;
+  early_departure_minutes?: number;
+  attendance_status?: 'Present' | 'Late' | 'Absent' | string;
+  status: 'Clocked In' | 'Completed' | 'Present' | 'Late' | 'Absent';
   entry_source?: 'Employee' | 'IT Manual';
   recorded_by?: string;
+  login_time?: string;
+  logout_time?: string;
   notes?: string;
+  created_at?: string;
+  updated_at?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface WorkSchedule {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  start_time: string;
+  end_time: string;
+  grace_period_minutes: number;
+  working_days: string[];
+  updatedAt?: string;
+}
+
+export interface AttendanceSettings {
+  id: string;
+  default_start_time: string;
+  default_end_time: string;
+  default_grace_period_minutes: number;
+  auto_record_on_login?: boolean;
+  auto_record_on_logout?: boolean;
+  default_working_days?: string[];
+  updatedAt?: string;
+}
+
+export interface AttendanceLoginLog {
+  id: string;
+  employee_id?: string;
+  employee_name: string;
+  user_role?: string;
+  action: string;
+  details: string;
+  date: string;
+  time: string;
+  timestamp: number;
+  record_id?: string;
+  source: 'activity_logs' | 'finance_audit_logs' | 'merged';
 }
 
 export interface ActivityLog {

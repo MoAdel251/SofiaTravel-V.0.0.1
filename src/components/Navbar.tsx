@@ -37,6 +37,7 @@ interface NavbarProps {
   notifications: NotificationItem[];
   pendingPermissionCount?: number;
   onMarkNotificationRead: (id: string) => void;
+  onMarkAllNotificationsRead?: () => void;
   currentTab: string;
   setCurrentTab: (tab: string) => void;
   username: string;
@@ -65,6 +66,7 @@ export function Navbar({
   notifications = [],
   pendingPermissionCount = 0,
   onMarkNotificationRead,
+  onMarkAllNotificationsRead,
   currentTab,
   setCurrentTab,
   username,
@@ -114,6 +116,7 @@ export function Navbar({
     { id: 'packages', labelKey: 'nav_packages', defaultLabel: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
     { id: 'permission-requests', labelKey: 'nav_approval_requests', defaultLabel: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
     { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
+    { id: 'attendance', labelKey: 'nav_attendance', defaultLabel: 'Attendance & Departure', icon: Clock, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
@@ -124,8 +127,17 @@ export function Navbar({
     { id: 'activity-log', labelKey: 'nav_audit_log', defaultLabel: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: 'view_settings' }
   ];
 
+  const isTodayShiftOpen = Boolean(
+    todayAttendance &&
+    (todayAttendance.clock_in || todayAttendance.check_in_time) &&
+    !todayAttendance.clock_out &&
+    (!todayAttendance.check_out_time || todayAttendance.check_out_time === '--')
+  );
+  const todayInDisplay = todayAttendance?.clock_in || todayAttendance?.check_in_time || '';
+
   const filteredItems = menuItems.filter(item => {
-    if (userRole === 'Administrator') return true;
+    if (userRole === 'Administrator' || isAdmin || isITAccount) return true;
+    if (item.id === 'attendance') return true;
     if (item.roles.includes(userRole)) return true;
     if (userPermissions && userPermissions.length > 0) return hasPerm(item.perm);
     return false;
@@ -264,15 +276,15 @@ export function Navbar({
 
           {/* Employee Self Clock-In / Clock-Out Button (Desktop) */}
           {(onClockIn || onClockOut) && (
-            todayAttendance && todayAttendance.status === 'Clocked In' ? (
+            isTodayShiftOpen ? (
               <button
                 type="button"
                 onClick={onClockOut}
                 className="hidden lg:flex items-center gap-1.5 h-9 px-3 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-500/40 rounded-xl text-xs font-bold text-amber-300 hover:text-white transition-colors cursor-pointer shrink-0"
-                title={language === 'ar' ? `تم الحضور ${todayAttendance.clock_in} — اضغط لتسجيل الانصراف` : `Clocked in at ${todayAttendance.clock_in} — Click to Clock Out`}
+                title={language === 'ar' ? `تم الحضور ${todayInDisplay} — اضغط لتسجيل الانصراف` : `Clocked in at ${todayInDisplay} — Click to Clock Out`}
               >
                 <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>{language === 'ar' ? `انصراف (${todayAttendance.clock_in})` : `Clock Out (${todayAttendance.clock_in})`}</span>
+                <span>{language === 'ar' ? `انصراف (${todayInDisplay})` : `Clock Out (${todayInDisplay})`}</span>
               </button>
             ) : (
               <button
@@ -287,8 +299,8 @@ export function Navbar({
               >
                 <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                 <span>
-                  {todayAttendance?.status === 'Completed'
-                    ? (language === 'ar' ? `${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}` : `${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}`)
+                  {todayAttendance && (todayAttendance.clock_out || todayAttendance.check_out_time)
+                    ? `${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}`
                     : (language === 'ar' ? 'تسجيل حضور' : 'Clock In')}
                 </span>
               </button>
@@ -374,7 +386,7 @@ export function Navbar({
                 <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
                   {notifications.length === 0 ? (
                     <div className="p-6 text-center text-xs text-slate-400">
-                      No active notifications.
+                      {language === 'ar' ? 'لا توجد إشعارات حالياً.' : 'No active notifications.'}
                     </div>
                   ) : (
                     notifications.slice(0, 10).map((notif) => (
@@ -388,7 +400,7 @@ export function Navbar({
                         }`}
                       >
                         <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 mt-0.5">
-                          <User className="w-3.5 h-3.5" />
+                          <Bell className="w-3.5 h-3.5" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-slate-900 truncate">{notif.title}</p>
@@ -404,13 +416,17 @@ export function Navbar({
                   <button
                     type="button"
                     onClick={() => {
-                      notifications.forEach(n => {
-                        if (!n.read) onMarkNotificationRead(n.id);
-                      });
+                      if (onMarkAllNotificationsRead) {
+                        onMarkAllNotificationsRead();
+                      } else {
+                        notifications.forEach(n => {
+                          if (!n.read) onMarkNotificationRead(n.id);
+                        });
+                      }
                     }}
                     className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer px-2 py-1 rounded-md hover:bg-blue-50"
                   >
-                    Mark all read
+                    {language === 'ar' ? 'تحديد الكل كمقروء' : 'Mark all read'}
                   </button>
                   <button
                     type="button"
@@ -420,7 +436,11 @@ export function Navbar({
                     }}
                     className="text-[11px] text-slate-700 hover:text-slate-900 font-bold flex items-center gap-1 cursor-pointer px-2 py-1 rounded-md hover:bg-slate-200"
                   >
-                    <span>{t('view')}</span>
+                    <span>
+                      {(isAdmin || isITAccount)
+                        ? (language === 'ar' ? 'إرسال / عرض الكل' : 'Send / View All')
+                        : t('view')}
+                    </span>
                     <ArrowRight className="w-3 h-3" />
                   </button>
                 </div>
@@ -647,7 +667,7 @@ export function Navbar({
 
                 {/* Employee Self Clock-In / Clock-Out Action (Mobile Drawer) */}
                 {(onClockIn || onClockOut) && (
-                  todayAttendance && todayAttendance.status === 'Clocked In' ? (
+                  isTodayShiftOpen ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -659,8 +679,8 @@ export function Navbar({
                       <Clock className="w-4 h-4 text-amber-400 shrink-0" />
                       <span>
                         {language === 'ar'
-                          ? `تسجيل انصراف (تم الحضور ${todayAttendance.clock_in})`
-                          : `Clock Out (Clocked in at ${todayAttendance.clock_in})`}
+                          ? `تسجيل انصراف (تم الحضور ${todayInDisplay})`
+                          : `Clock Out (Clocked in at ${todayInDisplay})`}
                       </span>
                     </button>
                   ) : (
@@ -674,7 +694,7 @@ export function Navbar({
                     >
                       <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
                       <span>
-                        {todayAttendance?.status === 'Completed'
+                        {todayAttendance && (todayAttendance.clock_out || todayAttendance.check_out_time)
                           ? (language === 'ar'
                               ? `بدء وردية جديدة (اليوم: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`})`
                               : `Clock In Again (Today: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`})`)

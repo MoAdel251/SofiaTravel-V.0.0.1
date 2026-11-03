@@ -11,7 +11,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'sofia-logo.png', 'sofia-logo.jpg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+        includeAssets: ['favicon.ico', 'sofia-logo.png', 'sofia-logo.jpg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'push-sw.js'],
         manifest: {
           id: '/',
           name: 'Sofia Travel Management System',
@@ -45,9 +45,18 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
+          importScripts: ['/push-sw.js'],
+          navigateFallbackDenylist: [/^\/api\//, /^\/push-sw\.js$/, /^\/sw\.js$/],
           maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,svg,woff,woff2}'],
           runtimeCaching: [
+            {
+              urlPattern: /^\/api\/.*/i,
+              handler: 'NetworkOnly',
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
