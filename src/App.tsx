@@ -1037,13 +1037,24 @@ export default function App() {
   // CRUD Handlers with RBAC Permission Intercepts and Dual Cloud Persistence
   const handleAddInvoice = async (data: Partial<Invoice>) => {
     const newId = "INV-" + Math.random().toString(36).substring(2, 7).toUpperCase();
-    const invCount = (invoices?.length || 0) + 1001;
+    
+    let maxSeq = 1000;
+    invoices.forEach(inv => {
+      const match = String(inv.invoice_number || '').match(/INV-2026-(\d+)/i);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (val > maxSeq) maxSeq = val;
+      }
+    });
+    const nextSeq = maxSeq + 1;
+    const invSerial = data.invoice_number || `INV-2026-${nextSeq}`;
+
     const linkedVoucher = data.reservation_id ? vouchers.find(v => v.id === data.reservation_id || v.reservation_id === data.reservation_id) : null;
     const linkedCust = data.customer_id ? customers.find(c => c.id === data.customer_id || c.customer_id === data.customer_id) : null;
-    const derivedFileNum = data.file_number || linkedVoucher?.file_number || linkedCust?.file_number || `FILE-2026-${String(invCount).padStart(4, '0')}`;
+    const derivedFileNum = data.file_number || linkedVoucher?.file_number || linkedCust?.file_number || `FILE-2026-${String(nextSeq).padStart(4, '0')}`;
     const newInvoice: Invoice = {
       id: newId,
-      invoice_number: data.invoice_number || `INV-2026-${invCount}`,
+      invoice_number: invSerial,
       file_number: derivedFileNum,
       issue_date: data.issue_date || new Date().toISOString().split('T')[0],
       due_date: data.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -3088,6 +3099,85 @@ export default function App() {
     await dataService.deleteDocument('employee_attendance', id);
   };
 
+  const handleSaveWorkSchedule = async (data: Partial<WorkSchedule>) => {
+    const isAllowed = isITAccount || isCurrentAdmin || effectiveUserRole === 'Administrator';
+    if (!isAllowed) {
+      showToast(isAr ? 'غير مصرح: تعديل المواعيد المحددة متاح للمطور والمدير فقط.' : 'Access Denied: Only Developer (IT) and Administrator can adjust work schedules.');
+      return;
+    }
+
+    const schId = data.id || `SCHED-${data.employee_id || Date.now()}`;
+    const schedule: WorkSchedule = {
+      id: schId,
+      employee_id: data.employee_id || '',
+      employee_name: data.employee_name || 'Employee',
+      start_time: data.start_time || '09:00',
+      end_time: data.end_time || '17:00',
+      grace_period_minutes: Number(data.grace_period_minutes !== undefined ? data.grace_period_minutes : 15),
+      working_days: Array.isArray(data.working_days) ? data.working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+      updatedAt: new Date().toISOString()
+    };
+
+    setWorkSchedules(prev => {
+      const idx = prev.findIndex(s => s.id === schId || (data.employee_id && s.employee_id === data.employee_id));
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = schedule;
+        return copy;
+      }
+      return [schedule, ...prev];
+    });
+
+    try {
+      await fetch('/api/work-schedules', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': isITAccount ? 'IT' : currentUsername,
+          'x-acting-role': effectiveUserRole
+        },
+        body: JSON.stringify(schedule)
+      });
+    } catch {}
+    await dataService.saveDocument('work_schedules', schId, schedule);
+    showToast(isAr ? `تم تحديث جدول عمل ${schedule.employee_name} (فترة السماح: ${schedule.grace_period_minutes} دقيقة)` : `Updated work schedule for ${schedule.employee_name} (Grace Period: ${schedule.grace_period_minutes} mins)`);
+  };
+
+  const handleSaveAttendanceSettings = async (data: Partial<AttendanceSettings>) => {
+    const isAllowed = isITAccount || isCurrentAdmin || effectiveUserRole === 'Administrator';
+    if (!isAllowed) {
+      showToast(isAr ? 'غير مصرح: تعديل إعدادات الدوام الرسمية متاح للمطور والمدير فقط.' : 'Access Denied: Only Developer (IT) and Administrator can adjust attendance settings.');
+      return;
+    }
+
+    const id = 'main';
+    const updated: AttendanceSettings = {
+      id,
+      default_start_time: data.default_start_time || '09:00',
+      default_end_time: data.default_end_time || '17:00',
+      default_grace_period_minutes: Number(data.default_grace_period_minutes !== undefined ? data.default_grace_period_minutes : 15),
+      auto_record_on_login: data.auto_record_on_login ?? true,
+      auto_record_on_logout: data.auto_record_on_logout ?? true,
+      default_working_days: Array.isArray(data.default_working_days) ? data.default_working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+      updatedAt: new Date().toISOString()
+    };
+
+    setAttendanceSettings(updated);
+    try {
+      await fetch('/api/attendance-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': isITAccount ? 'IT' : currentUsername,
+          'x-acting-role': effectiveUserRole
+        },
+        body: JSON.stringify(updated)
+      });
+    } catch {}
+    await dataService.saveDocument('attendance_settings', id, updated);
+    showToast(isAr ? `تم تحديث فترة السماح الافتراضية للشركة (${updated.default_grace_period_minutes} دقيقة)` : `Updated default company grace period (${updated.default_grace_period_minutes} mins)`);
+  };
+
   const handleClearAllDatabase = async (includeEmployees: boolean = true) => {
     const adminAllowed = userRole === 'Administrator' || currentEmployee?.is_admin === true || currentEmployee?.position === 'Administrator';
     if (!adminAllowed) {
@@ -3815,6 +3905,8 @@ export default function App() {
               onSaveManualAttendance={handleSaveManualAttendanceByIT}
               onResetAttendanceTime={handleResetAttendanceTimeByIT}
               onDeleteAttendance={handleDeleteAttendanceByIT}
+              onSaveWorkSchedule={handleSaveWorkSchedule}
+              onSaveAttendanceSettings={handleSaveAttendanceSettings}
               onSyncFromDatabase={fetchAllData}
             />
           )}

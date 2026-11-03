@@ -920,10 +920,98 @@ app.get("/api/work-schedules", async (req, res) => {
   res.json(schedules);
 });
 
+app.post("/api/work-schedules", async (req, res) => {
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || '').trim();
+  const actingRole = String((req.headers['x-acting-role'] as string) || req.body?._actingRole || '').trim();
+  const isAllowed = actingUser === 'IT' || actingRole === 'Administrator' || req.body?.is_admin === true;
+  if (!isAllowed) {
+    return res.status(403).json({ error: 'Forbidden: Only Developer (IT) and Administrator can adjust work schedules.' });
+  }
+
+  const schId = req.body.id || `SCHED-${req.body.employee_id || Date.now()}`;
+  const schedule = {
+    id: schId,
+    employee_id: req.body.employee_id || '',
+    employee_name: req.body.employee_name || 'Employee',
+    start_time: req.body.start_time || '09:00',
+    end_time: req.body.end_time || '17:00',
+    grace_period_minutes: Number(req.body.grace_period_minutes !== undefined ? req.body.grace_period_minutes : 15),
+    working_days: Array.isArray(req.body.working_days) ? req.body.working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!db.work_schedules) db.work_schedules = [];
+  const idx = db.work_schedules.findIndex((s: any) => s.id === schId || (req.body.employee_id && s.employee_id === req.body.employee_id));
+  if (idx >= 0) db.work_schedules[idx] = { ...db.work_schedules[idx], ...schedule };
+  else db.work_schedules.push(schedule);
+
+  await saveToFirestore('work_schedules', schId, schedule);
+  await logActivity(actingUser || 'Administrator', `Adjusted work schedule for ${schedule.employee_name} (Grace: ${schedule.grace_period_minutes}m)`, 'Work Schedules', schId);
+  res.json(schedule);
+});
+
+app.put("/api/work-schedules/:id", async (req, res) => {
+  const { id } = req.params;
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || '').trim();
+  const actingRole = String((req.headers['x-acting-role'] as string) || req.body?._actingRole || '').trim();
+  const isAllowed = actingUser === 'IT' || actingRole === 'Administrator' || req.body?.is_admin === true;
+  if (!isAllowed) {
+    return res.status(403).json({ error: 'Forbidden: Only Developer (IT) and Administrator can adjust work schedules.' });
+  }
+
+  const existing = (db.work_schedules || []).find((s: any) => s.id === id);
+  const updated = {
+    ...(existing || {}),
+    ...req.body,
+    id,
+    grace_period_minutes: Number(req.body.grace_period_minutes !== undefined ? req.body.grace_period_minutes : (existing?.grace_period_minutes ?? 15)),
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!db.work_schedules) db.work_schedules = [];
+  const idx = db.work_schedules.findIndex((s: any) => s.id === id);
+  if (idx >= 0) db.work_schedules[idx] = updated;
+  else db.work_schedules.push(updated);
+
+  await saveToFirestore('work_schedules', id, updated);
+  await logActivity(actingUser || 'Administrator', `Updated work schedule for ${updated.employee_name || id} (Grace: ${updated.grace_period_minutes}m)`, 'Work Schedules', id);
+  res.json(updated);
+});
+
 app.get("/api/attendance-settings", async (req, res) => {
   const settingsDocs = await getCollectionDocs('attendance_settings');
   const mainDoc = settingsDocs.find((d: any) => d.id === 'main') || settingsDocs[0] || null;
   res.json(mainDoc);
+});
+
+app.post("/api/attendance-settings", async (req, res) => {
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || '').trim();
+  const actingRole = String((req.headers['x-acting-role'] as string) || req.body?._actingRole || '').trim();
+  const isAllowed = actingUser === 'IT' || actingRole === 'Administrator' || req.body?.is_admin === true;
+  if (!isAllowed) {
+    return res.status(403).json({ error: 'Forbidden: Only Developer (IT) and Administrator can adjust attendance settings and default grace periods.' });
+  }
+
+  const id = 'main';
+  const updated = {
+    id,
+    default_start_time: req.body.default_start_time || '09:00',
+    default_end_time: req.body.default_end_time || '17:00',
+    default_grace_period_minutes: Number(req.body.default_grace_period_minutes !== undefined ? req.body.default_grace_period_minutes : 15),
+    auto_record_on_login: req.body.auto_record_on_login ?? true,
+    auto_record_on_logout: req.body.auto_record_on_logout ?? true,
+    default_working_days: Array.isArray(req.body.default_working_days) ? req.body.default_working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!db.attendance_settings) db.attendance_settings = [];
+  const idx = db.attendance_settings.findIndex((s: any) => s.id === id);
+  if (idx >= 0) db.attendance_settings[idx] = updated;
+  else db.attendance_settings.push(updated);
+
+  await saveToFirestore('attendance_settings', id, updated);
+  await logActivity(actingUser || 'Administrator', `Updated company default grace period (${updated.default_grace_period_minutes}m) & attendance policy`, 'Attendance Settings', id);
+  res.json(updated);
 });
 
 // Retrieve Attendance & Log-In Data for the Previous Two Days from Cloud Firestore
@@ -2936,9 +3024,20 @@ app.get("/api/invoices", async (req, res) => {
 
 app.post("/api/invoices", async (req, res) => {
   const invId = req.body.id || ("INV-" + Math.random().toString(36).substring(2, 7).toUpperCase());
-  const invCount = (db.invoices?.length || 0) + 1001;
+  
+  let maxSeq = 1000;
+  (db.invoices || []).forEach((inv: any) => {
+    const match = String(inv.invoice_number || '').match(/INV-2026-(\d+)/i);
+    if (match) {
+      const val = parseInt(match[1], 10);
+      if (val > maxSeq) maxSeq = val;
+    }
+  });
+  const nextSeq = maxSeq + 1;
+  const invSerial = req.body.invoice_number || `INV-2026-${nextSeq}`;
+
   const newInvoice = {
-    invoice_number: req.body.invoice_number || `INV-2026-${invCount}`,
+    invoice_number: invSerial,
     issue_date: req.body.issue_date || new Date().toISOString().split('T')[0],
     due_date: req.body.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     currency: "USD",

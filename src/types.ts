@@ -977,6 +977,8 @@ export interface Invoice {
   manager_name?: string;
   created_by_employee?: string;
   file_number?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 

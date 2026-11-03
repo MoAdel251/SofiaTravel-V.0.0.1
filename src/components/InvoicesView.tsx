@@ -637,6 +637,23 @@ export function InvoicesView({
     setPaymentAmount(0);
   };
 
+  // Helper function to extract numeric invoice number for descending sorting
+  const extractInvoiceNum = (inv: Invoice): number => {
+    const numStr = String(inv.invoice_number || inv.id || '');
+    const matches = numStr.match(/\d+/g);
+    return matches && matches.length > 0 ? parseInt(matches.join(''), 10) : 0;
+  };
+
+  const sortInvoicesDescending = (a: Invoice, b: Invoice): number => {
+    const numA = extractInvoiceNum(a);
+    const numB = extractInvoiceNum(b);
+    if (numA !== numB) return numB - numA;
+    const dateA = String(a.issue_date || a.createdAt || '');
+    const dateB = String(b.issue_date || b.createdAt || '');
+    if (dateA !== dateB) return dateB.localeCompare(dateA);
+    return String(b.invoice_number || b.id || '').localeCompare(String(a.invoice_number || a.id || ''), undefined, { numeric: true, sensitivity: 'base' });
+  };
+
   // Separate Customer and Supplier Invoices
   const customerInvoices = invoices.filter(inv => inv.recipient_type !== 'Supplier');
   const supplierInvoices = invoices.filter(inv => inv.recipient_type === 'Supplier');
@@ -651,7 +668,7 @@ export function InvoicesView({
 
     const matchesStatus = statusFilter === 'All' || inv.payment_status === statusFilter;
     return matchesSearch && matchesStatus;
-  });
+  }).sort(sortInvoicesDescending);
 
   // Filter Supplier Invoices
   const filteredSupplierInvoices = supplierInvoices.filter(inv => {
@@ -663,7 +680,7 @@ export function InvoicesView({
 
     const matchesStatus = statusFilter === 'All' || inv.payment_status === statusFilter;
     return matchesSearch && matchesStatus;
-  });
+  }).sort(sortInvoicesDescending);
 
   // Calculate Currency Totals for a subset of invoices
   const calculateTotalsForList = (list: Invoice[], targetCur: 'USD' | 'EGP' | 'EUR') => {

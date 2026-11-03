@@ -59,6 +59,8 @@ interface AttendanceDepartureViewProps {
   }) => Promise<void> | void;
   onResetAttendanceTime?: (id: string, target: 'clock_in' | 'clock_out' | 'both') => Promise<void> | void;
   onDeleteAttendance?: (id: string) => Promise<void> | void;
+  onSaveWorkSchedule?: (schedule: Partial<WorkSchedule>) => Promise<void> | void;
+  onSaveAttendanceSettings?: (settings: Partial<AttendanceSettings>) => Promise<void> | void;
   onSyncFromDatabase?: () => Promise<void> | void;
 }
 
@@ -82,6 +84,8 @@ export function AttendanceDepartureView({
   onSaveManualAttendance,
   onResetAttendanceTime,
   onDeleteAttendance,
+  onSaveWorkSchedule,
+  onSaveAttendanceSettings,
   onSyncFromDatabase,
 }: AttendanceDepartureViewProps) {
   const { language } = useLanguage();
@@ -118,6 +122,60 @@ export function AttendanceDepartureView({
     clock_out: '18:00',
     notes: '',
   });
+
+  // Both Developer (IT) AND Administrator have authority to adjust work schedules & grace periods
+  const canAdjustSchedules = isAdmin || isITAccount || userRole === 'Administrator';
+
+  // Work Schedule & Grace Period Modal State
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<WorkSchedule | null>(null);
+  const [scheduleForm, setScheduleForm] = useState<{
+    id?: string;
+    employee_id: string;
+    employee_name: string;
+    start_time: string;
+    end_time: string;
+    grace_period_minutes: number;
+    working_days: string[];
+  }>({
+    employee_id: '',
+    employee_name: '',
+    start_time: '09:00',
+    end_time: '17:00',
+    grace_period_minutes: 15,
+    working_days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+  });
+
+  const [showCompanySettingsModal, setShowCompanySettingsModal] = useState(false);
+  const [companySettingsForm, setCompanySettingsForm] = useState<{
+    default_start_time: string;
+    default_end_time: string;
+    default_grace_period_minutes: number;
+  }>({
+    default_start_time: attendanceSettings?.default_start_time || '09:00',
+    default_end_time: attendanceSettings?.default_end_time || '17:00',
+    default_grace_period_minutes: attendanceSettings?.default_grace_period_minutes ?? 15,
+  });
+
+  // Calculate current site login time for Requirement 2
+  const currentLoginLogToday = useMemo(() => {
+    const myName = (currentUsername || '').trim().toLowerCase();
+    const myId = (currentEmpId || '').trim();
+    return loginLogs.find(
+      l =>
+        l.date === prevTwoDaysInfo.today &&
+        ((myId && (l.employee_id === myId || l.record_id === myId)) ||
+          (myName && (l.employee_name || '').trim().toLowerCase() === myName)) &&
+        String(l.action || l.details).toLowerCase().includes('log in')
+    );
+  }, [loginLogs, currentUsername, currentEmpId, prevTwoDaysInfo.today]);
+
+  const displaySiteLoginTime =
+    todaySelfAttendance?.login_time ||
+    todaySelfAttendance?.clock_in ||
+    todaySelfAttendance?.check_in_time ||
+    currentLoginLogToday?.time ||
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // Build employee roster from Firestore employees + attendance records
   const employeeOptions = useMemo(() => {
@@ -408,6 +466,77 @@ export function AttendanceDepartureView({
     setTimeout(() => setBannerMessage(null), 5000);
   };
 
+  const handleOpenScheduleModal = (existing?: WorkSchedule) => {
+    if (existing) {
+      setEditingSchedule(existing);
+      setScheduleForm({
+        id: existing.id,
+        employee_id: existing.employee_id,
+        employee_name: existing.employee_name,
+        start_time: existing.start_time || '09:00',
+        end_time: existing.end_time || '17:00',
+        grace_period_minutes: existing.grace_period_minutes ?? 15,
+        working_days: existing.working_days || ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+      });
+    } else {
+      const firstEmp = employeeOptions[0];
+      setEditingSchedule(null);
+      setScheduleForm({
+        employee_id: firstEmp?.id || '',
+        employee_name: firstEmp?.name || '',
+        start_time: attendanceSettings?.default_start_time || '09:00',
+        end_time: attendanceSettings?.default_end_time || '17:00',
+        grace_period_minutes: attendanceSettings?.default_grace_period_minutes ?? 15,
+        working_days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+      });
+    }
+    setShowScheduleModal(true);
+  };
+
+  const handleSubmitSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canAdjustSchedules || !onSaveWorkSchedule) return;
+    const targetEmp = employeeOptions.find(o => o.id === scheduleForm.employee_id);
+    const empName = targetEmp?.name || scheduleForm.employee_name || 'Employee';
+
+    await onSaveWorkSchedule({
+      id: scheduleForm.id,
+      employee_id: scheduleForm.employee_id || empName,
+      employee_name: empName,
+      start_time: scheduleForm.start_time,
+      end_time: scheduleForm.end_time,
+      grace_period_minutes: Number(scheduleForm.grace_period_minutes),
+      working_days: scheduleForm.working_days,
+    });
+
+    setShowScheduleModal(false);
+    setBannerMessage(
+      isAr
+        ? `تم حفظ مواعيد العمل وفترة السماح (${scheduleForm.grace_period_minutes} دقيقة) للموظف ${empName}`
+        : `Saved work schedule & grace period (${scheduleForm.grace_period_minutes} mins) for ${empName}`
+    );
+    setTimeout(() => setBannerMessage(null), 4500);
+  };
+
+  const handleSubmitCompanySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canAdjustSchedules || !onSaveAttendanceSettings) return;
+
+    await onSaveAttendanceSettings({
+      default_start_time: companySettingsForm.default_start_time,
+      default_end_time: companySettingsForm.default_end_time,
+      default_grace_period_minutes: Number(companySettingsForm.default_grace_period_minutes),
+    });
+
+    setShowCompanySettingsModal(false);
+    setBannerMessage(
+      isAr
+        ? `تم تحديث فترة السماح الافتراضية للشركة (${companySettingsForm.default_grace_period_minutes} دقيقة)`
+        : `Updated default company grace period (${companySettingsForm.default_grace_period_minutes} mins)`
+    );
+    setTimeout(() => setBannerMessage(null), 4500);
+  };
+
   const selfShiftOpen = isAttendanceShiftOpen(todaySelfAttendance);
 
   return (
@@ -500,6 +629,91 @@ export function AttendanceDepartureView({
               </span>
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Requirement 2: Employee Self Clock-In / Clock-Out & Site Login Time Card */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-3xl p-5 sm:p-6 text-white shadow-xl border border-slate-700/60 relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-[11px] font-bold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                {isAr ? 'جلسة تسجيل دخول الموظف الحالية' : 'Active Employee Session'}
+              </span>
+              <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full text-[11px] font-mono font-bold">
+                {isAr ? `التاريخ: ${prevTwoDaysInfo.today}` : `Today: ${prevTwoDaysInfo.today}`}
+              </span>
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
+              <span>{currentUsername}</span>
+              <span className="text-xs font-bold text-slate-300 px-2.5 py-0.5 rounded-lg bg-slate-800 border border-slate-700">
+                {isITAccount ? 'IT Developer' : userRole}
+              </span>
+            </h2>
+
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 pt-1">
+              <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700 font-mono">
+                <LogIn className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  {isAr ? 'وقت تسجيل دخول الموقع:' : 'Site Login Time:'}{' '}
+                  <strong className="text-emerald-300 font-bold">{displaySiteLoginTime}</strong>
+                </span>
+              </div>
+
+              {todaySelfAttendance?.clock_in && (
+                <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700 font-mono">
+                  <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    {isAr ? 'وقت الحضور المسجل:' : 'Clock-In Time:'}{' '}
+                    <strong className="text-amber-300 font-bold">{todaySelfAttendance.clock_in}</strong>
+                  </span>
+                </div>
+              )}
+
+              {todaySelfAttendance?.clock_out && (
+                <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700 font-mono">
+                  <LogOut className="w-4 h-4 text-blue-400 shrink-0" />
+                  <span>
+                    {isAr ? 'وقت الانصراف المسجل:' : 'Clock-Out Time:'}{' '}
+                    <strong className="text-blue-300 font-bold">{todaySelfAttendance.clock_out}</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            {(onSelfClockIn || onSelfClockOut) &&
+              (selfShiftOpen ? (
+                <button
+                  type="button"
+                  onClick={onSelfClockOut}
+                  className="px-6 py-3.5 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white rounded-2xl text-xs sm:text-sm font-black shadow-lg hover:shadow-xl flex items-center gap-2.5 cursor-pointer transition-all border border-amber-400/30"
+                >
+                  <LogOut className="w-5 h-5" />
+                  <span>
+                    {isAr
+                      ? `تسجيل الخروج (انصراف) - وقت الدخول: ${displaySiteLoginTime}`
+                      : `Log Out (Check Out) - Login: ${displaySiteLoginTime}`}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onSelfClockIn}
+                  className="px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl text-xs sm:text-sm font-black shadow-lg hover:shadow-xl flex items-center gap-2.5 cursor-pointer transition-all border border-emerald-400/30"
+                >
+                  <LogIn className="w-5 h-5" />
+                  <span>
+                    {isAr
+                      ? `تسجيل الدخول (حضور) - الوقت: ${displaySiteLoginTime}`
+                      : `Log In (Check In) - Time: ${displaySiteLoginTime}`}
+                  </span>
+                </button>
+              ))}
+          </div>
         </div>
       </div>
 
@@ -1080,6 +1294,49 @@ export function AttendanceDepartureView({
       {/* SECTION 3: OFFICIAL WORK SCHEDULES */}
       {activeSection === 'schedules' && (
         <div className="space-y-4">
+          {/* Section Header Controls for Administrator and Developer */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+            <div>
+              <h3 className="font-black text-slate-900 text-sm">
+                {isAr ? 'جدول مواعيد العمل الرسمية وفترات السماح للموظفين' : 'Official Employee Work Schedules & Grace Periods'}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isAr
+                  ? 'للمطور (IT) والمدير العام صلاحية تعديل جدول مواعيد العمل وفترة السماح لكل موظف.'
+                  : 'Developer (IT) & Administrator have authority to adjust work schedules and grace periods.'}
+              </p>
+            </div>
+
+            {canAdjustSchedules && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCompanySettingsForm({
+                      default_start_time: attendanceSettings?.default_start_time || '09:00',
+                      default_end_time: attendanceSettings?.default_end_time || '17:00',
+                      default_grace_period_minutes: attendanceSettings?.default_grace_period_minutes ?? 15,
+                    });
+                    setShowCompanySettingsModal(true);
+                  }}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                  <span>{isAr ? 'تعديل فترة السماح العامة للشركة' : 'Edit Company Grace Period'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenScheduleModal()}
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{isAr ? 'تعديل / إضافة جدول موظف' : 'Add / Adjust Employee Schedule'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           {attendanceSettings && (
             <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs">
               <div>
@@ -1088,8 +1345,8 @@ export function AttendanceDepartureView({
                 </h3>
                 <p className="text-slate-500 mt-0.5">
                   {isAr
-                    ? `بداية الدوام: ${attendanceSettings.default_start_time} • نهاية الدوام: ${attendanceSettings.default_end_time} • فترة السماح: ${attendanceSettings.default_grace_period_minutes} دقيقة`
-                    : `Official Shift: ${attendanceSettings.default_start_time} – ${attendanceSettings.default_end_time} • Grace Period: ${attendanceSettings.default_grace_period_minutes} mins`}
+                    ? `بداية الدوام: ${attendanceSettings.default_start_time} • نهاية الدوام: ${attendanceSettings.default_end_time} • فترة السماح الافتراضية: ${attendanceSettings.default_grace_period_minutes} دقيقة`
+                    : `Official Shift: ${attendanceSettings.default_start_time} – ${attendanceSettings.default_end_time} • Default Grace Period: ${attendanceSettings.default_grace_period_minutes} mins`}
                 </p>
               </div>
               {attendanceSettings.auto_record_on_login && (
@@ -1104,34 +1361,50 @@ export function AttendanceDepartureView({
             {workSchedules.map(ws => (
               <div
                 key={ws.id}
-                className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2.5 text-xs"
+                className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2.5 text-xs flex flex-col justify-between"
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-slate-900 text-sm">{ws.employee_name}</span>
-                  <span className="font-mono text-[10px] text-slate-400">{ws.employee_id}</span>
-                </div>
-                <div className="flex items-center gap-3 text-slate-700 font-mono font-bold">
-                  <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">
-                    {ws.start_time}
-                  </span>
-                  <span>→</span>
-                  <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700">{ws.end_time}</span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  {isAr
-                    ? `فترة السماح: ${ws.grace_period_minutes} دقيقة`
-                    : `Grace Period: ${ws.grace_period_minutes} mins`}
-                </div>
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {(ws.working_days || []).map(day => (
-                    <span
-                      key={day}
-                      className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold"
-                    >
-                      {day}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-slate-900 text-sm">{ws.employee_name}</span>
+                    <span className="font-mono text-[10px] text-slate-400">{ws.employee_id}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-slate-700 font-mono font-bold">
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">
+                      {ws.start_time}
                     </span>
-                  ))}
+                    <span>→</span>
+                    <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700">{ws.end_time}</span>
+                  </div>
+                  <div className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                    <span>{isAr ? 'فترة السماح:' : 'Grace Period:'}</span>
+                    <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-mono">
+                      {ws.grace_period_minutes} {isAr ? 'دقيقة' : 'mins'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {(ws.working_days || []).map(day => (
+                      <span
+                        key={day}
+                        className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold"
+                      >
+                        {day}
+                      </span>
+                    ))}
+                  </div>
                 </div>
+
+                {canAdjustSchedules && (
+                  <div className="pt-3 border-t border-slate-100 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenScheduleModal(ws)}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isAr ? 'تعديل الموعد وفترة السماح' : 'Edit Schedule & Grace Period'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1448,6 +1721,274 @@ export function AttendanceDepartureView({
           </div>
         );
       })()}
+      {/* Edit Employee Work Schedule & Grace Period Modal (IT & Administrator Authority) */}
+      {showScheduleModal && canAdjustSchedules && (
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div>
+                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded text-[10px] font-extrabold uppercase">
+                  {isAr ? 'صلاحية المدير والـ IT' : 'Admin & IT Authority'}
+                </span>
+                <h3 className="text-base font-black text-slate-900 mt-1">
+                  {editingSchedule
+                    ? isAr
+                      ? `تعديل جدول وعذر السماح للموظف ${scheduleForm.employee_name}`
+                      : `Edit Schedule & Grace Period for ${scheduleForm.employee_name}`
+                    : isAr
+                    ? 'إضافة / تعديل جدول عمل ومواعيد موظف'
+                    : 'Add / Adjust Employee Work Schedule & Grace Period'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowScheduleModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitSchedule} className="space-y-4">
+              {!editingSchedule && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'اختر الموظف' : 'Select Employee'}
+                  </label>
+                  <select
+                    value={scheduleForm.employee_id}
+                    onChange={e => {
+                      const empId = e.target.value;
+                      const emp = employeeOptions.find(o => o.id === empId);
+                      setScheduleForm(prev => ({
+                        ...prev,
+                        employee_id: empId,
+                        employee_name: emp?.name || '',
+                      }));
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium text-slate-800"
+                    required
+                  >
+                    <option value="">{isAr ? '-- اختر موظفاً --' : '-- Select Employee --'}</option>
+                    {employeeOptions.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'وقت بدء العمل (الحضور)' : 'Shift Start Time'}
+                  </label>
+                  <input
+                    type="time"
+                    value={scheduleForm.start_time}
+                    onChange={e => setScheduleForm(prev => ({ ...prev, start_time: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'وقت انتهاء العمل (الانصراف)' : 'Shift End Time'}
+                  </label>
+                  <input
+                    type="time"
+                    value={scheduleForm.end_time}
+                    onChange={e => setScheduleForm(prev => ({ ...prev, end_time: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {isAr ? 'فترة السماح والتأخير المقبولة (بالدقائق)' : 'Grace Period (Minutes)'}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="120"
+                  value={scheduleForm.grace_period_minutes}
+                  onChange={e => setScheduleForm(prev => ({ ...prev, grace_period_minutes: Number(e.target.value) }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                  required
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {isAr
+                    ? 'مثال: 15 دقيقة سماح بعد وقت بدء الشفت دون احتساب التأخير'
+                    : 'Example: 15 minutes grace period allowed after shift start before marked late.'}
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-2">
+                  {isAr ? 'أيام العمل الأسبوعية' : 'Working Days'}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { day: 'Sun', labelAr: 'الأحد', labelEn: 'Sun' },
+                    { day: 'Mon', labelAr: 'الإثنين', labelEn: 'Mon' },
+                    { day: 'Tue', labelAr: 'الثلاثاء', labelEn: 'Tue' },
+                    { day: 'Wed', labelAr: 'الأربعاء', labelEn: 'Wed' },
+                    { day: 'Thu', labelAr: 'الخميس', labelEn: 'Thu' },
+                    { day: 'Fri', labelAr: 'الجمعة', labelEn: 'Fri' },
+                    { day: 'Sat', labelAr: 'السبت', labelEn: 'Sat' },
+                  ].map(d => {
+                    const active = scheduleForm.working_days.includes(d.day);
+                    return (
+                      <button
+                        type="button"
+                        key={d.day}
+                        onClick={() => {
+                          setScheduleForm(prev => {
+                            const exists = prev.working_days.includes(d.day);
+                            return {
+                              ...prev,
+                              working_days: exists
+                                ? prev.working_days.filter(item => item !== d.day)
+                                : [...prev.working_days, d.day],
+                            };
+                          });
+                        }}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          active
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {isAr ? d.labelAr : d.labelEn}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleModal(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+                >
+                  {isAr ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{isAr ? 'حفظ جدول المواعيد' : 'Save Schedule'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Company Default Grace Period & Shift Settings Modal */}
+      {showCompanySettingsModal && canAdjustSchedules && (
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div>
+                <span className="px-2 py-0.5 bg-slate-900 text-cyan-300 rounded text-[10px] font-extrabold uppercase">
+                  {isAr ? 'إعدادات الشركة العالامة' : 'Company Default Settings'}
+                </span>
+                <h3 className="text-base font-black text-slate-900 mt-1">
+                  {isAr ? 'تعديل فترة السماح الافتراضية للشركة' : 'Edit Company Grace Period & Default Shift'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCompanySettingsModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitCompanySettings} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'بداية الشفت الافتراضية' : 'Default Start Time'}
+                  </label>
+                  <input
+                    type="time"
+                    value={companySettingsForm.default_start_time}
+                    onChange={e =>
+                      setCompanySettingsForm(prev => ({ ...prev, default_start_time: e.target.value }))
+                    }
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'نهاية الشفت الافتراضية' : 'Default End Time'}
+                  </label>
+                  <input
+                    type="time"
+                    value={companySettingsForm.default_end_time}
+                    onChange={e =>
+                      setCompanySettingsForm(prev => ({ ...prev, default_end_time: e.target.value }))
+                    }
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {isAr ? 'فترة السماح الافتراضية للشركة (بالدقائق)' : 'Default Grace Period (Minutes)'}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="120"
+                  value={companySettingsForm.default_grace_period_minutes}
+                  onChange={e =>
+                    setCompanySettingsForm(prev => ({
+                      ...prev,
+                      default_grace_period_minutes: Number(e.target.value),
+                    }))
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                  required
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {isAr
+                    ? 'يطبق هذا العذر الافتراضي على جميع الموظفين الذين ليس لديهم جدول مخصص'
+                    : 'Applies as default grace period for employees without individual custom schedules.'}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowCompanySettingsModal(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+                >
+                  {isAr ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{isAr ? 'حفظ إعدادات الشركة' : 'Save Default Grace Settings'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

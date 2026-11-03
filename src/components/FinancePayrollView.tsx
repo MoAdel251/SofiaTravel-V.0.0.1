@@ -415,17 +415,35 @@ export function FinancePayrollView({
 
   // 2. Filter active financial datasets by selected period and currency policy
   // Policy: When selecting USD or EUR as the currency on the Finance & Payroll page, existing invoices in Egyptian pounds are not converted to dollars/euros and displayed.
+  const extractInvoiceNum = (inv: Invoice): number => {
+    const numStr = String(inv.invoice_number || inv.id || '');
+    const matches = numStr.match(/\d+/g);
+    return matches && matches.length > 0 ? parseInt(matches.join(''), 10) : 0;
+  };
+
+  const sortInvoicesDescending = (a: Invoice, b: Invoice): number => {
+    const numA = extractInvoiceNum(a);
+    const numB = extractInvoiceNum(b);
+    if (numA !== numB) return numB - numA;
+    const dateA = String(a.issue_date || a.createdAt || '');
+    const dateB = String(b.issue_date || b.createdAt || '');
+    if (dateA !== dateB) return dateB.localeCompare(dateA);
+    return String(b.invoice_number || b.id || '').localeCompare(String(a.invoice_number || a.id || ''), undefined, { numeric: true, sensitivity: 'base' });
+  };
+
   const activeInvoices = useMemo(
     () =>
-      invoices.filter(inv => {
-        if (inv.payment_status === 'Cancelled') return false;
-        if (!matchesPeriod(inv.issue_date)) return false;
-        const invCurr = normalizeCurrencyCode(inv.currency || 'EGP');
-        if (invCurr === 'EGP' && (displayCurrency === 'USD' || displayCurrency === 'EUR')) {
-          return false;
-        }
-        return true;
-      }),
+      invoices
+        .filter(inv => {
+          if (inv.payment_status === 'Cancelled') return false;
+          if (!matchesPeriod(inv.issue_date)) return false;
+          const invCurr = normalizeCurrencyCode(inv.currency || 'EGP');
+          if (invCurr === 'EGP' && (displayCurrency === 'USD' || displayCurrency === 'EUR')) {
+            return false;
+          }
+          return true;
+        })
+        .sort(sortInvoicesDescending),
     [invoices, periodFilter, displayCurrency]
   );
 
