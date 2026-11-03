@@ -246,7 +246,7 @@ export function CustomerInquiriesView({
   // WhatsApp click handler
   const handleOpenWhatsApp = (phone: string, name: string, service?: string) => {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const message = encodeURIComponent(`👋 Hello ${name}, 🙏 thank you for reaching out to Sofia Travel regarding ${service || 'our tourism services'}. ✈️ How may we assist you today?`);
+    const message = encodeURIComponent(`Hello ${name}, thank you for reaching out to Sofia Travel regarding ${service || 'our tourism services'}. How may we assist you today?`);
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
   };
 

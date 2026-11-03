@@ -1,11 +1,12 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
+import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
-import { buildInvoiceNumber, getInvoiceKind } from './src/lib/invoiceNumbering';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -24,20 +25,22 @@ try {
   setLogLevel('silent');
 } catch {}
 
-// Resolve files relative to the deployment working directory. This keeps the
-// same code working for local Node hosting and Vercel serverless functions
-// (where __dirname / import.meta.url differ between bundlers).
-const appDirname = process.cwd();
+let appDirname = process.cwd();
+try {
+  appDirname = path.dirname(fileURLToPath(import.meta.url));
+} catch {
+  appDirname = process.cwd();
+}
 
 let firebaseConfig: any = {
-  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "tidal-dynamics-s54g5.firebaseapp.com",
-  projectId: process.env.FIREBASE_PROJECT_ID || "tidal-dynamics-s54g5",
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "tidal-dynamics-s54g5.firebasestorage.app",
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "879700596249",
-  appId: process.env.FIREBASE_APP_ID || "1:879700596249:web:09aba9e86995c144cf3c88"
+  apiKey: "AIzaSyDTJtJ0loKB65G5Mux6-tiTUrdi3n8qd2U",
+  authDomain: "tidal-dynamics-s54g5.firebaseapp.com",
+  projectId: "tidal-dynamics-s54g5",
+  storageBucket: "tidal-dynamics-s54g5.firebasestorage.app",
+  messagingSenderId: "879700596249",
+  appId: "1:879700596249:web:09aba9e86995c144cf3c88"
 };
-let firestoreDatabaseId: string | undefined = process.env.FIREBASE_DATABASE_ID || "ai-studio-sofiatravelmanag-d5250360-2f13-4e61-9f65-9d2693ac8c37";
+let firestoreDatabaseId: string | undefined = "ai-studio-sofiatravelmanag-d5250360-2f13-4e61-9f65-9d2693ac8c37";
 
 const candidatePaths = [
   path.join(process.cwd(), 'firebase-applet-config.json'),
@@ -87,7 +90,6 @@ let db = {
     bank_beneficiary_name: "Sofia Travel S.A.E.",
     default_currency: "USD",
     invoice_prefix: "INV-2026-",
-    supplier_invoice_prefix: "BILL-2026-",
     reservation_prefix: "RES-",
     voucher_prefix: "VCH-2026-",
     payment_methods: ["Cash", "Bank Transfer", "Credit Card", "InstaPay", "ValU (Installments)", "TRU (Installments)", "Other"],
@@ -173,17 +175,7 @@ let db = {
   commission_records: [],
   finance_audit_logs: [],
   customer_inquiries: [],
-  attendance: [],
-  work_schedules: [],
-  employee_targets: [],
-  attendance_settings: {
-    official_check_in: "09:00",
-    official_check_out: "17:00",
-    grace_period_minutes: 15,
-    required_working_hours: 8,
-    absence_deduction_type: "Deduct Daily Rate",
-    late_deduction_type: "Per Minute"
-  }
+  employee_attendance: []
 };
 
 async function getCollectionDocs(collectionName: string): Promise<any[]> {
@@ -240,7 +232,7 @@ async function loadFromFirestore() {
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "employee_targets"
+    "finance_audit_logs", "customer_inquiries", "employee_attendance"
   ];
   try {
     console.log("Loading persistent data from Firestore...");
@@ -269,7 +261,7 @@ async function wipeAllFirestoreTestData(includeNonAdminEmployees = true, actingA
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "employee_targets"
+    "finance_audit_logs", "customer_inquiries", "employee_attendance"
   ];
   console.log(`Admin action by ${actingAdmin}: Wiping all operational data from Firestore...`);
   for (const col of collections) {
@@ -340,78 +332,6 @@ async function deleteFromFirestore(collectionName: string, id: string) {
 const app = express();
 const PORT = 3000;
 
-// Protected developer account. This account is never stored in the employees
-// collection and must never be editable or deletable through the API.
-const DEVELOPER_ACCOUNT_ID = 'SYS-IT-ADMIN';
-const DEVELOPER_USERNAME = 'IT';
-const isDeveloperRecord = (employee: any): boolean => {
-  if (!employee) return false;
-  return (
-    employee.id === DEVELOPER_ACCOUNT_ID ||
-    employee.employee_id === DEVELOPER_ACCOUNT_ID ||
-    String(employee.username || '').trim().toLowerCase() === DEVELOPER_USERNAME.toLowerCase()
-  );
-};
-const isReservedDeveloperUsername = (username: unknown): boolean =>
-  String(username || '').trim().toLowerCase() === DEVELOPER_USERNAME.toLowerCase();
-
-/**
- * Create (or restore) the protected developer account in Firestore.
- * Credentials are fixed here, so an administrator can never change the
- * developer's password, demote the account or delete it.
- */
-async function ensureDeveloperAccount(): Promise<void> {
-  const developer = {
-    id: DEVELOPER_ACCOUNT_ID,
-    employee_id: 'IT-0001',
-    name: DEVELOPER_USERNAME,
-    full_name: DEVELOPER_USERNAME,
-    username: DEVELOPER_USERNAME,
-    password: '1282',
-    position: 'Administrator',
-    job_title: 'Administrator',
-    role: 'Administrator',
-    department: 'Management',
-    phone: '',
-    email: 'it@sofiatravel.com',
-    joining_date: '2026-01-01',
-    salary: 0,
-    commission_rate: 0,
-    status: 'Active',
-    account_status: 'Active',
-    login_access_enabled: true,
-    is_admin: true,
-    permissions: ['*'],
-    protected: true,
-  };
-  try {
-    await setDoc(doc(firestoreDb, 'employees', DEVELOPER_ACCOUNT_ID), developer, { merge: true });
-  } catch (err) {
-    console.warn('Unable to provision the protected developer account:', err);
-  }
-}
-
-let developerAccountPromise: Promise<void> | null = null;
-const ensureDeveloperAccountOnce = (): Promise<void> => {
-  if (!developerAccountPromise) {
-    developerAccountPromise = ensureDeveloperAccount();
-  }
-  return developerAccountPromise;
-};
-
-// Run the provisioning once per warm serverless instance so the account
-// exists even when the database is created fresh on Vercel.
-app.use(async (req, res, next) => {
-  if (process.env.VERCEL) {
-    try {
-      await ensureDeveloperAccountOnce();
-    } catch {
-      // Never block API traffic because of provisioning hiccups.
-    }
-  }
-  next();
-});
-
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -475,7 +395,8 @@ async function logActivity(userName: string, action: string, module: string, rec
     module,
     record,
     date: dateStr,
-    time: timeStr
+    time: timeStr,
+    createdAt: now.toISOString()
   };
   db.activity_logs.unshift(newLog);
   await saveToFirestore('activity_logs', newLog.id, newLog);
@@ -766,12 +687,6 @@ app.get("/api/settings", async (req, res) => {
       const targetDoc = setSnap.docs.find(d => d.id === 'company_settings') || setSnap.docs.find(d => d.id === 'main') || setSnap.docs[0];
       if (targetDoc && targetDoc.id !== 'system_status') {
         db.settings = { ...db.settings, ...targetDoc.data(), logo: "/sofia-logo.png" };
-        if ((db.settings.invoice_prefix || '').trim() === 'INV-') {
-          db.settings.invoice_prefix = 'INV-2026-';
-        }
-        if (!(db.settings.supplier_invoice_prefix || '').trim()) {
-          db.settings.supplier_invoice_prefix = 'BILL-2026-';
-        }
       }
     }
   } catch (err) {
@@ -781,10 +696,221 @@ app.get("/api/settings", async (req, res) => {
 });
 
 app.put("/api/settings", async (req, res) => {
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || '').trim();
+  const prevDisabled = (db.settings as any).site_disabled;
+  const prevMsg = (db.settings as any).site_disabled_message;
+  const prevAt = (db.settings as any).site_disabled_at;
+  const prevBy = (db.settings as any).site_disabled_by;
+
   db.settings = { ...db.settings, ...req.body };
-  await logActivity("Administrator", "Updated company settings", "Settings", "Settings");
+  if (actingUser !== 'IT') {
+    (db.settings as any).site_disabled = prevDisabled;
+    (db.settings as any).site_disabled_message = prevMsg;
+    (db.settings as any).site_disabled_at = prevAt;
+    (db.settings as any).site_disabled_by = prevBy;
+  }
+  await logActivity(actingUser || "Administrator", "Updated company settings", "Settings", "Settings");
   await saveToFirestore('settings', 'company_settings', db.settings);
   res.json(db.settings);
+});
+
+// IT Developer Account Exclusive: Temporarily Disable / Re-enable Site Without Deleting Data
+app.post("/api/it/toggle-site-status", async (req, res) => {
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || req.body?.site_disabled_by || '').trim();
+  if (actingUser !== 'IT') {
+    return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can temporarily disable or re-enable the site.' });
+  }
+  const disable = Boolean(req.body?.site_disabled);
+  const message = typeof req.body?.site_disabled_message === 'string' ? req.body.site_disabled_message : '';
+  const disabledAt = disable ? (req.body?.site_disabled_at || new Date().toLocaleString()) : '';
+
+  db.settings = {
+    ...db.settings,
+    site_disabled: disable,
+    site_disabled_message: message,
+    site_disabled_at: disabledAt,
+    site_disabled_by: 'IT'
+  } as any;
+
+  await saveToFirestore('settings', 'company_settings', db.settings);
+  await logActivity(
+    'IT',
+    disable ? 'Temporarily disabled site for updates (all data preserved)' : 'Re-enabled site for all users',
+    'System Maintenance',
+    'company_settings'
+  );
+  res.json(db.settings);
+});
+
+// Helper: Unified working hours calculation (identical for employee self clock-in/out & IT manual entry)
+function parseServerTimeToSeconds(timeStr?: string | null): number | null {
+  if (!timeStr) return null;
+  const raw = String(timeStr).trim();
+  if (!raw) return null;
+  if (raw.includes('T')) {
+    const dt = new Date(raw);
+    if (!isNaN(dt.getTime())) {
+      return dt.getHours() * 3600 + dt.getMinutes() * 60 + dt.getSeconds();
+    }
+  }
+  const amPmMatch = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm|ص|م)$/);
+  if (amPmMatch) {
+    let hours = parseInt(amPmMatch[1], 10);
+    const mins = parseInt(amPmMatch[2], 10);
+    const secs = amPmMatch[3] ? parseInt(amPmMatch[3], 10) : 0;
+    const period = amPmMatch[4].toUpperCase();
+    const isPM = period === 'PM' || period === 'م';
+    const isAM = period === 'AM' || period === 'ص';
+    if (isPM && hours < 12) hours += 12;
+    if (isAM && hours === 12) hours = 0;
+    if (hours >= 0 && hours < 24 && mins >= 0 && mins < 60 && secs >= 0 && secs < 60) {
+      return hours * 3600 + mins * 60 + secs;
+    }
+  }
+  const match24 = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (match24) {
+    const hours = parseInt(match24[1], 10);
+    const mins = parseInt(match24[2], 10);
+    const secs = match24[3] ? parseInt(match24[3], 10) : 0;
+    if (hours >= 0 && hours < 24 && mins >= 0 && mins < 60 && secs >= 0 && secs < 60) {
+      return hours * 3600 + mins * 60 + secs;
+    }
+  }
+  return null;
+}
+
+function calculateServerWorkingHours(clockIn?: string | null, clockOut?: string | null) {
+  const inSec = parseServerTimeToSeconds(clockIn);
+  const outSec = parseServerTimeToSeconds(clockOut);
+  if (inSec === null || outSec === null) {
+    return {
+      working_hours: 0,
+      working_hours_formatted: '0h 00m',
+      status: 'Clocked In' as const
+    };
+  }
+  let diffSeconds = outSec - inSec;
+  if (diffSeconds < 0) diffSeconds += 24 * 3600;
+  const totalMinutes = Math.round(diffSeconds / 60);
+  const hoursInt = Math.floor(totalMinutes / 60);
+  const minsRemainder = totalMinutes % 60;
+  const decimalHours = Math.round((diffSeconds / 3600) * 100) / 100;
+  return {
+    working_hours: decimalHours,
+    working_hours_formatted: `${hoursInt}h ${String(minsRemainder).padStart(2, '0')}m`,
+    status: 'Completed' as const
+  };
+}
+
+// Employee Attendance & Working Hours API
+app.get("/api/attendance", async (req, res) => {
+  const records = await getCollectionDocs('employee_attendance');
+  res.json(records);
+});
+
+app.post("/api/attendance", async (req, res) => {
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || req.body?.recorded_by || '').trim();
+  const isManualRequest = req.body?.entry_source === 'IT Manual';
+  if (isManualRequest && actingUser !== 'IT') {
+    return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can manually add employee clock-in/clock-out times.' });
+  }
+
+  const attId = req.body.id || ("ATT-" + Math.random().toString(36).substring(2, 8).toUpperCase());
+  const calc = calculateServerWorkingHours(req.body.clock_in, req.body.clock_out);
+  const nowIso = new Date().toISOString();
+
+  const record = {
+    ...req.body,
+    id: attId,
+    date: req.body.date || nowIso.split('T')[0],
+    working_hours: calc.working_hours,
+    working_hours_formatted: calc.working_hours_formatted,
+    status: calc.status,
+    entry_source: isManualRequest ? 'IT Manual' : (req.body.entry_source || 'Employee'),
+    recorded_by: actingUser || req.body.employee_name || 'Employee',
+    createdAt: req.body.createdAt || nowIso,
+    updatedAt: nowIso
+  };
+
+  if (!db.employee_attendance) db.employee_attendance = [];
+  const idx = db.employee_attendance.findIndex((a: any) => a.id === attId);
+  if (idx >= 0) {
+    db.employee_attendance[idx] = record;
+  } else {
+    db.employee_attendance.unshift(record);
+  }
+
+  await saveToFirestore('employee_attendance', attId, record);
+  await logActivity(
+    record.recorded_by,
+    isManualRequest
+      ? `Manual attendance recorded for ${record.employee_name} (${record.working_hours_formatted})`
+      : `${record.status === 'Completed' ? 'Clocked out' : 'Clocked in'} (${record.employee_name})`,
+    'Attendance',
+    record.id
+  );
+  res.json(record);
+});
+
+app.put("/api/attendance/:id", async (req, res) => {
+  const { id } = req.params;
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || req.body?.recorded_by || '').trim();
+  const isManualRequest = req.body?.entry_source === 'IT Manual';
+  if (isManualRequest && actingUser !== 'IT') {
+    return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can manually modify employee clock-in/clock-out times.' });
+  }
+
+  if (!db.employee_attendance) db.employee_attendance = [];
+  let idx = db.employee_attendance.findIndex((a: any) => a.id === id);
+  if (idx === -1) {
+    await getCollectionDocs('employee_attendance');
+    idx = db.employee_attendance.findIndex((a: any) => a.id === id);
+  }
+  const existing = idx !== -1 ? db.employee_attendance[idx] : { id };
+  const mergedClockIn = req.body.clock_in !== undefined ? req.body.clock_in : existing.clock_in;
+  const mergedClockOut = req.body.clock_out !== undefined ? req.body.clock_out : existing.clock_out;
+  const calc = calculateServerWorkingHours(mergedClockIn, mergedClockOut);
+
+  const updated = {
+    ...existing,
+    ...req.body,
+    id,
+    clock_in: mergedClockIn,
+    clock_out: mergedClockOut,
+    working_hours: calc.working_hours,
+    working_hours_formatted: calc.working_hours_formatted,
+    status: calc.status,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (idx !== -1) {
+    db.employee_attendance[idx] = updated;
+  } else {
+    db.employee_attendance.unshift(updated);
+  }
+
+  await saveToFirestore('employee_attendance', id, updated);
+  await logActivity(
+    actingUser || updated.employee_name || 'Employee',
+    isManualRequest
+      ? `Updated attendance for ${updated.employee_name} (${updated.working_hours_formatted})`
+      : `Clocked out (${updated.employee_name} - ${updated.working_hours_formatted})`,
+    'Attendance',
+    id
+  );
+  res.json(updated);
+});
+
+app.delete("/api/attendance/:id", async (req, res) => {
+  const actingUser = String((req.headers['x-acting-user'] as string) || '').trim();
+  if (actingUser && actingUser !== 'IT') {
+    return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can delete attendance records.' });
+  }
+  const { id } = req.params;
+  db.employee_attendance = (db.employee_attendance || []).filter((a: any) => a.id !== id);
+  await deleteFromFirestore('employee_attendance', id);
+  await logActivity(actingUser || 'IT', `Deleted attendance record ${id}`, 'Attendance', id);
+  res.json({ success: true });
 });
 
 // Customers
@@ -1251,7 +1377,7 @@ async function handleConfirmAndTransferVoucher(req: any, res: any) {
   const existingCustInv = db.invoices?.find(inv => inv.recipient_type === 'Customer' && (inv.notes?.includes(v.voucher_number) || inv.items?.some(i => i.item_reference_id === v.id)));
   if (!existingCustInv) {
     const custInvId = "INV-C-" + Math.random().toString(36).substring(2, 7).toUpperCase();
-    const custInvNum = buildInvoiceNumber(db.invoices || [], db.settings, 'customer');
+    const custInvNum = `INV-2026-${(db.invoices?.length || 0) + 1001}`;
     const sellingPrice = Number(v.selling_price) || 0;
     const paidAmt = Number(v.paid_amount) || 0;
     const balDue = Math.max(0, sellingPrice - paidAmt);
@@ -1307,7 +1433,7 @@ async function handleConfirmAndTransferVoucher(req: any, res: any) {
   const existingSupInv = db.invoices?.find(inv => inv.recipient_type === 'Supplier' && (inv.notes?.includes(v.voucher_number) || inv.items?.some(i => i.item_reference_id === v.id)));
   if (!existingSupInv && v.cost_price && v.cost_price > 0) {
     const supInvId = "INV-S-" + Math.random().toString(36).substring(2, 7).toUpperCase();
-    const supInvNum = buildInvoiceNumber(db.invoices || [], db.settings, 'supplier');
+    const supInvNum = `BILL-2026-${(db.invoices?.length || 0) + 1002}`;
     const costPrice = Number(v.cost_price) || 0;
     const supplierInvoice = {
       id: supInvId,
@@ -2276,169 +2402,6 @@ app.post("/api/finance-audit-logs", async (req, res) => {
   res.json(log);
 });
 
-// Attendance records
-app.get("/api/attendance", async (req, res) => {
-  const records = await getCollectionDocs('attendance');
-  res.json(records);
-});
-
-app.post("/api/attendance", async (req, res) => {
-  const recordId = req.body.id || ("ATT-" + Date.now());
-  const record = {
-    attendance_id: req.body.attendance_id || recordId,
-    ...req.body,
-    id: recordId
-  };
-  const idx = db.attendance.findIndex((r: any) => r.id === record.id);
-  if (idx >= 0) {
-    db.attendance[idx] = record;
-  } else {
-    db.attendance.push(record);
-  }
-  await saveToFirestore('attendance', record.id, record);
-  res.json(record);
-});
-
-app.put("/api/attendance/:id", async (req, res) => {
-  const { id } = req.params;
-  let idx = db.attendance.findIndex((r: any) => r.id === id);
-  if (idx === -1) {
-    await getCollectionDocs('attendance');
-    idx = db.attendance.findIndex((r: any) => r.id === id);
-  }
-  const current = idx !== -1 ? db.attendance[idx] : { id };
-  const updated = { ...current, ...req.body, id };
-  if (idx !== -1) {
-    db.attendance[idx] = updated;
-  } else {
-    db.attendance.push(updated);
-  }
-  await saveToFirestore('attendance', id, updated);
-  res.json(updated);
-});
-
-app.delete("/api/attendance/:id", async (req, res) => {
-  const { id } = req.params;
-  db.attendance = db.attendance.filter((r: any) => r.id !== id);
-  await deleteFromFirestore('attendance', id);
-  res.json({ success: true });
-});
-
-// Employee work schedules
-app.get("/api/work-schedules", async (req, res) => {
-  const schedules = await getCollectionDocs('work_schedules');
-  res.json(schedules);
-});
-
-app.post("/api/work-schedules", async (req, res) => {
-  const scheduleId = req.body.id || req.body.schedule_id || ("SCH-" + Date.now());
-  const schedule = {
-    ...req.body,
-    schedule_id: req.body.schedule_id || scheduleId,
-    id: scheduleId
-  };
-  const idx = db.work_schedules.findIndex((s: any) => s.id === schedule.id);
-  if (idx >= 0) {
-    db.work_schedules[idx] = schedule;
-  } else {
-    db.work_schedules.push(schedule);
-  }
-  await saveToFirestore('work_schedules', schedule.id, schedule);
-  res.json(schedule);
-});
-
-app.put("/api/work-schedules/:id", async (req, res) => {
-  const { id } = req.params;
-  let idx = db.work_schedules.findIndex((s: any) => s.id === id);
-  if (idx === -1) {
-    await getCollectionDocs('work_schedules');
-    idx = db.work_schedules.findIndex((s: any) => s.id === id);
-  }
-  const current = idx !== -1 ? db.work_schedules[idx] : { id };
-  const updated = { ...current, ...req.body, id };
-  if (idx !== -1) {
-    db.work_schedules[idx] = updated;
-  } else {
-    db.work_schedules.push(updated);
-  }
-  await saveToFirestore('work_schedules', id, updated);
-  res.json(updated);
-});
-
-app.delete("/api/work-schedules/:id", async (req, res) => {
-  const { id } = req.params;
-  db.work_schedules = db.work_schedules.filter((s: any) => s.id !== id);
-  await deleteFromFirestore('work_schedules', id);
-  res.json({ success: true });
-});
-
-// Employee targets
-app.get("/api/employee-targets", async (req, res) => {
-  const targets = await getCollectionDocs('employee_targets');
-  res.json(targets);
-});
-
-app.post("/api/employee-targets", async (req, res) => {
-  const targetId = req.body.id || req.body.target_id || ("TGT-" + Date.now());
-  const target = {
-    ...req.body,
-    target_id: req.body.target_id || targetId,
-    id: targetId
-  };
-  const idx = db.employee_targets.findIndex((t: any) => t.id === target.id);
-  if (idx >= 0) {
-    db.employee_targets[idx] = target;
-  } else {
-    db.employee_targets.push(target);
-  }
-  await saveToFirestore('employee_targets', target.id, target);
-  res.json(target);
-});
-
-app.put("/api/employee-targets/:id", async (req, res) => {
-  const { id } = req.params;
-  let idx = db.employee_targets.findIndex((t: any) => t.id === id);
-  if (idx === -1) {
-    await getCollectionDocs('employee_targets');
-    idx = db.employee_targets.findIndex((t: any) => t.id === id);
-  }
-  const current = idx !== -1 ? db.employee_targets[idx] : { id };
-  const updated = { ...current, ...req.body, id };
-  if (idx !== -1) {
-    db.employee_targets[idx] = updated;
-  } else {
-    db.employee_targets.push(updated);
-  }
-  await saveToFirestore('employee_targets', id, updated);
-  res.json(updated);
-});
-
-app.delete("/api/employee-targets/:id", async (req, res) => {
-  const { id } = req.params;
-  db.employee_targets = db.employee_targets.filter((t: any) => t.id !== id);
-  await deleteFromFirestore('employee_targets', id);
-  res.json({ success: true });
-});
-
-// Attendance settings (single document)
-app.get("/api/attendance-settings", async (req, res) => {
-  try {
-    const snap = await getDocFromServer(doc(firestoreDb, 'attendance_settings', 'main'));
-    if (snap.exists()) {
-      db.attendance_settings = { ...db.attendance_settings, ...snap.data() };
-    }
-  } catch (err) {
-    console.error("Error reading attendance settings from Firestore:", err);
-  }
-  res.json(db.attendance_settings);
-});
-
-app.put("/api/attendance-settings", async (req, res) => {
-  db.attendance_settings = { ...db.attendance_settings, ...req.body };
-  await saveToFirestore('attendance_settings', 'main', db.attendance_settings);
-  res.json(db.attendance_settings);
-});
-
 // Employees
 app.get("/api/employees", async (req, res) => {
   try {
@@ -2479,10 +2442,7 @@ app.get("/api/employees", async (req, res) => {
 });
 
 app.post("/api/employees", async (req, res) => {
-  const data = req.body || {};
-  if (data.id === DEVELOPER_ACCOUNT_ID || isReservedDeveloperUsername(data.username)) {
-    return res.status(403).json({ error: "The developer (IT) account and username are protected." });
-  }
+  const data = req.body;
   const name = data.name || data.full_name || 'New Employee';
   const position = data.position || data.job_title || data.role || 'Sales Executive';
   const empId = data.id || ("EMP-" + Math.random().toString(36).substring(2, 7).toUpperCase());
@@ -2512,21 +2472,12 @@ app.post("/api/employees", async (req, res) => {
 
 app.put("/api/employees/:id", async (req, res) => {
   const { id } = req.params;
-  if (id === DEVELOPER_ACCOUNT_ID) {
-    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be modified." });
-  }
   let idx = db.employees.findIndex(e => e.id === id);
   if (idx === -1) {
     await getCollectionDocs('employees');
     idx = db.employees.findIndex(e => e.id === id);
   }
   const current = idx !== -1 ? db.employees[idx] : { id };
-  if (isDeveloperRecord(current)) {
-    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be modified." });
-  }
-  if (isReservedDeveloperUsername(req.body?.username)) {
-    return res.status(403).json({ error: "The username \"IT\" is reserved for the protected developer account." });
-  }
   const updated = { ...current, ...req.body, id };
   if (idx !== -1) {
     db.employees[idx] = updated;
@@ -2539,13 +2490,6 @@ app.put("/api/employees/:id", async (req, res) => {
 
 app.delete("/api/employees/:id", async (req, res) => {
   const { id } = req.params;
-  if (id === DEVELOPER_ACCOUNT_ID) {
-    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be deleted." });
-  }
-  const existing = db.employees.find(e => e.id === id);
-  if (isDeveloperRecord(existing)) {
-    return res.status(403).json({ error: "The developer (IT) account is protected and cannot be deleted." });
-  }
   db.employees = db.employees.filter(e => e.id !== id);
   await deleteFromFirestore('employees', id);
   res.json({ success: true });
@@ -2638,13 +2582,9 @@ app.get("/api/invoices", async (req, res) => {
 
 app.post("/api/invoices", async (req, res) => {
   const invId = req.body.id || ("INV-" + Math.random().toString(36).substring(2, 7).toUpperCase());
-  const invoiceKind = getInvoiceKind({
-    recipient_type: req.body.recipient_type,
-    supplier_id: req.body.supplier_id,
-    customer_id: req.body.customer_id
-  });
-  const generatedInvoiceNumber = buildInvoiceNumber(db.invoices || [], db.settings, invoiceKind);
+  const invCount = (db.invoices?.length || 0) + 1001;
   const newInvoice = {
+    invoice_number: req.body.invoice_number || `INV-2026-${invCount}`,
     issue_date: req.body.issue_date || new Date().toISOString().split('T')[0],
     due_date: req.body.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     currency: "USD",
@@ -2659,7 +2599,6 @@ app.post("/api/invoices", async (req, res) => {
     payment_status: "Unpaid",
     manager_name: "Ahmed Ali",
     ...req.body,
-    invoice_number: (req.body.invoice_number || '').trim() || generatedInvoiceNumber,
     id: invId
   };
 
@@ -2759,23 +2698,59 @@ app.get("/api/dashboard-stats", async (req, res) => {
   try {
     await Promise.all([
       getCollectionDocs('customers'),
+      getCollectionDocs('customer_inquiries'),
       getCollectionDocs('reservations'),
+      getCollectionDocs('vouchers'),
+      getCollectionDocs('invoices'),
+      getCollectionDocs('visas'),
+      getCollectionDocs('transfers'),
+      getCollectionDocs('cruises'),
+      getCollectionDocs('tours'),
+      getCollectionDocs('day_trips'),
+      getCollectionDocs('hotels'),
+      getCollectionDocs('flights'),
       getCollectionDocs('expenses'),
       getCollectionDocs('customer_payments'),
       getCollectionDocs('supplier_payments'),
       getCollectionDocs('suppliers'),
       getCollectionDocs('tasks'),
-      getCollectionDocs('activity_logs')
+      getCollectionDocs('activity_logs'),
+      getCollectionDocs('employee_attendance')
     ]);
 
+    const resvIds = new Set(db.reservations.map((r: any) => r.id || r.reservation_id));
+    const extraVouchers = (db.vouchers || []).filter(
+      (v: any) => !resvIds.has(v.id) && !resvIds.has(v.reservation_id || '') && !resvIds.has(v.voucher_number || '')
+    );
+    const combinedBookings: any[] = [
+      ...db.reservations,
+      ...extraVouchers.map((v: any) => ({
+        id: v.id,
+        reservation_id: v.voucher_number || v.reservation_id || v.id,
+        customer_name: v.customer_name,
+        service_type: v.service_category,
+        destination: v.destination,
+        booking_date: v.issue_date,
+        travel_date: v.travel_date,
+        selling_price: v.selling_price,
+        cost_price: v.cost_price,
+        paid_amount: v.paid_amount,
+        remaining_amount: v.remaining_amount,
+        currency: v.currency,
+        employee_name: v.employee_name,
+        reservation_status: v.reservation_status || (v.status === 'Cancelled' ? 'Cancelled' : 'Confirmed'),
+        createdAt: v.createdAt || v.updatedAt || v.issue_date
+      }))
+    ];
+
     const total_customers = db.customers.length;
-    const active_reservations = db.reservations.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending').length;
+    const active_reservations = combinedBookings.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending' || r.reservation_status === 'Paid' || r.reservation_status === 'Partially Paid').length;
     const todayStr = new Date().toISOString().split('T')[0];
-    const todays_reservations = db.reservations.filter(r => r.booking_date === todayStr).length;
-    const upcoming_trips = db.reservations.filter(r => r.travel_date >= todayStr).length;
+    const todays_reservations = combinedBookings.filter(r => r.booking_date === todayStr).length;
+    const upcoming_trips = combinedBookings.filter(r => r.travel_date && r.travel_date >= todayStr).length;
     
-    const total_sales = db.reservations.reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
-    const total_supplier_costs = db.reservations.reduce((acc, r) => acc + (Number(r.cost_price) || 0), 0);
+    const total_sales = combinedBookings.reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
+    const total_supplier_costs = combinedBookings.reduce((acc, r) => acc + (Number(r.cost_price) || 0), 0);
     const total_expenses = db.expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
     const net_profit = total_sales - total_supplier_costs - total_expenses;
 
@@ -2784,7 +2759,7 @@ app.get("/api/dashboard-stats", async (req, res) => {
     const today_tasks = db.tasks.filter(t => t.status !== 'Completed').length;
 
     const outstanding_by_currency: Record<string, number> = {};
-    db.reservations.forEach(r => {
+    combinedBookings.forEach(r => {
       const rem = Number(r.remaining_amount) || (Number(r.selling_price || 0) - Number(r.paid_amount || 0));
       if (rem > 0) {
         const curr = r.currency || 'USD';
@@ -2801,89 +2776,118 @@ app.get("/api/dashboard-stats", async (req, res) => {
       });
     }
 
-  // Compute monthly data
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const currentYear = new Date().getFullYear();
-  const monthlyData = Array.from({ length: 12 }, (_, i) => ({
-    month: monthNames[i],
-    Sales: 0,
-    Expenses: 0,
-    Profit: 0
-  }));
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const currentYear = new Date().getFullYear();
+    const monthlyData = Array.from({ length: 12 }, (_, i) => ({
+      month: monthNames[i],
+      Sales: 0,
+      Expenses: 0,
+      Profit: 0
+    }));
 
-  db.reservations.forEach(r => {
-    if (!r.booking_date) return;
-    const date = new Date(r.booking_date);
-    if (date.getFullYear() === currentYear) {
-      const monthIdx = date.getMonth();
-      monthlyData[monthIdx].Sales += r.selling_price || 0;
-      monthlyData[monthIdx].Expenses += r.cost_price || 0;
+    combinedBookings.forEach(r => {
+      if (!r.booking_date) return;
+      const date = new Date(r.booking_date);
+      if (date.getFullYear() === currentYear) {
+        const monthIdx = date.getMonth();
+        monthlyData[monthIdx].Sales += Number(r.selling_price) || 0;
+        monthlyData[monthIdx].Expenses += Number(r.cost_price) || 0;
+      }
+    });
+
+    db.expenses.forEach(e => {
+      if (!e.date) return;
+      const date = new Date(e.date);
+      if (date.getFullYear() === currentYear) {
+        const monthIdx = date.getMonth();
+        monthlyData[monthIdx].Expenses += Number(e.amount) || 0;
+      }
+    });
+
+    monthlyData.forEach(m => {
+      m.Profit = m.Sales - m.Expenses;
+    });
+
+    const destCounts: Record<string, number> = {};
+    combinedBookings.forEach(r => {
+      if (r.destination) {
+        destCounts[r.destination] = (destCounts[r.destination] || 0) + 1;
+      }
+    });
+    const totalDest = Object.values(destCounts).reduce((a, b) => a + b, 0);
+    const destinationPopularity = Object.entries(destCounts)
+      .map(([name, count]) => ({
+        name,
+        percentage: totalDest > 0 ? Math.round((count / totalDest) * 100) : 0
+      }))
+      .sort((a, b) => b.percentage - a.percentage)
+      .slice(0, 3);
+
+    const agentSales: Record<string, number> = {};
+    combinedBookings.forEach(r => {
+      if (r.employee_name) {
+        agentSales[r.employee_name] = (agentSales[r.employee_name] || 0) + (Number(r.selling_price) || 0);
+      }
+    });
+    
+    let topAgent = { name: "No data", sales: 0 };
+    for (const [name, sales] of Object.entries(agentSales)) {
+      if (sales > topAgent.sales) {
+        topAgent = { name, sales };
+      }
     }
-  });
 
-  db.expenses.forEach(e => {
-    if (!e.date) return;
-    const date = new Date(e.date);
-    if (date.getFullYear() === currentYear) {
-      const monthIdx = date.getMonth();
-      monthlyData[monthIdx].Expenses += e.amount || 0;
-    }
-  });
+    const total_services =
+      (db.visas?.length || 0) +
+      (db.flights?.length || 0) +
+      (db.hotels?.length || 0) +
+      (db.transfers?.length || 0) +
+      (db.cruises?.length || 0) +
+      (db.tours?.length || 0) +
+      (db.day_trips?.length || 0);
 
-  monthlyData.forEach(m => {
-    m.Profit = m.Sales - m.Expenses;
-  });
+    const todayAttendanceList = (db.employee_attendance || []).filter((a: any) => a.date === todayStr);
+    const clocked_in_count = (db.employee_attendance || []).filter((a: any) => a.status === 'Clocked In').length;
+    const today_working_hours = Math.round(todayAttendanceList.reduce((acc: number, a: any) => acc + (Number(a.working_hours) || 0), 0) * 100) / 100;
 
-  // Compute Destination Popularity
-  const destCounts: Record<string, number> = {};
-  db.reservations.forEach(r => {
-    if (r.destination) {
-      destCounts[r.destination] = (destCounts[r.destination] || 0) + 1;
-    }
-  });
-  const totalDest = Object.values(destCounts).reduce((a, b) => a + b, 0);
-  const destinationPopularity = Object.entries(destCounts)
-    .map(([name, count]) => ({
-      name,
-      percentage: totalDest > 0 ? Math.round((count / totalDest) * 100) : 0
-    }))
-    .sort((a, b) => b.percentage - a.percentage)
-    .slice(0, 3);
+    const sortedRecentBookings = [...combinedBookings].sort((a, b) => {
+      const tA = new Date(a.updatedAt || a.createdAt || a.booking_date || 0).getTime();
+      const tB = new Date(b.updatedAt || b.createdAt || b.booking_date || 0).getTime();
+      return tB - tA;
+    });
 
-  // Compute Top Agent
-  const agentSales: Record<string, number> = {};
-  db.reservations.forEach(r => {
-    if (r.employee_name) {
-      agentSales[r.employee_name] = (agentSales[r.employee_name] || 0) + (r.selling_price || 0);
-    }
-  });
-  
-  let topAgent = { name: "No data", sales: 0 };
-  for (const [name, sales] of Object.entries(agentSales)) {
-    if (sales > topAgent.sales) {
-      topAgent = { name, sales };
-    }
-  }
+    const sortedActivities = [...(db.activity_logs || [])].sort((a: any, b: any) => {
+      const tA = new Date(a.createdAt || `${a.date || ''} ${a.time || ''}`).getTime() || 0;
+      const tB = new Date(b.createdAt || `${b.date || ''} ${b.time || ''}`).getTime() || 0;
+      return tB - tA;
+    });
 
-      res.json({
-    total_customers,
-    active_reservations,
-    todays_reservations,
-    upcoming_trips,
-    total_sales,
-    total_expenses,
-    net_profit,
-    outstanding_customer_payments,
-    outstanding_supplier_payments,
-    outstanding_by_currency,
-    today_tasks,
-    recent_reservations: db.reservations.slice(-5).reverse(),
-    recent_payments: db.customer_payments.slice(-5).reverse(),
-    recent_activities: db.activity_logs.slice(-6).reverse(),
-    monthlyData,
-    destinationPopularity,
-    topAgent
-  });
+    res.json({
+      total_customers,
+      total_vouchers: db.vouchers?.length || 0,
+      total_inquiries: db.customer_inquiries?.length || 0,
+      new_inquiries: (db.customer_inquiries || []).filter((i: any) => i.status === 'New Inquiry').length,
+      total_invoices: db.invoices?.length || 0,
+      total_services,
+      clocked_in_count,
+      today_working_hours,
+      active_reservations,
+      todays_reservations,
+      upcoming_trips,
+      total_sales,
+      total_expenses,
+      net_profit,
+      outstanding_customer_payments,
+      outstanding_supplier_payments,
+      outstanding_by_currency,
+      today_tasks,
+      recent_reservations: sortedRecentBookings.slice(0, 8),
+      recent_payments: db.customer_payments.slice(-5).reverse(),
+      recent_activities: sortedActivities.slice(0, 10),
+      monthlyData,
+      destinationPopularity,
+      topAgent
+    });
   } catch (err) {
     console.error("Dashboard Stats Error:", err);
     res.json({
@@ -2942,10 +2946,6 @@ app.post("/api/ai-assistant", async (req, res) => {
 async function startServer() {
   // Vite middleware for development or static serving for production
   if (process.env.NODE_ENV !== "production") {
-    // Non-literal specifier keeps serverless bundlers from pulling the whole
-    // Vite toolchain into the API function bundle.
-    const vitePackage = 'vite';
-    const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePackage);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -2973,7 +2973,6 @@ async function startServer() {
   (async () => {
     try {
       await testConnection();
-      await ensureDeveloperAccount();
       await loadFromFirestore();
       console.log("Persistent data successfully synchronized from Firestore. Database ready for live operations.");
     } catch (e) {
@@ -2982,15 +2981,4 @@ async function startServer() {
   })();
 }
 
-export { app };
-export default app;
-
-// When running as a Vercel serverless function the platform owns the HTTP
-// listener, so only boot a local server outside of serverless environments.
-const isServerlessRuntime = Boolean(
-  process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY
-);
-
-if (!isServerlessRuntime) {
-  startServer();
-}
+startServer();

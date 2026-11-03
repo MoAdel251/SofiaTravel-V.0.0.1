@@ -6,6 +6,8 @@ import { VouchersView } from './components/VouchersView';
 import { ServicesView } from './components/ServicesView';
 import { ReservationsView } from './components/ReservationsView';
 import { TourPackagesView } from './components/TourPackagesView';
+import { HotelsView } from './components/HotelsView';
+import { FlightsView } from './components/FlightsView';
 import { SuppliersView } from './components/SuppliersView';
 import { FinanceView } from './components/FinanceView';
 import { InvoicesView } from './components/InvoicesView';
@@ -22,8 +24,6 @@ import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { LoginModal } from './components/LoginModal';
 import { CustomerInquiriesView } from './components/CustomerInquiriesView';
-import { AttendanceView } from './components/AttendanceView';
-import { EmployeeTargetsView } from './components/EmployeeTargetsView';
 import { PermissionRequestsView } from './components/PermissionRequestsView';
 import { PermissionModal } from './components/PermissionModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -31,8 +31,6 @@ import { MobileQuickActionModal } from './components/MobileQuickActionModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminResetDataModal } from './components/AdminResetDataModal';
 import { DatabaseConnectionStatus } from './lib/firebase';
-import { isDeveloperAccount, isReservedDeveloperUsername, DEVELOPER_ACCOUNT_ID } from './lib/developerAccount';
-import { buildInvoiceNumber, getInvoiceKind } from './lib/invoiceNumbering';
 import { 
   UserRole, 
   Customer, 
@@ -64,14 +62,17 @@ import {
   TourService,
   DayTripService,
   CustomerInquiry,
-  AttendanceRecord,
-  AttendanceSettings,
-  EmployeeWorkSchedule,
-  EmployeeTarget
+  AttendanceRecord
 } from './types';
 import { dataService } from './services/dataService';
+import { calculateWorkingHours, isITDeveloperAccount, normalizeTimeHHMM } from './utils/attendance';
+import { SiteMaintenanceOverlay, ITMaintenanceControlModal } from './components/SiteMaintenanceOverlay';
+import { useLanguage } from './context/LanguageContext';
+import { Wrench, Power } from 'lucide-react';
 
 export default function App() {
+  const { language } = useLanguage();
+  const isAr = language === 'ar';
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [userRole, setUserRole] = useState<UserRole>(() => {
     return (localStorage.getItem('sofia_travel_role') as UserRole) || 'Administrator';
@@ -79,12 +80,15 @@ export default function App() {
   const [currentUsername, setCurrentUsername] = useState<string>(() => {
     return localStorage.getItem('sofia_travel_user') || 'Admin';
   });
+  const [currentEmpId, setCurrentEmpId] = useState<string>(() => {
+    return localStorage.getItem('sofia_travel_emp_id') || '';
+  });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    // Require an explicit login on every new browser session. Previously an
-    // unset key auto-authenticated visitors as Administrator.
-    return localStorage.getItem('sofia_travel_auth') === 'true';
+    return localStorage.getItem('sofia_travel_auth') !== 'false';
   });
   const [currentCurrency, setCurrentCurrency] = useState<string>('EGP');
+  const [isITSiteModalOpen, setIsITSiteModalOpen] = useState(false);
+  const [showITLoginFromMaintenance, setShowITLoginFromMaintenance] = useState(false);
 
   // Selected package for booking flow auto-population
   const [selectedBookingPackage, setSelectedBookingPackage] = useState<TourPackage | null>(null);
@@ -118,17 +122,6 @@ export default function App() {
   const [stats, setStats] = useState<any>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerInquiries, setCustomerInquiries] = useState<CustomerInquiry[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-  const [workSchedules, setWorkSchedules] = useState<EmployeeWorkSchedule[]>([]);
-  const [employeeTargets, setEmployeeTargets] = useState<EmployeeTarget[]>([]);
-  const [attendanceSettings, setAttendanceSettings] = useState<AttendanceSettings>({
-    official_check_in: '09:00',
-    official_check_out: '17:00',
-    grace_period_minutes: 15,
-    required_working_hours: 8,
-    absence_deduction_type: 'Deduct Daily Rate',
-    late_deduction_type: 'Per Minute'
-  });
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [visas, setVisas] = useState<VisaService[]>([]);
@@ -163,13 +156,13 @@ export default function App() {
     instagram_url: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
     tax_number: "TR-98765",
     default_currency: "EGP",
-    invoice_prefix: "INV-2026-",
-    supplier_invoice_prefix: "BILL-2026-",
+    invoice_prefix: "INV-",
     reservation_prefix: "RES-",
     payment_methods: ["Cash", "Bank Transfer", "Credit Card"],
     exchange_rates: []
   });
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
   const [permissionModalState, setPermissionModalState] = useState<{
     isOpen: boolean;
@@ -186,13 +179,423 @@ export default function App() {
     itemName: ''
   });
 
+  const currentEmployee = employees.find(e =>
+    (currentEmpId && (e.id === currentEmpId || e.employee_id === currentEmpId)) ||
+    (e.username === currentUsername || e.name === currentUsername)
+  );
+
+  const isCurrentAdmin = userRole === 'Administrator' || currentEmployee?.is_admin === true || currentEmployee?.position === 'Administrator';
+  const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
+  const isITAccount = isITDeveloperAccount(currentUsername, currentEmpId, currentEmployee);
+
   const isAuthorizedToDirectlyModify = userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant';
 
-  // Fetch all data & verify live Cloud Firestore connection on mount
+  // Helper to log employee entries immediately so Management sees live website activity on the Dashboard
+  const recordEmployeeActivity = async (action: string, moduleName: string, recordRef: string) => {
+    const now = new Date();
+    const actorName = currentEmployee?.name || currentUsername || 'Employee';
+    const newLog: ActivityLog = {
+      id: 'LOG-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
+      user_name: actorName,
+      action,
+      module: moduleName,
+      record: recordRef,
+      date: now.toISOString().split('T')[0],
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: now.toISOString()
+    };
+    setActivityLogs(prev => [newLog, ...prev]);
+    try {
+      await dataService.saveDocument('activity_logs', newLog.id, newLog);
+    } catch {}
+  };
+
+  // Real-time Cloud Firestore subscriptions + initial fetch on mount for instant cross-device Dashboard & Maintenance sync
   useEffect(() => {
     dataService.verifyConnection().then(setDbStatus).catch(() => {});
     fetchAllData();
+
+    const unsubscribers = [
+      dataService.subscribeDocument<CompanySettings>('settings', 'company_settings', settings, (docData) => {
+        if (docData) setSettings(prev => ({ ...prev, ...docData }));
+      }),
+      dataService.subscribeCollection<Customer>('customers', setCustomers),
+      dataService.subscribeCollection<CustomerInquiry>('customer_inquiries', setCustomerInquiries),
+      dataService.subscribeCollection<Reservation>('reservations', setReservations),
+      dataService.subscribeCollection<Voucher>('vouchers', setVouchers),
+      dataService.subscribeCollection<Invoice>('invoices', setInvoices),
+      dataService.subscribeCollection<VisaService>('visas', setVisas),
+      dataService.subscribeCollection<TransferService>('transfers', setTransfers),
+      dataService.subscribeCollection<CruiseService>('cruises', setCruises),
+      dataService.subscribeCollection<TourService>('tours', setTours),
+      dataService.subscribeCollection<DayTripService>('day_trips', setDayTrips),
+      dataService.subscribeCollection<TourPackage>('tour_packages', setPackages),
+      dataService.subscribeCollection<Hotel>('hotels', setHotels),
+      dataService.subscribeCollection<Flight>('flights', setFlights),
+      dataService.subscribeCollection<Supplier>('suppliers', setSuppliers),
+      dataService.subscribeCollection<CustomerPayment>('customer_payments', setCustomerPayments),
+      dataService.subscribeCollection<SupplierPayment>('supplier_payments', setSupplierPayments),
+      dataService.subscribeCollection<Expense>('expenses', setExpenses),
+      dataService.subscribeCollection<Employee>('employees', setEmployees),
+      dataService.subscribeCollection<Task>('tasks', setTasks),
+      dataService.subscribeCollection<TravelDocument>('documents', setDocuments),
+      dataService.subscribeCollection<NotificationItem>('notifications', setNotifications),
+      dataService.subscribeCollection<ActivityLog>('activity_logs', setActivityLogs),
+      dataService.subscribeCollection<PermissionRequest>('permission_requests', setPermissionRequests),
+      dataService.subscribeCollection<PayrollRecord>('payroll_records', setPayrollRecords),
+      dataService.subscribeCollection<EmployeeAdvance>('employee_advances', setAdvances),
+      dataService.subscribeCollection<CommissionRecord>('commission_records', setCommissions),
+      dataService.subscribeCollection<FinanceAuditLog>('finance_audit_logs', setFinanceAuditLogs),
+      dataService.subscribeCollection<AttendanceRecord>('employee_attendance', setAttendanceRecords),
+    ];
+
+    const onWindowFocus = () => {
+      dataService.verifyConnection().then(setDbStatus).catch(() => {});
+    };
+    window.addEventListener('focus', onWindowFocus);
+
+    return () => {
+      unsubscribers.forEach(unsub => {
+        try { unsub(); } catch {}
+      });
+      window.removeEventListener('focus', onWindowFocus);
+    };
   }, []);
+
+  // Reactive Dashboard Synchronization: Automatically recompute management metrics whenever ANY website data or currency changes
+  useEffect(() => {
+    const normalizeCurr = (code?: string) => {
+      const c = String(code || 'USD').trim().toUpperCase();
+      if (c === '$' || c === 'US$') return 'USD';
+      if (c === '€') return 'EUR';
+      if (c === '£') return 'GBP';
+      if (c === 'ج.م' || c === 'LE') return 'EGP';
+      return c || 'USD';
+    };
+
+    const targetCurr = normalizeCurr(currentCurrency || 'EGP');
+    const ratesList = settings?.exchange_rates || [];
+    const egpRule = ratesList.find(r => normalizeCurr(r.currency) === 'EGP');
+    // Server default rates are units per 1 USD (e.g. EGP: 48.5, EUR: 0.92), whereas EGP-base rates have EGP: 1, USD: 50
+    const isUnitsPerUSD = !egpRule || Number(egpRule.rate_to_usd) > 5;
+
+    const fallbackPerUSD: Record<string, number> = {
+      USD: 1.0,
+      EGP: 50.0,
+      EUR: 0.92,
+      GBP: 0.79,
+      SAR: 3.75,
+      AED: 3.67,
+    };
+
+    const convertAmount = (amount: number, fromCode?: string): number => {
+      const num = Number(amount) || 0;
+      if (num === 0) return 0;
+      const from = normalizeCurr(fromCode);
+      if (from === targetCurr) return num;
+
+      if (isUnitsPerUSD) {
+        const fromEntry = ratesList.find(r => normalizeCurr(r.currency) === from);
+        const toEntry = ratesList.find(r => normalizeCurr(r.currency) === targetCurr);
+        const fromPerUSD = (fromEntry && Number(fromEntry.rate_to_usd) > 0) ? Number(fromEntry.rate_to_usd) : (fallbackPerUSD[from] || 1);
+        const toPerUSD = (toEntry && Number(toEntry.rate_to_usd) > 0) ? Number(toEntry.rate_to_usd) : (fallbackPerUSD[targetCurr] || 1);
+        return (num / fromPerUSD) * toPerUSD;
+      } else {
+        const fromEntry = ratesList.find(r => normalizeCurr(r.currency) === from);
+        const toEntry = ratesList.find(r => normalizeCurr(r.currency) === targetCurr);
+        const fromInBase = (fromEntry && Number(fromEntry.rate_to_usd) > 0) ? Number(fromEntry.rate_to_usd) : (50 / (fallbackPerUSD[from] || 1));
+        const toInBase = (toEntry && Number(toEntry.rate_to_usd) > 0) ? Number(toEntry.rate_to_usd) : (50 / (fallbackPerUSD[targetCurr] || 1));
+        return (num * fromInBase) / toInBase;
+      }
+    };
+
+    // 1. Combine reservations + non-duplicate vouchers + standalone customer-booked tourism services
+    const seenBookingRefs = new Set<string>();
+    reservations.forEach(r => {
+      if (r.id) seenBookingRefs.add(r.id);
+      if (r.reservation_id) seenBookingRefs.add(r.reservation_id);
+      if (r.voucher_number) seenBookingRefs.add(r.voucher_number);
+    });
+
+    const extraVouchersAsOps = vouchers.filter(
+      v => !seenBookingRefs.has(v.id) && !seenBookingRefs.has(v.reservation_id || '') && !seenBookingRefs.has(v.voucher_number || '')
+    );
+    extraVouchersAsOps.forEach(v => {
+      if (v.id) seenBookingRefs.add(v.id);
+      if (v.voucher_number) seenBookingRefs.add(v.voucher_number);
+      if (v.reservation_id) seenBookingRefs.add(v.reservation_id);
+    });
+
+    // Include standalone client service entries (Flights, Visas, Hotels, Transfers, Cruises, Tours, Day Trips) linked to a customer/passenger
+    const standaloneServiceBookings: any[] = [];
+    flights.forEach((f: any) => {
+      if ((f.customer_id || f.customer_name || (f.passenger && f.passenger !== 'Guest')) && !seenBookingRefs.has(f.id)) {
+        standaloneServiceBookings.push({
+          id: f.id,
+          reservation_id: f.booking_reference || f.id,
+          customer_name: f.customer_name || f.passenger,
+          service_type: 'Flight',
+          destination: f.arrival_airport || 'Flight',
+          booking_date: f.createdAt ? String(f.createdAt).split('T')[0] : f.departure_date,
+          travel_date: f.departure_date,
+          selling_price: Number(f.selling_price) || 0,
+          cost_price: Number(f.ticket_cost) || 0,
+          paid_amount: Number(f.selling_price) || 0,
+          remaining_amount: 0,
+          currency: f.currency || 'USD',
+          employee_name: f.employee_name || '',
+          reservation_status: f.status === 'Cancelled' ? 'Cancelled' : 'Confirmed',
+          createdAt: f.createdAt || f.updatedAt || f.departure_date
+        });
+      }
+    });
+    visas.forEach((vs: any) => {
+      if ((vs.customer_id || vs.customer_name) && !seenBookingRefs.has(vs.id)) {
+        standaloneServiceBookings.push({
+          id: vs.id,
+          reservation_id: vs.id,
+          customer_name: vs.customer_name,
+          service_type: 'Visa',
+          destination: vs.country,
+          booking_date: vs.createdAt ? String(vs.createdAt).split('T')[0] : new Date().toISOString().split('T')[0],
+          travel_date: vs.travel_date || '',
+          selling_price: Number(vs.selling_price) || 0,
+          cost_price: Number(vs.cost_price) || 0,
+          paid_amount: Number(vs.selling_price) || 0,
+          remaining_amount: 0,
+          currency: vs.currency || 'USD',
+          employee_name: vs.employee_name || '',
+          reservation_status: vs.status === 'Inactive' ? 'Pending' : 'Confirmed',
+          createdAt: vs.createdAt || vs.updatedAt
+        });
+      }
+    });
+
+    const combinedBookings: any[] = [
+      ...reservations.map((r: any) => ({
+        ...r,
+        createdAt: r.createdAt || r.updatedAt || r.booking_date || r.issue_date
+      })),
+      ...extraVouchersAsOps.map((v: any) => ({
+        id: v.id,
+        reservation_id: v.voucher_number || v.reservation_id || v.id,
+        customer_name: v.customer_name,
+        service_type: v.service_category,
+        destination: v.destination,
+        booking_date: v.issue_date,
+        travel_date: v.travel_date,
+        selling_price: v.selling_price,
+        cost_price: v.cost_price,
+        paid_amount: v.paid_amount,
+        remaining_amount: v.remaining_amount,
+        currency: v.currency,
+        employee_name: v.employee_name,
+        reservation_status: v.reservation_status || (v.status === 'Cancelled' ? 'Cancelled' : 'Confirmed'),
+        createdAt: v.createdAt || v.updatedAt || v.issue_date
+      })),
+      ...standaloneServiceBookings
+    ].map(b => ({
+      ...b,
+      display_selling_price: Math.round(convertAmount(Number(b.selling_price) || 0, b.currency))
+    }));
+
+    const activeResvs = combinedBookings.filter(
+      r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending' || r.reservation_status === 'Paid' || r.reservation_status === 'Partially Paid'
+    );
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todaysResvCount = combinedBookings.filter(r => r.booking_date === todayStr).length;
+    const upcomingTripsCount = combinedBookings.filter(r => r.travel_date && r.travel_date >= todayStr).length;
+
+    const nonCancelledBookings = combinedBookings.filter(r => r.reservation_status !== 'Cancelled');
+    const salesConverted = nonCancelledBookings.reduce((acc, r) => acc + convertAmount(Number(r.selling_price) || 0, r.currency), 0);
+    const supplierCostsConverted = nonCancelledBookings.reduce((acc, r) => acc + convertAmount(Number(r.cost_price) || 0, r.currency), 0);
+    const expensesConverted = expenses.reduce((acc, e) => acc + convertAmount(Number(e.amount) || 0, e.currency), 0);
+    const netProfitConverted = salesConverted - supplierCostsConverted - expensesConverted;
+
+    // Outstanding Receivables & Payables (synchronized across bookings, invoices, customers & suppliers)
+    const outstandingByCurr: Record<string, number> = {};
+    let bookingOutstandingConverted = 0;
+    const invoicedReservationRefs = new Set<string>();
+
+    invoices.forEach(inv => {
+      if (inv.reservation_id) invoicedReservationRefs.add(inv.reservation_id);
+      const bal = Number(inv.balance_due ?? ((Number(inv.total_amount) || 0) - (Number(inv.paid_amount) || 0)));
+      if (bal > 0 && inv.payment_status !== 'Cancelled') {
+        if ((inv.recipient_type || 'Customer') === 'Customer') {
+          const curr = normalizeCurr(inv.currency);
+          outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + bal;
+          bookingOutstandingConverted += convertAmount(bal, curr);
+        }
+      }
+    });
+
+    nonCancelledBookings.forEach(r => {
+      if (invoicedReservationRefs.has(r.id) || invoicedReservationRefs.has(r.reservation_id)) return;
+      const rem = Number(r.remaining_amount ?? ((Number(r.selling_price) || 0) - (Number(r.paid_amount) || 0)));
+      if (rem > 0) {
+        const curr = normalizeCurr(r.currency);
+        outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + rem;
+        bookingOutstandingConverted += convertAmount(rem, curr);
+      }
+    });
+
+    const customerProfileBalancesConverted = customers.reduce(
+      (acc, c) => acc + convertAmount(Number(c.outstanding_balance) || 0, c.currency),
+      0
+    );
+    if (Object.keys(outstandingByCurr).length === 0) {
+      customers.forEach(c => {
+        const bal = Number(c.outstanding_balance) || 0;
+        if (bal > 0) {
+          const curr = normalizeCurr(c.currency);
+          outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + bal;
+        }
+      });
+    }
+
+    const supplierInvoicesUnpaidConverted = invoices
+      .filter(inv => inv.recipient_type === 'Supplier' && inv.payment_status !== 'Cancelled')
+      .reduce((acc, inv) => {
+        const bal = Number(inv.balance_due ?? ((Number(inv.total_amount) || 0) - (Number(inv.paid_amount) || 0)));
+        return acc + (bal > 0 ? convertAmount(bal, inv.currency) : 0);
+      }, 0);
+
+    const supplierProfileBalancesConverted = suppliers.reduce(
+      (acc, s) => acc + convertAmount(Number(s.outstanding_balance) || 0, s.currency),
+      0
+    );
+
+    const outstandingCustomerTotal = Math.round(Math.max(customerProfileBalancesConverted, bookingOutstandingConverted));
+    const outstandingSupplierTotal = Math.round(Math.max(supplierProfileBalancesConverted, supplierInvoicesUnpaidConverted));
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const currentYear = new Date().getFullYear();
+    const monthlyData = Array.from({ length: 12 }, (_, i) => ({
+      month: monthNames[i],
+      Sales: 0,
+      Expenses: 0,
+      Profit: 0
+    }));
+
+    nonCancelledBookings.forEach(r => {
+      if (!r.booking_date) return;
+      const date = new Date(r.booking_date);
+      if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
+        const monthIdx = date.getMonth();
+        monthlyData[monthIdx].Sales += Math.round(convertAmount(Number(r.selling_price) || 0, r.currency));
+        monthlyData[monthIdx].Expenses += Math.round(convertAmount(Number(r.cost_price) || 0, r.currency));
+      }
+    });
+    expenses.forEach(e => {
+      if (!e.date) return;
+      const date = new Date(e.date);
+      if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
+        const monthIdx = date.getMonth();
+        monthlyData[monthIdx].Expenses += Math.round(convertAmount(Number(e.amount) || 0, e.currency));
+      }
+    });
+    monthlyData.forEach(m => {
+      m.Profit = m.Sales - m.Expenses;
+    });
+
+    const destCounts: Record<string, number> = {};
+    nonCancelledBookings.forEach(r => {
+      if (r.destination) {
+        destCounts[r.destination] = (destCounts[r.destination] || 0) + 1;
+      }
+    });
+    const totalDest = Object.values(destCounts).reduce((a, b) => a + b, 0);
+    const destinationPopularity = Object.entries(destCounts)
+      .map(([name, count]) => ({
+        name,
+        percentage: totalDest > 0 ? Math.round((count / totalDest) * 100) : 0
+      }))
+      .sort((a, b) => b.percentage - a.percentage)
+      .slice(0, 3);
+
+    const agentSales: Record<string, number> = {};
+    nonCancelledBookings.forEach(r => {
+      if (r.employee_name) {
+        agentSales[r.employee_name] = (agentSales[r.employee_name] || 0) + convertAmount(Number(r.selling_price) || 0, r.currency);
+      }
+    });
+    let topAgent = { name: "No data", sales: 0 };
+    for (const [name, sVal] of Object.entries(agentSales)) {
+      if (sVal > topAgent.sales) {
+        topAgent = { name, sales: Math.round(sVal) };
+      }
+    }
+
+    const totalServicesCount =
+      visas.length + flights.length + hotels.length + transfers.length + cruises.length + tours.length + dayTrips.length;
+
+    const todayAttendance = attendanceRecords.filter(a => a.date === todayStr);
+    const clockedInCount = attendanceRecords.filter(a => a.status === 'Clocked In').length;
+    const todayWorkingHours = Math.round(todayAttendance.reduce((acc, a) => acc + (Number(a.working_hours) || 0), 0) * 100) / 100;
+
+    // Sort newest entries first so Management immediately sees the latest employee entries
+    const sortedRecentReservations = [...combinedBookings].sort((a, b) => {
+      const tA = new Date(a.updatedAt || a.createdAt || a.booking_date || 0).getTime() || 0;
+      const tB = new Date(b.updatedAt || b.createdAt || b.booking_date || 0).getTime() || 0;
+      return tB - tA;
+    });
+
+    const sortedRecentActivities = [...activityLogs].sort((a: any, b: any) => {
+      const tA = new Date(a.createdAt || `${a.date || ''} ${a.time || ''}`).getTime() || 0;
+      const tB = new Date(b.createdAt || `${b.date || ''} ${b.time || ''}`).getTime() || 0;
+      return tB - tA;
+    });
+
+    setStats({
+      total_customers: customers.length,
+      total_vouchers: vouchers.length,
+      total_inquiries: customerInquiries.length,
+      new_inquiries: customerInquiries.filter(i => i.status === 'New Inquiry').length,
+      total_invoices: invoices.length,
+      total_services: totalServicesCount,
+      clocked_in_count: clockedInCount,
+      today_working_hours: todayWorkingHours,
+      active_reservations: activeResvs.length,
+      todays_reservations: todaysResvCount,
+      upcoming_trips: upcomingTripsCount,
+      total_sales: Math.round(salesConverted),
+      total_expenses: Math.round(expensesConverted),
+      net_profit: Math.round(netProfitConverted),
+      outstanding_customer_payments: outstandingCustomerTotal,
+      outstanding_supplier_payments: outstandingSupplierTotal,
+      outstanding_by_currency: outstandingByCurr,
+      today_tasks: tasks.filter(t => t.status !== 'Completed').length,
+      recent_reservations: sortedRecentReservations.slice(0, 8),
+      recent_payments: [...customerPayments].slice(-5).reverse(),
+      recent_activities: sortedRecentActivities.slice(0, 10),
+      monthlyData,
+      destinationPopularity,
+      topAgent
+    });
+  }, [
+    customers,
+    customerInquiries,
+    reservations,
+    vouchers,
+    invoices,
+    visas,
+    transfers,
+    cruises,
+    tours,
+    dayTrips,
+    packages,
+    hotels,
+    flights,
+    suppliers,
+    customerPayments,
+    supplierPayments,
+    expenses,
+    tasks,
+    attendanceRecords,
+    activityLogs,
+    currentCurrency,
+    settings
+  ]);
 
   const handleVerifyDatabase = async () => {
     const status = await dataService.verifyConnection();
@@ -236,10 +639,7 @@ export default function App() {
         commRes,
         fAuditRes,
         inqRes,
-        attRes,
-        schRes,
-        tgtRes,
-        attSetRes
+        attRes
       ] = await Promise.all([
         dataService.getCollection<Customer>('customers', '/api/customers', customers),
         dataService.getCollection<Reservation>('reservations', '/api/reservations', reservations),
@@ -269,18 +669,11 @@ export default function App() {
         dataService.getCollection<CommissionRecord>('commission_records', '/api/commission-records', commissions),
         dataService.getCollection<FinanceAuditLog>('finance_audit_logs', '/api/finance-audit-logs', financeAuditLogs),
         dataService.getCollection<CustomerInquiry>('customer_inquiries', '/api/customer-inquiries', customerInquiries),
-        dataService.getCollection<AttendanceRecord>('attendance', '/api/attendance', attendanceRecords),
-        dataService.getCollection<EmployeeWorkSchedule>('work_schedules', '/api/work-schedules', workSchedules),
-        dataService.getCollection<EmployeeTarget>('employee_targets', '/api/employee-targets', employeeTargets),
-        dataService.getDocument<AttendanceSettings>('attendance_settings', 'main', '/api/attendance-settings', attendanceSettings)
+        dataService.getCollection<AttendanceRecord>('employee_attendance', '/api/attendance', attendanceRecords)
       ]);
 
       setCustomers(custRes || []);
       setCustomerInquiries(inqRes || []);
-      setAttendanceRecords(attRes || []);
-      setWorkSchedules(schRes || []);
-      setEmployeeTargets(tgtRes || []);
-      if (attSetRes) setAttendanceSettings(attSetRes);
       setReservations(resvRes || []);
       setVouchers(vouchRes || []);
       setVisas(visaRes || []);
@@ -300,156 +693,15 @@ export default function App() {
       setTasks(taskRes || []);
       setDocuments(docRes || []);
       setNotifications(notifRes || []);
-      if (settRes) {
-        setSettings({
-          ...settRes,
-          invoice_prefix: (settRes.invoice_prefix || '').trim() === 'INV-' ? 'INV-2026-' : settRes.invoice_prefix,
-          supplier_invoice_prefix: settRes.supplier_invoice_prefix || 'BILL-2026-'
-        });
-      }
+      if (settRes) setSettings(settRes);
       setActivityLogs(logRes || []);
       setPermissionRequests(pReqRes || []);
       setPayrollRecords(payrollRes || []);
       setAdvances(advRes || []);
       setCommissions(commRes || []);
       setFinanceAuditLogs(fAuditRes || []);
+      setAttendanceRecords(attRes || []);
 
-      // Compute dashboard stats directly from live Cloud Firestore collections
-      {
-        const resvList = resvRes || [];
-        const vouchList = vouchRes || [];
-        // Include vouchers that haven't been duplicated as reservation records
-        const resvIds = new Set(resvList.map(r => r.id || r.reservation_id));
-        const extraVouchersAsOps = vouchList.filter(v => !resvIds.has(v.id) && !resvIds.has(v.reservation_id || '') && !resvIds.has(v.voucher_number || ''));
-        const combinedBookings: any[] = [
-          ...resvList,
-          ...extraVouchersAsOps.map(v => ({
-            id: v.id,
-            reservation_id: v.voucher_number || v.reservation_id || v.id,
-            customer_name: v.customer_name,
-            service_type: v.service_category,
-            destination: v.destination,
-            booking_date: v.issue_date,
-            travel_date: v.travel_date,
-            selling_price: v.selling_price,
-            cost_price: v.cost_price,
-            paid_amount: v.paid_amount,
-            remaining_amount: v.remaining_amount,
-            currency: v.currency,
-            employee_name: v.employee_name,
-            reservation_status: v.reservation_status || (v.status === 'Cancelled' ? 'Cancelled' : 'Confirmed'),
-          }))
-        ];
-
-        const activeResvs = combinedBookings.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Pending' || r.reservation_status === 'Paid' || r.reservation_status === 'Partially Paid');
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todaysResvCount = combinedBookings.filter(r => r.booking_date === todayStr).length;
-        const upcomingTripsCount = combinedBookings.filter(r => r.travel_date && r.travel_date >= todayStr).length;
-
-        const sales = combinedBookings.reduce((acc, r) => acc + (Number(r.selling_price) || 0), 0);
-        const supplierCosts = combinedBookings.reduce((acc, r) => acc + (Number(r.cost_price) || 0), 0);
-        const expensesTotal = (expRes || []).reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
-        const netProfit = sales - supplierCosts - expensesTotal;
-
-        const outstandingCustomer = (custRes || []).reduce((acc, c) => acc + (Number(c.outstanding_balance) || 0), 0);
-        const outstandingSupplier = (supRes || []).reduce((acc, s) => acc + (Number(s.outstanding_balance) || 0), 0);
-
-        const outstandingByCurr: Record<string, number> = {};
-        combinedBookings.forEach(r => {
-          const rem = Number(r.remaining_amount) || (Number(r.selling_price || 0) - Number(r.paid_amount || 0));
-          if (rem > 0) {
-            const curr = r.currency || 'USD';
-            outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + rem;
-          }
-        });
-        if (Object.keys(outstandingByCurr).length === 0) {
-          (custRes || []).forEach(c => {
-            const bal = Number(c.outstanding_balance) || 0;
-            if (bal > 0) {
-              const curr = c.currency || 'USD';
-              outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + bal;
-            }
-          });
-        }
-
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const currentYear = new Date().getFullYear();
-        const monthlyData = Array.from({ length: 12 }, (_, i) => ({
-          month: monthNames[i],
-          Sales: 0,
-          Expenses: 0,
-          Profit: 0
-        }));
-
-        combinedBookings.forEach(r => {
-          if (!r.booking_date) return;
-          const date = new Date(r.booking_date);
-          if (date.getFullYear() === currentYear) {
-            const monthIdx = date.getMonth();
-            monthlyData[monthIdx].Sales += Number(r.selling_price) || 0;
-            monthlyData[monthIdx].Expenses += Number(r.cost_price) || 0;
-          }
-        });
-        (expRes || []).forEach(e => {
-          if (!e.date) return;
-          const date = new Date(e.date);
-          if (date.getFullYear() === currentYear) {
-            const monthIdx = date.getMonth();
-            monthlyData[monthIdx].Expenses += Number(e.amount) || 0;
-          }
-        });
-        monthlyData.forEach(m => {
-          m.Profit = m.Sales - m.Expenses;
-        });
-
-        const destCounts: Record<string, number> = {};
-        combinedBookings.forEach(r => {
-          if (r.destination) {
-            destCounts[r.destination] = (destCounts[r.destination] || 0) + 1;
-          }
-        });
-        const totalDest = Object.values(destCounts).reduce((a, b) => a + b, 0);
-        const destinationPopularity = Object.entries(destCounts)
-          .map(([name, count]) => ({
-            name,
-            percentage: totalDest > 0 ? Math.round((count / totalDest) * 100) : 0
-          }))
-          .sort((a, b) => b.percentage - a.percentage)
-          .slice(0, 3);
-
-        const agentSales: Record<string, number> = {};
-        combinedBookings.forEach(r => {
-          if (r.employee_name) {
-            agentSales[r.employee_name] = (agentSales[r.employee_name] || 0) + (Number(r.selling_price) || 0);
-          }
-        });
-        let topAgent = { name: "No data", sales: 0 };
-        for (const [name, sales] of Object.entries(agentSales)) {
-          if (sales > topAgent.sales) {
-            topAgent = { name, sales };
-          }
-        }
-
-        setStats({
-          total_customers: custRes?.length || 0,
-          active_reservations: activeResvs.length,
-          todays_reservations: todaysResvCount,
-          upcoming_trips: upcomingTripsCount,
-          total_sales: sales,
-          total_expenses: expensesTotal,
-          net_profit: netProfit,
-          outstanding_customer_payments: outstandingCustomer,
-          outstanding_supplier_payments: outstandingSupplier,
-          outstanding_by_currency: outstandingByCurr,
-          today_tasks: (taskRes || []).filter(t => t.status !== 'Completed').length,
-          recent_reservations: combinedBookings.slice(-5).reverse(),
-          recent_payments: (cPayRes || []).slice(-5).reverse(),
-          recent_activities: (logRes || []).slice(-6).reverse(),
-          monthlyData,
-          destinationPopularity,
-          topAgent
-        });
-      }
     } catch (err) {
       console.error("Error fetching data:", err);
     }
@@ -641,16 +893,12 @@ export default function App() {
   const handleAddInvoice = async (data: Partial<Invoice>) => {
     const newId = "INV-" + Math.random().toString(36).substring(2, 7).toUpperCase();
     const invCount = (invoices?.length || 0) + 1001;
-    const invoiceKind = getInvoiceKind({
-      recipient_type: data.recipient_type,
-      supplier_id: data.supplier_id,
-      customer_id: data.customer_id
-    });
-    const generatedInvoiceNumber = buildInvoiceNumber(invoices || [], settings, invoiceKind);
     const linkedVoucher = data.reservation_id ? vouchers.find(v => v.id === data.reservation_id || v.reservation_id === data.reservation_id) : null;
     const linkedCust = data.customer_id ? customers.find(c => c.id === data.customer_id || c.customer_id === data.customer_id) : null;
     const derivedFileNum = data.file_number || linkedVoucher?.file_number || linkedCust?.file_number || `FILE-2026-${String(invCount).padStart(4, '0')}`;
     const newInvoice: Invoice = {
+      id: newId,
+      invoice_number: data.invoice_number || `INV-2026-${invCount}`,
       file_number: derivedFileNum,
       issue_date: data.issue_date || new Date().toISOString().split('T')[0],
       due_date: data.due_date || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -668,12 +916,15 @@ export default function App() {
       customer_id: data.customer_id || linkedVoucher?.customer_id || "",
       customer_name: data.customer_name || linkedVoucher?.customer_name || "",
       recipient_type: data.recipient_type || "Customer",
-      ...data,
-      id: newId,
-      invoice_number: data.invoice_number?.trim() || generatedInvoiceNumber
+      ...data
     };
     setInvoices(prev => [newInvoice, ...prev]);
     await dataService.saveDocument('invoices', newId, newInvoice, '/api/invoices', 'POST');
+    await recordEmployeeActivity(
+      `Issued ${newInvoice.recipient_type || 'Customer'} Invoice ${newInvoice.invoice_number} for ${newInvoice.customer_name || newInvoice.supplier_name || 'Client'}`,
+      'Invoices',
+      newInvoice.invoice_number
+    );
 
     // If invoice is linked to a reservation, update the reservation's invoice link
     if (newInvoice.reservation_id) {
@@ -759,6 +1010,7 @@ export default function App() {
     };
     setCustomers(prev => [newCust, ...prev]);
     await dataService.saveDocument('customers', newId, newCust, '/api/customers', 'POST');
+    await recordEmployeeActivity(`Added new customer ${newCust.full_name}`, 'Customers', newCust.customer_id);
     fetchAllData();
   };
 
@@ -861,9 +1113,11 @@ export default function App() {
     if (isEdit) {
       setCustomerInquiries(prev => prev.map(i => i.id === inqId ? savedInquiry : i));
       await dataService.saveDocument('customer_inquiries', inqId, savedInquiry, `/api/customer-inquiries/${inqId}`, 'PUT');
+      await recordEmployeeActivity(`Updated inquiry for ${savedInquiry.name} (${savedInquiry.status})`, 'Customer Inquiries', savedInquiry.inquiry_code);
     } else {
       setCustomerInquiries(prev => [savedInquiry, ...prev]);
       await dataService.saveDocument('customer_inquiries', inqId, savedInquiry, '/api/customer-inquiries', 'POST');
+      await recordEmployeeActivity(`Entered new inquiry from ${savedInquiry.name} (${savedInquiry.inquired_service})`, 'Customer Inquiries', savedInquiry.inquiry_code);
     }
     fetchAllData();
   };
@@ -983,6 +1237,11 @@ export default function App() {
 
     setVouchers(prev => [newVoucher, ...prev]);
     await dataService.saveDocument('vouchers', newId, newVoucher, '/api/vouchers', 'POST');
+    await recordEmployeeActivity(
+      `Created voucher ${newVoucher.voucher_number} for ${newVoucher.customer_name} (${newVoucher.service_category})`,
+      'Vouchers',
+      newVoucher.voucher_number
+    );
     fetchAllData();
   };
 
@@ -1103,6 +1362,7 @@ export default function App() {
     };
     setVisas(prev => [newVisa, ...prev]);
     await dataService.saveDocument('visas', newId, newVisa, '/api/visas', 'POST');
+    await recordEmployeeActivity(`Added visa service: ${newVisa.visa_title} (${newVisa.country})`, 'Visas', newId);
     fetchAllData();
   };
 
@@ -1166,6 +1426,7 @@ export default function App() {
     };
     setTransfers(prev => [newTrf, ...prev]);
     await dataService.saveDocument('transfers', newId, newTrf, '/api/transfers', 'POST');
+    await recordEmployeeActivity(`Added transfer service: ${newTrf.service_title}`, 'Transfers', newId);
     fetchAllData();
   };
 
@@ -1225,6 +1486,7 @@ export default function App() {
     };
     setCruises(prev => [newCru, ...prev]);
     await dataService.saveDocument('cruises', newId, newCru, '/api/cruises', 'POST');
+    await recordEmployeeActivity(`Added cruise service: ${newCru.cruise_name}`, 'Cruises', newId);
     fetchAllData();
   };
 
@@ -1282,6 +1544,7 @@ export default function App() {
     };
     setTours(prev => [newTour, ...prev]);
     await dataService.saveDocument('tours', newId, newTour, '/api/tours', 'POST');
+    await recordEmployeeActivity(`Added tour service: ${newTour.tour_title}`, 'Tours', newId);
     fetchAllData();
   };
 
@@ -1339,6 +1602,7 @@ export default function App() {
     };
     setDayTrips(prev => [newTrip, ...prev]);
     await dataService.saveDocument('day_trips', newId, newTrip, '/api/day-trips', 'POST');
+    await recordEmployeeActivity(`Added day trip: ${newTrip.trip_title}`, 'Day Trips', newId);
     fetchAllData();
   };
 
@@ -1460,6 +1724,7 @@ export default function App() {
     };
     setReservations(prev => [newRes, ...prev]);
     await dataService.saveDocument('reservations', newId, newRes, '/api/reservations', 'POST');
+    await recordEmployeeActivity(`Created reservation ${newRes.reservation_id} for ${newRes.customer_name}`, 'Reservations', newRes.reservation_id);
     fetchAllData();
   };
 
@@ -1550,6 +1815,7 @@ export default function App() {
     };
     setPackages(prev => [newPkg, ...prev]);
     await dataService.saveDocument('tour_packages', newId, newPkg, '/api/tour-packages', 'POST');
+    await recordEmployeeActivity(`Created tour package: ${newPkg.package_name}`, 'Tour Packages', newId);
     fetchAllData();
   };
 
@@ -1613,6 +1879,7 @@ export default function App() {
     };
     setHotels(prev => [newHtl, ...prev]);
     await dataService.saveDocument('hotels', newId, newHtl, '/api/hotels', 'POST');
+    await recordEmployeeActivity(`Added hotel: ${newHtl.hotel_name} (${newHtl.city})`, 'Hotels', newId);
     fetchAllData();
   };
 
@@ -1677,6 +1944,7 @@ export default function App() {
     };
     setFlights(prev => [newFlt, ...prev]);
     await dataService.saveDocument('flights', newId, newFlt, '/api/flights', 'POST');
+    await recordEmployeeActivity(`Added flight booking: ${newFlt.airline} ${newFlt.flight_number} (${newFlt.passenger})`, 'Flights', newId);
     fetchAllData();
   };
 
@@ -1737,6 +2005,7 @@ export default function App() {
     };
     setSuppliers(prev => [newSup, ...prev]);
     await dataService.saveDocument('suppliers', newId, newSup, '/api/suppliers', 'POST');
+    await recordEmployeeActivity(`Added supplier: ${newSup.supplier_name}`, 'Suppliers', newId);
     fetchAllData();
   };
 
@@ -1787,10 +2056,6 @@ export default function App() {
   };
 
   const handleAddEmployee = async (data: Partial<Employee> & { username?: string; password?: string }) => {
-    if (isReservedDeveloperUsername(data.username)) {
-      showToast(`The username "${data.username}" is reserved for the protected developer account.`);
-      return;
-    }
     const newId = `EMP-${Date.now().toString(36).toUpperCase()}`;
     const empPos = (data.position || 'Sales') as EmployeePosition;
     const empRecord: Employee = {
@@ -1819,14 +2084,6 @@ export default function App() {
 
   const handleEditEmployee = async (id: string, data: Partial<Employee>) => {
     const emp = employees.find(e => e.id === id);
-    if (id === DEVELOPER_ACCOUNT_ID || isDeveloperAccount(emp)) {
-      showToast('The developer (IT) account is protected and cannot be modified.');
-      return;
-    }
-    if (data.username && isReservedDeveloperUsername(data.username) && !isDeveloperAccount(emp)) {
-      showToast(`The username "${data.username}" is reserved for the protected developer account.`);
-      return;
-    }
     const itemName = emp ? `Employee ${emp.name}` : id;
     if (!isAuthorizedToDirectlyModify) {
       setPermissionModalState({
@@ -1852,10 +2109,6 @@ export default function App() {
 
   const handleDeleteEmployee = async (id: string) => {
     const emp = employees.find(e => e.id === id);
-    if (id === DEVELOPER_ACCOUNT_ID || isDeveloperAccount(emp)) {
-      showToast('The developer (IT) account is protected and cannot be deleted.');
-      return;
-    }
     const itemName = emp ? `Employee ${emp.name}` : id;
     if (!isAuthorizedToDirectlyModify) {
       setPermissionModalState({
@@ -1890,6 +2143,7 @@ export default function App() {
     };
     setExpenses(prev => [newExp, ...prev]);
     await dataService.saveDocument('expenses', newId, newExp, '/api/expenses', 'POST');
+    await recordEmployeeActivity(`Recorded expense: ${newExp.description} (${newExp.amount} ${newExp.currency})`, 'Expenses', newExp.expense_id);
     fetchAllData();
   };
 
@@ -2001,6 +2255,7 @@ export default function App() {
     };
     setTasks(prev => [newTask, ...prev]);
     await dataService.saveDocument('tasks', newId, newTask, '/api/tasks', 'POST');
+    await recordEmployeeActivity(`Assigned task: ${newTask.task_name} to ${newTask.assigned_employee_name}`, 'Tasks', newId);
     fetchAllData();
   };
 
@@ -2047,9 +2302,232 @@ export default function App() {
   };
 
   const handleUpdateSettings = async (newSettings: CompanySettings) => {
-    setSettings(newSettings);
-    await dataService.saveDocument('settings', 'company_settings', newSettings, '/api/settings', 'PUT');
+    const merged: CompanySettings = isITAccount
+      ? newSettings
+      : {
+          ...newSettings,
+          site_disabled: settings.site_disabled,
+          site_disabled_message: settings.site_disabled_message,
+          site_disabled_at: settings.site_disabled_at,
+          site_disabled_by: settings.site_disabled_by,
+        };
+    setSettings(merged);
+    await dataService.saveDocument('settings', 'company_settings', merged, '/api/settings', 'PUT');
     fetchAllData();
+  };
+
+  // IT Developer Account Exclusive: Temporarily Disable / Re-enable Site (100% Data Preserved)
+  const handleToggleSiteDisabledByIT = async (disable: boolean, message?: string) => {
+    if (!isITAccount) {
+      showToast(isAr ? 'غير مصرح: هذا الزر مخصص لحساب المطور IT فقط.' : 'Access Denied: Only the "IT" developer account can toggle site maintenance.');
+      return;
+    }
+
+    const updatedSettings: CompanySettings = {
+      ...settings,
+      site_disabled: disable,
+      site_disabled_message: message ?? '',
+      site_disabled_at: disable ? new Date().toLocaleString() : '',
+      site_disabled_by: 'IT',
+    };
+
+    setSettings(updatedSettings);
+    try {
+      await fetch('/api/it/toggle-site-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': 'IT',
+        },
+        body: JSON.stringify(updatedSettings),
+      });
+    } catch {}
+    await dataService.saveDocument('settings', 'company_settings', updatedSettings);
+    await recordEmployeeActivity(
+      disable ? 'Temporarily disabled site for modifications/updates (all data preserved)' : 'Re-enabled site for all users',
+      'System Maintenance',
+      'company_settings'
+    );
+    showToast(
+      disable
+        ? (isAr ? 'تم إيقاف الموقع مؤقتاً للتحديثات (جميع البيانات محفوظة بالكامل).' : 'Site temporarily disabled for updates (all data 100% preserved).')
+        : (isAr ? 'تم إعادة تفعيل الموقع لجميع الموظفين والمستخدمين!' : 'Site re-enabled for all employees and users!')
+    );
+  };
+
+  // Unified Attendance & Working Hours Logic (Identical calculation for Employee Self Clock-In/Out & IT Manual Entry)
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const activeSelfId = currentEmployee?.id || currentEmpId || currentUsername;
+  const activeSelfName = currentEmployee?.name || currentUsername;
+
+  const todaySelfAttendance: AttendanceRecord | null =
+    attendanceRecords.find(
+      a =>
+        a.status === 'Clocked In' &&
+        (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
+    ) ||
+    attendanceRecords.find(
+      a =>
+        a.date === todayDateStr &&
+        (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
+    ) ||
+    null;
+
+  const handleSelfClockIn = async () => {
+    const now = new Date();
+    const clockInHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const calc = calculateWorkingHours(clockInHHMM, '');
+    const newAttId = 'ATT-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 5).toUpperCase();
+
+    const newRec: AttendanceRecord = {
+      id: newAttId,
+      employee_id: activeSelfId,
+      employee_name: activeSelfName,
+      date: todayDateStr,
+      clock_in: clockInHHMM,
+      clock_out: '',
+      working_hours: calc.working_hours,
+      working_hours_formatted: calc.working_hours_formatted,
+      status: calc.status,
+      entry_source: 'Employee',
+      recorded_by: activeSelfName,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+
+    setAttendanceRecords(prev => [newRec, ...prev]);
+    await dataService.saveDocument('employee_attendance', newAttId, newRec, '/api/attendance', 'POST');
+    await recordEmployeeActivity(`Clocked in at ${clockInHHMM}`, 'Attendance', newAttId);
+    showToast(isAr ? `تم تسجيل الحضور في ${clockInHHMM}` : `Clocked in at ${clockInHHMM}`);
+  };
+
+  const handleSelfClockOut = async () => {
+    const openRec = attendanceRecords.find(
+      a =>
+        a.status === 'Clocked In' &&
+        (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
+    );
+    if (!openRec) {
+      showToast(isAr ? 'لا يوجد تسجيل حضور مفتوح حالياً.' : 'No active clock-in session found.');
+      return;
+    }
+
+    const now = new Date();
+    const clockOutHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    // Calculate working hours using the unified calculator
+    const calc = calculateWorkingHours(openRec.clock_in, clockOutHHMM);
+
+    const updatedRec: AttendanceRecord = {
+      ...openRec,
+      clock_out: clockOutHHMM,
+      working_hours: calc.working_hours,
+      working_hours_formatted: calc.working_hours_formatted,
+      status: calc.status,
+      updatedAt: now.toISOString(),
+    };
+
+    setAttendanceRecords(prev => prev.map(a => (a.id === openRec.id ? updatedRec : a)));
+    await dataService.saveDocument('employee_attendance', openRec.id, updatedRec, `/api/attendance/${openRec.id}`, 'PUT');
+    await recordEmployeeActivity(
+      `Clocked out at ${clockOutHHMM} — Working hours: ${calc.working_hours_formatted} (${calc.working_hours} hrs)`,
+      'Attendance',
+      openRec.id
+    );
+    showToast(
+      isAr
+        ? `تم تسجيل الانصراف (${clockOutHHMM}) — ساعات العمل: ${calc.working_hours_formatted}`
+        : `Clocked out (${clockOutHHMM}) — Working hours: ${calc.working_hours_formatted}`
+    );
+  };
+
+  const handleSaveManualAttendanceByIT = async (data: {
+    id?: string;
+    employee_id: string;
+    employee_name: string;
+    date: string;
+    clock_in: string;
+    clock_out?: string;
+    notes?: string;
+  }) => {
+    if (!isITAccount) {
+      showToast(isAr ? 'غير مصرح: التعديل اليدوي للحضور والانصراف متاح لحساب IT فقط.' : 'Access Denied: Only the "IT" developer account can manually record attendance.');
+      return;
+    }
+
+    const normalizedIn = normalizeTimeHHMM(data.clock_in) || data.clock_in;
+    const normalizedOut = data.clock_out ? (normalizeTimeHHMM(data.clock_out) || data.clock_out) : '';
+
+    // Exact same working hours calculation used when an employee clocks in/out themselves
+    const calc = calculateWorkingHours(normalizedIn, normalizedOut);
+
+    const existing = data.id
+      ? attendanceRecords.find(a => a.id === data.id)
+      : attendanceRecords.find(a => a.employee_id === data.employee_id && a.date === data.date);
+
+    const targetId = existing?.id || data.id || ('ATT-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 5).toUpperCase());
+    const nowIso = new Date().toISOString();
+
+    const record: AttendanceRecord = {
+      id: targetId,
+      employee_id: data.employee_id,
+      employee_name: data.employee_name,
+      date: data.date,
+      clock_in: normalizedIn,
+      clock_out: normalizedOut,
+      working_hours: calc.working_hours,
+      working_hours_formatted: calc.working_hours_formatted,
+      status: calc.status,
+      entry_source: 'IT Manual',
+      recorded_by: 'IT',
+      notes: data.notes || '',
+      createdAt: existing?.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+
+    setAttendanceRecords(prev => {
+      const exists = prev.some(a => a.id === targetId);
+      return exists ? prev.map(a => (a.id === targetId ? record : a)) : [record, ...prev];
+    });
+
+    try {
+      await fetch(existing ? `/api/attendance/${targetId}` : '/api/attendance', {
+        method: existing ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': 'IT',
+        },
+        body: JSON.stringify(record),
+      });
+    } catch {}
+    await dataService.saveDocument('employee_attendance', targetId, record);
+
+    await recordEmployeeActivity(
+      `Manual attendance saved for ${record.employee_name} (${record.date}: ${record.clock_in}${record.clock_out ? ` → ${record.clock_out}, ${record.working_hours_formatted}` : ''})`,
+      'Attendance',
+      targetId
+    );
+
+    showToast(
+      record.clock_out
+        ? (isAr
+            ? `تم حفظ حضور وانصراف ${record.employee_name} — عدد ساعات العمل: ${record.working_hours_formatted} (${record.working_hours} ساعة)`
+            : `Saved attendance for ${record.employee_name} — Working hours: ${record.working_hours_formatted} (${record.working_hours} hrs)`)
+        : (isAr
+            ? `تم تسجيل حضور ${record.employee_name} الساعة ${record.clock_in}`
+            : `Recorded clock-in for ${record.employee_name} at ${record.clock_in}`)
+    );
+  };
+
+  const handleDeleteAttendanceByIT = async (id: string) => {
+    if (!isITAccount) return;
+    setAttendanceRecords(prev => prev.filter(a => a.id !== id));
+    try {
+      await fetch(`/api/attendance/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-acting-user': 'IT' },
+      });
+    } catch {}
+    await dataService.deleteDocument('employee_attendance', id);
   };
 
   const handleClearAllDatabase = async (includeEmployees: boolean = true) => {
@@ -2089,167 +2567,17 @@ export default function App() {
     setDocuments([]);
     setNotifications([]);
     setActivityLogs([]);
+    setAttendanceRecords([]);
     setPermissionRequests([]);
     if (includeEmployees) {
       setEmployees(prev => prev.filter(e => e.is_admin === true || e.position === 'Administrator'));
     }
-
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    setStats({
-      total_customers: 0,
-      active_reservations: 0,
-      todays_reservations: 0,
-      upcoming_trips: 0,
-      total_sales: 0,
-      total_expenses: 0,
-      net_profit: 0,
-      outstanding_customer_payments: 0,
-      outstanding_supplier_payments: 0,
-      outstanding_by_currency: {},
-      today_tasks: 0,
-      low_stock_alerts: 0,
-      unread_notifications: 0,
-      recent_reservations: [],
-      recent_payments: [],
-      recent_activities: [],
-      monthlyData: monthNames.map(month => ({ month, Sales: 0, Expenses: 0, Profit: 0 })),
-      destinationPopularity: [],
-      topAgent: { name: 'No data', sales: 0 }
-    });
 
     await fetchAllData();
     showToast('All existing operational data has been permanently deleted. Ready for clean republish!');
   };
 
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
-
-  const [currentEmpId, setCurrentEmpId] = useState<string>(() => {
-    return localStorage.getItem('sofia_travel_emp_id') || '';
-  });
-
-  const currentEmployee = employees.find(e => 
-    (currentEmpId && (e.id === currentEmpId || e.employee_id === currentEmpId)) ||
-    (e.username === currentUsername || e.name === currentUsername)
-  );
-  
-  const isCurrentAdmin = userRole === 'Administrator' || currentEmployee?.is_admin === true || currentEmployee?.position === 'Administrator';
-  const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
-
-  // ---------------------------------------------------------------------------
-  // Attendance, work schedules and employee targets
-  // ---------------------------------------------------------------------------
-  const handleAttendanceCheckIn = async (employeeId: string, date: string, checkInTime: string) => {
-    const emp = employees.find(e => e.id === employeeId || e.employee_id === employeeId);
-    const schedule = workSchedules.find(s => s.employee_id === employeeId || s.employee_id === emp?.employee_id);
-    const expectedStart = schedule?.work_start || attendanceSettings.official_check_in;
-    const [startH, startM] = expectedStart.split(':').map(Number);
-    const [inH, inM] = checkInTime.split(':').map(Number);
-    const lateMinutes = Math.max(0, (inH * 60 + inM) - (startH * 60 + startM));
-    const grace = schedule?.grace_minutes ?? attendanceSettings.grace_period_minutes;
-    const stamp = Date.now();
-    const record: AttendanceRecord = {
-      id: `ATT-${stamp}-${employeeId}`,
-      attendance_id: `ATT-${stamp}`,
-      employee_id: employeeId,
-      employee_name: emp?.name || employeeId,
-      date,
-      check_in_time: checkInTime,
-      status: lateMinutes > grace ? 'Late' : 'Present',
-      late_minutes: lateMinutes,
-      created_at: new Date().toISOString()
-    };
-    setAttendanceRecords(prev => [record, ...prev]);
-    await dataService.saveDocument('attendance', record.id, record, '/api/attendance', 'POST');
-    fetchAllData();
-  };
-
-  const handleAttendanceCheckOut = async (recordId: string, checkOutTime: string) => {
-    const record = attendanceRecords.find(r => r.id === recordId);
-    if (!record) return;
-    let totalWorkingHours = '--';
-    if (record.check_in_time) {
-      const [inH, inM] = record.check_in_time.split(':').map(Number);
-      const [outH, outM] = checkOutTime.split(':').map(Number);
-      const diff = (outH * 60 + outM) - (inH * 60 + inM);
-      if (diff > 0) totalWorkingHours = `${Math.floor(diff / 60)}h ${diff % 60}m`;
-    }
-    const updated: AttendanceRecord = {
-      ...record,
-      check_out_time: checkOutTime,
-      total_working_hours: totalWorkingHours,
-      updated_at: new Date().toISOString()
-    };
-    setAttendanceRecords(prev => prev.map(r => (r.id === recordId ? updated : r)));
-    await dataService.saveDocument('attendance', recordId, updated, `/api/attendance/${recordId}`, 'PUT');
-    fetchAllData();
-  };
-
-  const handleAddAttendance = async (record: AttendanceRecord) => {
-    setAttendanceRecords(prev => [record, ...prev]);
-    await dataService.saveDocument('attendance', record.id, record, '/api/attendance', 'POST');
-    fetchAllData();
-  };
-
-  const handleUpdateAttendance = async (record: AttendanceRecord) => {
-    setAttendanceRecords(prev => prev.map(r => (r.id === record.id ? record : r)));
-    await dataService.saveDocument('attendance', record.id, record, `/api/attendance/${record.id}`, 'PUT');
-    fetchAllData();
-  };
-
-  const handleDeleteAttendance = async (id: string) => {
-    setAttendanceRecords(prev => prev.filter(r => r.id !== id));
-    await dataService.deleteDocument('attendance', id, `/api/attendance/${id}`);
-    fetchAllData();
-  };
-
-  const handleSaveWorkSchedule = async (schedule: EmployeeWorkSchedule) => {
-    setWorkSchedules(prev => {
-      const idx = prev.findIndex(s => s.id === schedule.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = schedule;
-        return next;
-      }
-      return [schedule, ...prev];
-    });
-    await dataService.saveDocument('work_schedules', schedule.id, schedule, '/api/work-schedules', 'POST');
-    showToast(`Work schedule saved for ${schedule.employee_name}`);
-    fetchAllData();
-  };
-
-  const handleDeleteWorkSchedule = async (id: string) => {
-    setWorkSchedules(prev => prev.filter(s => s.id !== id));
-    await dataService.deleteDocument('work_schedules', id, `/api/work-schedules/${id}`);
-    showToast('Work schedule removed');
-    fetchAllData();
-  };
-
-  const handleAddEmployeeTarget = async (target: EmployeeTarget) => {
-    setEmployeeTargets(prev => [target, ...prev]);
-    await dataService.saveDocument('employee_targets', target.id, target, '/api/employee-targets', 'POST');
-    showToast(`Target assigned to ${target.employee_name}`);
-    fetchAllData();
-  };
-
-  const handleUpdateEmployeeTarget = async (target: EmployeeTarget) => {
-    setEmployeeTargets(prev => prev.map(t => (t.id === target.id ? target : t)));
-    await dataService.saveDocument('employee_targets', target.id, target, '/api/employee-targets', 'POST');
-    showToast('Employee target updated');
-    fetchAllData();
-  };
-
-  const handleDeleteEmployeeTarget = async (id: string) => {
-    setEmployeeTargets(prev => prev.filter(t => t.id !== id));
-    await dataService.deleteDocument('employee_targets', id, `/api/employee-targets/${id}`);
-    showToast('Employee target deleted');
-    fetchAllData();
-  };
-
-  const handleUpdateAttendanceSettings = async (next: AttendanceSettings) => {
-    setAttendanceSettings(next);
-    await dataService.saveDocument('attendance_settings', 'main', next, '/api/attendance-settings', 'PUT');
-    showToast('Attendance rules updated');
-  };
 
   const handleLogin = (name: string, role: UserRole, empId?: string) => {
     setCurrentUsername(name);
@@ -2305,10 +2633,43 @@ export default function App() {
     }
   };
 
+  const isSiteTemporarilyDisabled = Boolean(settings.site_disabled);
+
+  // If the site is temporarily disabled by "IT", block all non-IT sessions without deleting any data
+  if (isSiteTemporarilyDisabled && (!isAuthenticated || !isITAccount)) {
+    return (
+      <div className="flex h-[100dvh] min-h-[100dvh] bg-slate-950 overflow-hidden font-sans flex-col w-full max-w-full">
+        <SiteMaintenanceOverlay
+          companyName={settings.company_name}
+          disabledMessage={settings.site_disabled_message}
+          disabledAt={settings.site_disabled_at}
+          isAuthenticatedNonIT={isAuthenticated && !isITAccount}
+          currentUsername={currentUsername}
+          onLogout={handleLogout}
+          onOpenITLogin={() => setShowITLoginFromMaintenance(true)}
+        />
+        {showITLoginFromMaintenance && (
+          <LoginModal
+            employees={employees}
+            onLogin={(name, role, empId) => {
+              handleLogin(name, role, empId);
+              setShowITLoginFromMaintenance(false);
+            }}
+            companyName={settings.company_name}
+            isSiteDisabled={true}
+            onClose={() => setShowITLoginFromMaintenance(false)}
+          />
+        )}
+        <OfflineIndicator />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-[100dvh] min-h-[100dvh] bg-slate-100 overflow-hidden font-sans flex-col w-full max-w-full">
       {!isAuthenticated && (
-        <LoginModal employees={employees}
+        <LoginModal
+          employees={employees}
           onLogin={handleLogin}
           companyName={settings.company_name}
         />
@@ -2318,6 +2679,28 @@ export default function App() {
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-2xl border border-slate-700 flex items-center gap-2 max-w-[92vw] animate-in fade-in">
           <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
           <span className="truncate">{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Top banner shown exclusively to "IT" while the site is temporarily disabled for other users */}
+      {isSiteTemporarilyDisabled && isAuthenticated && isITAccount && (
+        <div className="bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold flex flex-wrap items-center justify-between gap-2 shrink-0 z-30 shadow-xs">
+          <div className="flex items-center gap-2">
+            <Wrench className="w-4 h-4 shrink-0" />
+            <span>
+              {isAr
+                ? 'وضع التحديثات مفعل (حساب IT فقط): الموقع متوقف مؤقتاً لباقي المستخدمين وجميع البيانات محفوظة 100%.'
+                : 'Maintenance Mode Active (IT Account Only): Site is temporarily paused for all other users — 100% of data is preserved.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggleSiteDisabledByIT(false, '')}
+            className="px-3 py-1 rounded-lg bg-slate-950 text-emerald-300 hover:bg-slate-900 text-[11px] font-extrabold inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <Power className="w-3.5 h-3.5" />
+            <span>{isAr ? 'إعادة تفعيل الموقع الآن' : 'Re-enable Site Now'}</span>
+          </button>
         </div>
       )}
 
@@ -2343,6 +2726,12 @@ export default function App() {
         onVerifyDb={handleVerifyDatabase}
         isAdmin={isCurrentAdmin}
         onOpenAdminReset={() => setIsAdminResetModalOpen(true)}
+        isITAccount={isITAccount}
+        isSiteDisabled={isSiteTemporarilyDisabled}
+        onOpenITSiteControl={() => setIsITSiteModalOpen(true)}
+        todayAttendance={todaySelfAttendance}
+        onClockIn={handleSelfClockIn}
+        onClockOut={handleSelfClockOut}
       />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto overscroll-y-contain w-full max-w-full">
@@ -2355,6 +2744,10 @@ export default function App() {
               onOpenAdminReset={() => setIsAdminResetModalOpen(true)}
               dbConnected={dbStatus?.connected ?? true}
               onVerifyDb={handleVerifyDatabase}
+              isITAccount={isITAccount}
+              isSiteDisabled={isSiteTemporarilyDisabled}
+              onOpenITSiteControl={() => setIsITSiteModalOpen(true)}
+              onNavigateTab={setCurrentTab}
             />
           )}
 
@@ -2501,6 +2894,22 @@ export default function App() {
               }} 
             />
           )}
+          {currentTab === 'hotels' && (
+            <HotelsView 
+              hotels={hotels} 
+              onAddHotel={handleAddHotel} 
+              onUpdateHotel={handleUpdateHotel}
+              onDeleteHotel={handleDeleteHotel}
+            />
+          )}
+          {currentTab === 'flights' && (
+            <FlightsView 
+              flights={flights} 
+              onAddFlight={handleAddFlight} 
+              onUpdateFlight={handleUpdateFlight}
+              onDeleteFlight={handleDeleteFlight}
+            />
+          )}
           {currentTab === 'suppliers' && (
             <SuppliersView 
               suppliers={suppliers} 
@@ -2557,7 +2966,6 @@ export default function App() {
               onUpdateInvoice={handleUpdateInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onUpdateReservation={handleUpdateReservation}
-              onNavigate={(tab) => setCurrentTab(tab)}
               userRole={userRole}
               currentCurrency={currentCurrency}
             />
@@ -2576,6 +2984,13 @@ export default function App() {
               permissionRequests={permissionRequests}
               onApprovePermissionRequest={handleApprovePermissionRequest}
               onRejectPermissionRequest={handleRejectPermissionRequest}
+              isITAccount={isITAccount}
+              attendanceRecords={attendanceRecords}
+              onSaveManualAttendance={handleSaveManualAttendanceByIT}
+              onDeleteAttendance={handleDeleteAttendanceByIT}
+              onSelfClockIn={handleSelfClockIn}
+              onSelfClockOut={handleSelfClockOut}
+              todaySelfAttendance={todaySelfAttendance}
             />
           )}
           {currentTab === 'calendar' && (
@@ -2647,44 +3062,12 @@ export default function App() {
               dbStatus={dbStatus}
               onVerifyDatabase={handleVerifyDatabase}
               onOpenAdminReset={() => setIsAdminResetModalOpen(true)}
+              isITAccount={isITAccount}
+              onOpenITSiteControl={() => setIsITSiteModalOpen(true)}
             />
           )}
           {currentTab === 'activity-log' && (
             <ActivityLogView logs={activityLogs} />
-          )}
-          {currentTab === 'attendance' && (
-            <AttendanceView
-              userRole={userRole}
-              userPermissions={currentUserPermissions}
-              currentEmployeeId={currentEmpId}
-              currentUsername={currentUsername}
-              employees={employees}
-              attendanceRecords={attendanceRecords}
-              workSchedules={workSchedules}
-              onCheckIn={handleAttendanceCheckIn}
-              onCheckOut={handleAttendanceCheckOut}
-              onAddAttendance={handleAddAttendance}
-              onUpdateAttendance={handleUpdateAttendance}
-              onDeleteAttendance={handleDeleteAttendance}
-              onSaveSchedule={handleSaveWorkSchedule}
-              onDeleteSchedule={handleDeleteWorkSchedule}
-              settings={attendanceSettings}
-              onUpdateSettings={handleUpdateAttendanceSettings}
-              onAddAuditLog={handleAddAuditLog}
-            />
-          )}
-          {currentTab === 'employee-targets' && (
-            <EmployeeTargetsView
-              targets={employeeTargets}
-              employees={employees}
-              userRole={userRole}
-              currentEmployeeId={currentEmpId}
-              currentUsername={currentUsername}
-              onAddTarget={handleAddEmployeeTarget}
-              onUpdateTarget={handleUpdateEmployeeTarget}
-              onDeleteTarget={handleDeleteEmployeeTarget}
-              onAddAuditLog={handleAddAuditLog}
-            />
           )}
         </main>
       </div>
@@ -2694,11 +3077,9 @@ export default function App() {
         onClose={() => setIsSearchOpen(false)}
         customers={customers}
         reservations={reservations}
-        invoices={invoices}
         hotels={hotels}
         flights={flights}
         suppliers={suppliers}
-        onNavigate={(tab) => setCurrentTab(tab)}
       />
 
       <AiAssistantModal
@@ -2753,6 +3134,17 @@ export default function App() {
           onClose={() => setIsAdminResetModalOpen(false)}
           onConfirmDeleteAll={handleClearAllDatabase}
           isAdmin={isCurrentAdmin}
+        />
+      )}
+
+      {/* IT Developer Account Exclusive Temporary Site Disable / Enable Modal (Zero Data Deletion) */}
+      {isITAccount && (
+        <ITMaintenanceControlModal
+          isOpen={isITSiteModalOpen}
+          onClose={() => setIsITSiteModalOpen(false)}
+          isSiteDisabled={isSiteTemporarilyDisabled}
+          currentMessage={settings.site_disabled_message || ''}
+          onConfirmToggle={handleToggleSiteDisabledByIT}
         />
       )}
 

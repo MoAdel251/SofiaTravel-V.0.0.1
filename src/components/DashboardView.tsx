@@ -12,7 +12,12 @@ import {
   Clock,
   ArrowUpRight,
   Trash2,
-  Database
+  Database,
+  Power,
+  FileText,
+  Ticket,
+  MessageCircle,
+  Layers
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -37,6 +42,10 @@ interface DashboardViewProps {
   onOpenAdminReset?: () => void;
   dbConnected?: boolean;
   onVerifyDb?: () => void;
+  isITAccount?: boolean;
+  isSiteDisabled?: boolean;
+  onOpenITSiteControl?: () => void;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export function DashboardView({
@@ -46,6 +55,10 @@ export function DashboardView({
   onOpenAdminReset,
   dbConnected = true,
   onVerifyDb,
+  isITAccount = false,
+  isSiteDisabled = false,
+  onOpenITSiteControl,
+  onNavigateTab,
 }: DashboardViewProps) {
   const { language } = useLanguage();
   const isAr = language === 'ar';
@@ -94,6 +107,30 @@ export function DashboardView({
                 : (isAr ? 'الوضع المحلي المؤقت' : 'Offline Cache')}
             </span>
           </button>
+
+          {isITAccount && onOpenITSiteControl && (
+            <button
+              type="button"
+              onClick={onOpenITSiteControl}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer min-h-[40px] ${
+                isSiteDisabled
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-amber-600 hover:bg-amber-700 text-white'
+              }`}
+              title={
+                isSiteDisabled
+                  ? (isAr ? 'إعادة تفعيل الموقع للمستخدمين (حساب IT فقط)' : 'Re-enable site for users (IT account only)')
+                  : (isAr ? 'إيقاف الموقع مؤقتاً للتحديث بدون حذف البيانات (حساب IT فقط)' : 'Temporarily disable site for updates without deleting data (IT account only)')
+              }
+            >
+              <Power className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {isSiteDisabled
+                  ? (isAr ? 'تفعيل الموقع (IT)' : 'Enable Site (IT)')
+                  : (isAr ? 'إيقاف الموقع مؤقتاً (IT)' : 'Disable Site Temporarily (IT)')}
+              </span>
+            </button>
+          )}
 
           {isAdmin && onOpenAdminReset && (
             <button
@@ -166,6 +203,106 @@ export function DashboardView({
             </div>
           </div>
           <div className="absolute -right-4 -top-4 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl"></div>
+        </div>
+      </div>
+
+      {/* Live Website Synchronization Strip: All Modules Entered by Employees */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <h3 className="text-xs sm:text-sm font-bold text-slate-900">
+              {isAr
+                ? 'المزامنة الفورية لمدخلات الموظفين على الموقع'
+                : 'Live Synchronized Website Entries Across All Modules'}
+            </h3>
+          </div>
+          <span className="text-[11px] font-semibold text-slate-400">
+            {isAr
+              ? 'يتحدث تلقائياً فور إدخال أي موظف للبيانات'
+              : 'Auto-synced in real time as employees enter records'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 text-xs">
+          <button
+            type="button"
+            onClick={() => onNavigateTab && onNavigateTab('vouchers')}
+            className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-start transition-colors cursor-pointer"
+          >
+            <div className="flex items-center justify-between text-cyan-600 mb-1">
+              <Ticket className="w-4 h-4" />
+              <span className="text-[10px] font-bold">{isAr ? 'السندات' : 'Vouchers'}</span>
+            </div>
+            <div className="text-lg font-black text-slate-900">{stats.total_vouchers ?? 0}</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              {isAr ? 'سندات عملاء منشأة' : 'Created Vouchers'}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigateTab && onNavigateTab('customer-inquiries')}
+            className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-start transition-colors cursor-pointer"
+          >
+            <div className="flex items-center justify-between text-amber-600 mb-1">
+              <MessageCircle className="w-4 h-4" />
+              <span className="text-[10px] font-bold">
+                {stats.new_inquiries ? `${stats.new_inquiries} ${isAr ? 'جديد' : 'New'}` : (isAr ? 'الاستفسارات' : 'Inquiries')}
+              </span>
+            </div>
+            <div className="text-lg font-black text-slate-900">{stats.total_inquiries ?? 0}</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              {isAr ? 'استفسارات العملاء' : 'Customer Inquiries'}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigateTab && onNavigateTab('invoices')}
+            className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-start transition-colors cursor-pointer"
+          >
+            <div className="flex items-center justify-between text-indigo-600 mb-1">
+              <FileText className="w-4 h-4" />
+              <span className="text-[10px] font-bold">{isAr ? 'الفواتير' : 'Invoices'}</span>
+            </div>
+            <div className="text-lg font-black text-slate-900">{stats.total_invoices ?? 0}</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              {isAr ? 'فواتير عملاء وموردين' : 'Issued Invoices'}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigateTab && onNavigateTab('services')}
+            className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-start transition-colors cursor-pointer"
+          >
+            <div className="flex items-center justify-between text-blue-600 mb-1">
+              <Layers className="w-4 h-4" />
+              <span className="text-[10px] font-bold">{isAr ? 'الخدمات' : 'Services'}</span>
+            </div>
+            <div className="text-lg font-black text-slate-900">{stats.total_services ?? 0}</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              {isAr ? 'خدمات وبرامج مسجلة' : 'Recorded Services & Trips'}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigateTab && onNavigateTab('employees')}
+            className="p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-start transition-colors cursor-pointer col-span-2 sm:col-span-1"
+          >
+            <div className="flex items-center justify-between text-emerald-600 mb-1">
+              <Clock className="w-4 h-4" />
+              <span className="text-[10px] font-bold">
+                {stats.clocked_in_count ? `${stats.clocked_in_count} ${isAr ? 'متواجد' : 'Active'}` : (isAr ? 'الدوام' : 'Shifts')}
+              </span>
+            </div>
+            <div className="text-lg font-black text-slate-900">{stats.today_working_hours ?? 0}h</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              {isAr ? 'ساعات عمل اليوم' : "Today's Working Hours"}
+            </div>
+          </button>
         </div>
       </div>
 
@@ -273,64 +410,115 @@ export function DashboardView({
         </div>
       </div>
 
-      {/* Tables Section */}
+      {/* Tables Section: Latest Bookings & Live Employee Entries Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Reservations (2 cols) */}
+        {/* Recent Bookings / Vouchers / Services (2 cols) */}
         <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-xs p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-900 text-sm">Recent Reservations</h3>
-            <span className="text-xs text-blue-600 font-bold uppercase cursor-pointer">View All</span>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">
+                {isAr ? 'أحدث الحجوزات والسندات والخدمات المدخلة' : 'Latest Entered Bookings, Vouchers & Services'}
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                {isAr ? 'مرتبة تلقائياً حسب أحدث إدخالات الموظفين' : 'Synchronized live with employee entries'}
+              </p>
+            </div>
+            {onNavigateTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('vouchers')}
+                className="text-xs text-blue-600 font-bold uppercase cursor-pointer hover:underline"
+              >
+                {isAr ? 'عرض الكل' : 'View All'}
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-start text-xs">
               <thead>
                 <tr className="text-slate-400 border-b border-slate-100 uppercase text-[10px] tracking-wider">
-                  <th className="pb-3 font-semibold">Reservation</th>
-                  <th className="pb-3 font-semibold">Customer</th>
-                  <th className="pb-3 font-semibold">Service</th>
-                  <th className="pb-3 font-semibold">Destination</th>
-                  <th className="pb-3 font-semibold">Amount</th>
-                  <th className="pb-3 font-semibold">Status</th>
+                  <th className="pb-3 font-semibold text-start">{isAr ? 'المرجع' : 'Reference'}</th>
+                  <th className="pb-3 font-semibold text-start">{isAr ? 'العميل' : 'Customer'}</th>
+                  <th className="pb-3 font-semibold text-start">{isAr ? 'الخدمة' : 'Service'}</th>
+                  <th className="pb-3 font-semibold text-start">{isAr ? 'الموظف المدخل' : 'Entered By'}</th>
+                  <th className="pb-3 font-semibold text-start">{isAr ? 'القيمة' : 'Amount'}</th>
+                  <th className="pb-3 font-semibold text-start">{isAr ? 'الحالة' : 'Status'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {stats.recent_reservations?.map((res: any) => (
-                  <tr key={res.id} className="hover:bg-slate-50/80">
-                    <td className="py-3.5 font-bold text-slate-900">{res.reservation_id}</td>
-                    <td className="py-3.5 font-semibold text-slate-800">{res.customer_name || 'Customer'}</td>
-                    <td className="py-3.5 text-slate-500">{res.service_type}</td>
-                    <td className="py-3.5 text-slate-500">{res.destination}</td>
-                    <td className="py-3.5 font-bold text-blue-600">{formatCurrency(res.selling_price, activeCurrency)}</td>
-                    <td className="py-3.5">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                        res.reservation_status === 'Confirmed' ? 'bg-emerald-50 text-emerald-600' :
-                        res.reservation_status === 'Pending' ? 'bg-amber-50 text-amber-600' :
-                        'bg-slate-100 text-slate-600'
-                      }`}>
-                        {res.reservation_status}
-                      </span>
+                {(!stats.recent_reservations || stats.recent_reservations.length === 0) ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
+                      {isAr ? 'لا توجد حجوزات أو سندات مدخلة حتى الآن.' : 'No bookings or vouchers entered yet.'}
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  stats.recent_reservations.map((res: any) => (
+                    <tr key={res.id} className="hover:bg-slate-50/80">
+                      <td className="py-3.5 font-bold text-slate-900">{res.reservation_id}</td>
+                      <td className="py-3.5 font-semibold text-slate-800">{res.customer_name || 'Customer'}</td>
+                      <td className="py-3.5 text-slate-500">{res.service_type} {res.destination ? `• ${res.destination}` : ''}</td>
+                      <td className="py-3.5 font-semibold text-cyan-700">{res.employee_name || 'Staff'}</td>
+                      <td className="py-3.5 font-bold text-blue-600">{formatCurrency(res.display_selling_price ?? res.selling_price, res.display_currency || activeCurrency)}</td>
+                      <td className="py-3.5">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                          res.reservation_status === 'Confirmed' || res.reservation_status === 'Paid' ? 'bg-emerald-50 text-emerald-600' :
+                          res.reservation_status === 'Pending' || res.reservation_status === 'Draft' ? 'bg-amber-50 text-amber-600' :
+                          'bg-slate-100 text-slate-600'
+                        }`}>
+                          {res.reservation_status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Priority Tasks / Recent Activity (1 col) */}
+        {/* Live Employee Entries & Activity Stream (1 col) */}
         <div className="bg-white rounded-3xl border border-slate-200 shadow-xs p-6 flex flex-col">
-          <h3 className="font-bold text-slate-900 text-sm mb-4">Recent Audit Activity</h3>
-          <div className="space-y-3 flex-1 overflow-y-auto max-h-72">
-            {stats.recent_activities?.map((act: any) => (
-              <div key={act.id} className="flex gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                <div className="w-2 bg-blue-600 rounded-full h-full shrink-0"></div>
-                <div>
-                  <div className="text-xs font-bold text-slate-900">{act.user_name}</div>
-                  <div className="text-[11px] text-slate-500">{act.action} ({act.record})</div>
-                  <div className="text-[10px] text-slate-400 mt-1">{act.date} at {act.time}</div>
-                </div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-slate-900 text-sm">
+              {isAr ? 'سجل مدخلات الموظفين المباشر' : 'Live Employee Entries Feed'}
+            </h3>
+            {onNavigateTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('activity-log')}
+                className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+              >
+                {isAr ? 'السجل الكامل' : 'Full Log'}
+              </button>
+            )}
+          </div>
+          <div className="space-y-3 flex-1 overflow-y-auto max-h-80">
+            {(!stats.recent_activities || stats.recent_activities.length === 0) ? (
+              <div className="text-xs text-slate-400 text-center py-8">
+                {isAr ? 'لم يتم تسجيل أي إدخالات جديدة بعد.' : 'No employee entries logged yet.'}
               </div>
-            ))}
+            ) : (
+              stats.recent_activities.map((act: any) => (
+                <div key={act.id} className="flex gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="w-1.5 bg-blue-600 rounded-full shrink-0"></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-900 truncate">{act.user_name}</span>
+                      {act.module && (
+                        <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold shrink-0">
+                          {act.module}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-600 mt-0.5 break-words">
+                      {act.action} {act.record ? `(${act.record})` : ''}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">{act.date} • {act.time}</div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

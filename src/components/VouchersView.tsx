@@ -441,7 +441,7 @@ export function VouchersView({
     setSendChannel('WhatsApp');
     const matched = customers.find(c => c.id === v.customer_id || c.customer_id === v.customer_id || c.full_name === v.customer_name || c.name === v.customer_name);
     const code = matched?.customer_id || v.customer_id;
-    setCustomSendNote(`✈️ *SOFIA TRAVEL - OFFICIAL TRAVEL VOUCHER* 🎫\nDear ${v.customer_name || 'Valued Customer'}${code ? ` (Customer Code: ${code})` : ''},\n\n🧾 Please find your confirmed Sofia Travel voucher #${v.voucher_number || v.reservation_id} for "${v.service_title}".\n📅 Travel Date: ${v.travel_date}\n⏳ Valid Until: ${v.valid_until || 'N/A'}\n\n🙏 Thank you for choosing Sofia Travel!`);
+    setCustomSendNote(`✈️ SOFIA TRAVEL - OFFICIAL TRAVEL VOUCHER\nDear ${v.customer_name || 'Valued Customer'}${code ? ` (Customer Code: ${code})` : ''},\n\nPlease find your confirmed Sofia Travel voucher #${v.voucher_number || v.reservation_id} for "${v.service_title}".\nTravel Date: ${v.travel_date}\nValid Until: ${v.valid_until || 'N/A'}\n\nThank you for choosing Sofia Travel!`);
   };
 
   const handleConfirmSend = () => {

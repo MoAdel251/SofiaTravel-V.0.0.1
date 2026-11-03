@@ -1,9 +1,6 @@
 {
   "name": "Sofia Travel Management System",
   "description": "Comprehensive SaaS platform for Sofia Travel to manage customers, reservations, tours, hotels, flights, financials, employees, and operations.",
-  "author": "Mohamed Adel Abdullah",
-  "developer": "Mohamed Adel Abdullah",
-  "copyright": "Copyright © 2026 Mohamed Adel Abdullah. All rights reserved.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

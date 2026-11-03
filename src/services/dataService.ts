@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, getDoc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, getDoc, setDoc, deleteDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, verifyDatabaseConnection } from '../lib/firebase';
 
 function sanitizeForFirestore(obj: any): any {
@@ -48,13 +48,59 @@ export const OPERATIONAL_COLLECTIONS = [
   'employee_advances',
   'commission_records',
   'finance_audit_logs',
-  'attendance',
-  'work_schedules',
-  'employee_targets'
+  'employee_attendance'
 ] as const;
 
 export const dataService = {
   verifyConnection: verifyDatabaseConnection,
+
+  // Real-time Cloud Firestore collection listener for instant cross-device Dashboard & site sync
+  subscribeCollection<T>(collectionName: string, onUpdate: (items: T[]) => void): () => void {
+    const cacheKey = `${CACHE_PREFIX}${collectionName}`;
+    try {
+      return onSnapshot(
+        collection(db, collectionName),
+        (snap) => {
+          const items = snap.docs.map(d => ({ id: d.id, ...d.data() })) as T[];
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(items));
+          } catch {}
+          onUpdate(items);
+        },
+        (err) => {
+          console.warn(`Live listener warning for ${collectionName}:`, err);
+        }
+      );
+    } catch (e) {
+      console.warn(`Could not attach live listener to ${collectionName}:`, e);
+      return () => {};
+    }
+  },
+
+  // Real-time Cloud Firestore document listener (e.g., settings/company_settings for instant site_disabled sync)
+  subscribeDocument<T>(collectionName: string, docId: string, fallbackDefault: T, onUpdate: (data: T) => void): () => void {
+    const cacheKey = `${CACHE_PREFIX}${collectionName}_${docId}`;
+    try {
+      return onSnapshot(
+        doc(db, collectionName, docId),
+        (snap) => {
+          if (snap.exists()) {
+            const merged = { ...fallbackDefault, ...(snap.data() as T) };
+            try {
+              localStorage.setItem(cacheKey, JSON.stringify(merged));
+            } catch {}
+            onUpdate(merged);
+          }
+        },
+        (err) => {
+          console.warn(`Live doc listener warning for ${collectionName}/${docId}:`, err);
+        }
+      );
+    } catch (e) {
+      console.warn(`Could not attach live doc listener to ${collectionName}/${docId}:`, e);
+      return () => {};
+    }
+  },
 
   // Read collection with Cloud Firestore as primary source -> Backend API -> LocalStorage -> Default
   async getCollection<T>(collectionName: string, apiPath: string, fallbackDefault: T[] = []): Promise<T[]> {

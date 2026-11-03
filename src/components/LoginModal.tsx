@@ -3,23 +3,27 @@ import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
 import { UserRole, Employee } from '../types';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
 import { useLanguage } from '../context/LanguageContext';
-import { DEVELOPER_ACCOUNT } from '../lib/developerAccount';
 
 interface LoginModalProps {
   employees?: Employee[];
   onLogin: (username: string, role: UserRole, empId?: string) => void;
   companyName: string;
+  isSiteDisabled?: boolean;
+  onClose?: () => void;
 }
 
-export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalProps) {
+export function LoginModal({ onLogin, companyName, employees = [], isSiteDisabled = false, onClose }: LoginModalProps) {
   const { language, toggleLanguage } = useLanguage();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  // Protected developer account with full system privileges.
+  // Pre-configured system administrator and staff accounts
   const systemAccounts = [
-    { name: DEVELOPER_ACCOUNT.name, pass: DEVELOPER_ACCOUNT.password, role: DEVELOPER_ACCOUNT.role, id: DEVELOPER_ACCOUNT.id }
+    { name: 'IT', pass: 'S2026', role: 'Administrator' as UserRole, id: 'SYS-IT-ADMIN' },
+    { name: 'Karim Nabil', pass: 'KN02', role: 'Manager' as UserRole, id: 'EMP-2' },
+    { name: 'Mona Zaki', pass: 'MZ03', role: 'Accountant' as UserRole, id: 'EMP-3' },
+    { name: 'Youssef Mahmoud', pass: 'YM04', role: 'Operations' as UserRole, id: 'EMP-4' }
   ];
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -43,6 +47,14 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
     );
 
     if (matchedSystemAccount) {
+      if (isSiteDisabled && matchedSystemAccount.name !== 'IT') {
+        setError(
+          language === 'ar'
+            ? 'الموقع متوقف مؤقتاً للتحديثات. الدخول متاح فقط لحساب مطور النظام (IT).'
+            : 'The site is temporarily disabled for updates. Only the "IT" developer account can sign in right now.'
+        );
+        return;
+      }
       onLogin(matchedSystemAccount.name, matchedSystemAccount.role, matchedSystemAccount.id);
       return;
     }
@@ -55,6 +67,16 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
     });
 
     if (matchedEmployee) {
+      const isEmpIT = matchedEmployee.username === 'IT' || matchedEmployee.name === 'IT';
+      if (isSiteDisabled && !isEmpIT) {
+        setError(
+          language === 'ar'
+            ? 'الموقع متوقف مؤقتاً للتحديثات. الدخول متاح فقط لحساب مطور النظام (IT).'
+            : 'The site is temporarily disabled for updates. Only the "IT" developer account can sign in right now.'
+        );
+        return;
+      }
+
       const status = matchedEmployee.account_status || matchedEmployee.status || 'Active';
       if (status === 'Inactive' || status === 'Suspended' || matchedEmployee.login_access_enabled === false) {
         setError(
@@ -96,6 +118,15 @@ export function LoginModal({ onLogin, companyName, employees = [] }: LoginModalP
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden my-auto">
         {/* Header with Attached Sofia Travel Logo As-Is */}
         <div className="bg-slate-900 p-6 text-white text-center relative">
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute top-4 start-4 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 cursor-pointer"
+            >
+              {language === 'ar' ? 'رجوع' : 'Back'}
+            </button>
+          )}
           <button
             type="button"
             onClick={toggleLanguage}

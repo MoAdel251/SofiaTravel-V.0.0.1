@@ -1,18 +1,13 @@
 {
-  "name": "sofia-travel-management-system",
+  "name": "react-example",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.0.0",
   "type": "module",
-  "author": "Mohamed Adel Abdullah",
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && cp -f firebase-applet-config.json dist/ 2>/dev/null || true",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
-    "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

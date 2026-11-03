@@ -586,7 +586,7 @@ export function ReservationsView({
                           <FileText className="w-4 h-4" />
                         </button>
                         <a
-                          href={`https://wa.me/?text=%E2%9C%88%EF%B8%8F%20Booking%20Confirmation%20%23${res.reservation_id}%0A%F0%9F%97%BA%EF%B8%8F%20Destination:%20${encodeURIComponent(res.destination)}%0A%F0%9F%93%85%20Travel%20Date:%20${res.travel_date}%0A%F0%9F%92%B5%20Total:%20${encodeURIComponent(formatCurrency(res.selling_price, res.currency || '$'))}`}
+                          href={`https://wa.me/?text=Booking%20Confirmation%20%23${res.reservation_id}%0ADestination:%20${encodeURIComponent(res.destination)}%0ATravel%20Date:%20${res.travel_date}%0ATotal:%20${encodeURIComponent(formatCurrency(res.selling_price, res.currency || '$'))}`}
                           target="_blank"
                           rel="noreferrer"
                           className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors cursor-pointer"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download, Database } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download, Database, Power } from 'lucide-react';
 import { CompanySettings, UserRole, InstallmentPartnerConfig, InstallmentPlanRule } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
@@ -15,6 +15,8 @@ interface SettingsViewProps {
   dbStatus?: DatabaseConnectionStatus | null;
   onVerifyDatabase?: () => Promise<void>;
   onOpenAdminReset?: () => void;
+  isITAccount?: boolean;
+  onOpenITSiteControl?: () => void;
 }
 
 const SETTINGS_DRAFT_KEY = 'sofia_travel_settings_draft';
@@ -29,6 +31,8 @@ export function SettingsView({
   dbStatus,
   onVerifyDatabase,
   onOpenAdminReset,
+  isITAccount = false,
+  onOpenITSiteControl,
 }: SettingsViewProps) {
   const { language } = useLanguage();
   const isAr = language === 'ar';
@@ -463,7 +467,7 @@ export function SettingsView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Default Base Currency</label>
               <select
@@ -489,24 +493,13 @@ export function SettingsView({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Customer Invoice Prefix</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice Number Prefix</label>
               <input
                 type="text"
                 value={formData.invoice_prefix || 'INV-2026-'}
                 onChange={(e) => handleFieldChange({ invoice_prefix: e.target.value })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono"
               />
-              <p className="text-[10px] text-slate-400 mt-1">Separate accounts-receivable sequence.</p>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Supplier Invoice / Bill Prefix</label>
-              <input
-                type="text"
-                value={formData.supplier_invoice_prefix || 'BILL-2026-'}
-                onChange={(e) => handleFieldChange({ supplier_invoice_prefix: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono"
-              />
-              <p className="text-[10px] text-slate-400 mt-1">Separate accounts-payable sequence.</p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Reservation Number Prefix</label>
@@ -755,6 +748,65 @@ export function SettingsView({
             </div>
           </div>
         </div>
+
+        {/* Strictly IT Developer Account ("IT") Only: Temporarily Disable / Re-enable Site Without Deleting Data */}
+        {isITAccount && onOpenITSiteControl && (
+          <div className={`bg-white rounded-2xl border-2 p-4 sm:p-6 space-y-4 shadow-xs ${
+            settings.site_disabled ? 'border-emerald-300' : 'border-amber-200'
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  settings.site_disabled ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                }`}>
+                  <Power className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900">
+                      {isAr
+                        ? 'إيقاف الموقع مؤقتاً للتعديلات والتحديثات (بدون حذف البيانات)'
+                        : 'Temporarily Disable Site for Updates (Zero Data Deletion)'}
+                    </h2>
+                    <span className="px-2 py-0.5 bg-slate-900 text-cyan-300 rounded-md text-[10px] font-black uppercase">
+                      {isAr ? 'حساب المطور IT فقط' : 'IT Account Only'}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                      settings.site_disabled
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {settings.site_disabled
+                        ? (isAr ? 'الموقع متوقف مؤقتاً للمستخدمين' : 'Currently Disabled for Users')
+                        : (isAr ? 'الموقع متاح ويعمل' : 'Site Active & Online')}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {isAr
+                      ? 'يتيح لمطور النظام (IT) إيقاف وصول الموظفين والمستخدمين مؤقتاً أثناء إجراء تحديثات أو تعديلات برمجية مع الحفاظ التام على جميع البيانات.'
+                      : 'Allows the "IT" developer account to temporarily pause site access during updates or modifications while keeping 100% of company data intact.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenITSiteControl}
+                className={`flex items-center justify-center gap-2 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm shrink-0 min-h-[44px] ${
+                  settings.site_disabled
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-amber-600 hover:bg-amber-700'
+                }`}
+              >
+                <Power className="w-4 h-4" />
+                <span>
+                  {settings.site_disabled
+                    ? (isAr ? 'إعادة تفعيل الموقع الآن' : 'Re-enable Site Now')
+                    : (isAr ? 'إيقاف الموقع مؤقتاً' : 'Temporarily Disable Site')}
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Strictly Administrator-Only: Delete All Existing Data (Republish Clean) */}
         {isStrictAdmin && (

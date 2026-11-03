@@ -132,17 +132,17 @@ export function SuppliersView({
       .join('\n');
 
     const text = encodeURIComponent(
-      `✈️ *SOFIA TRAVEL - SUPPLIER STATEMENT OF ACCOUNT* 📊\n` +
+      `*SOFIA TRAVEL - SUPPLIER STATEMENT OF ACCOUNT*\n` +
       `-----------------------------------------\n` +
-      `🏢 Supplier: ${sup.supplier_name} (${sup.type})\n` +
-      `👤 Contact Person: ${sup.contact_person}\n` +
-      `📅 Date: ${new Date().toLocaleDateString()}\n` +
+      `Supplier: ${sup.supplier_name} (${sup.type})\n` +
+      `Contact Person: ${sup.contact_person}\n` +
+      `Date: ${new Date().toLocaleDateString()}\n` +
       `-----------------------------------------\n` +
-      `💰 *SETTLEMENT BALANCES BY CURRENCY:*\n` +
+      `*SETTLEMENT BALANCES BY CURRENCY:*\n` +
       `${balanceLines}\n` +
       `-----------------------------------------\n` +
-      `🏦 Bank Wire Reference: ${settings?.bank_name || 'National Bank of Egypt'}\n` +
-      `🙏 Thank you for partnering with Sofia Travel!`
+      `Bank Wire Reference: ${settings?.bank_name || 'National Bank of Egypt'}\n` +
+      `Thank you for partnering with Sofia Travel!`
     );
     const phone = sup.phone?.replace(/[^0-9]/g, '') || '';
     const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;

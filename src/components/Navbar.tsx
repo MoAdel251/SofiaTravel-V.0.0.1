@@ -3,10 +3,9 @@ import {
   Search, Bell, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, Compass, Truck, FileText,
   Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
-  Ticket, Layers, MessageCircle, Instagram, Trash2, RefreshCw,
-  Target, CalendarClock
+  Ticket, Layers, MessageCircle, Instagram, Trash2, RefreshCw, Power
 } from 'lucide-react';
-import { UserRole, NotificationItem } from '../types';
+import { UserRole, NotificationItem, AttendanceRecord } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useLanguage } from '../context/LanguageContext';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
@@ -49,6 +48,12 @@ interface NavbarProps {
   onVerifyDb?: () => void;
   isAdmin?: boolean;
   onOpenAdminReset?: () => void;
+  isITAccount?: boolean;
+  isSiteDisabled?: boolean;
+  onOpenITSiteControl?: () => void;
+  todayAttendance?: AttendanceRecord | null;
+  onClockIn?: () => void;
+  onClockOut?: () => void;
 }
 
 export function Navbar({
@@ -71,6 +76,12 @@ export function Navbar({
   onVerifyDb,
   isAdmin = false,
   onOpenAdminReset,
+  isITAccount = false,
+  isSiteDisabled = false,
+  onOpenITSiteControl,
+  todayAttendance,
+  onClockIn,
+  onClockOut,
 }: NavbarProps) {
   const { language, setLanguage, toggleLanguage, t } = useLanguage();
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
@@ -105,8 +116,6 @@ export function Navbar({
     { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
     { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'attendance', labelKey: 'nav_attendance', defaultLabel: 'Attendance', icon: CalendarClock, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'employee-targets', labelKey: 'nav_targets', defaultLabel: 'Employee Targets', icon: Target, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
     { id: 'reports', labelKey: 'nav_reports', defaultLabel: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: 'view_reports' },
     { id: 'finance-payroll', labelKey: 'nav_finance_payroll', defaultLabel: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'], perm: ['view_finance', 'view_payroll'] },
@@ -252,6 +261,64 @@ export function Navbar({
             <Database className="w-3.5 h-3.5 shrink-0" />
             <span>{dbConnected ? t('cloud_live') : t('cloud_offline')}</span>
           </button>
+
+          {/* Employee Self Clock-In / Clock-Out Button (Desktop) */}
+          {(onClockIn || onClockOut) && (
+            todayAttendance && todayAttendance.status === 'Clocked In' ? (
+              <button
+                type="button"
+                onClick={onClockOut}
+                className="hidden lg:flex items-center gap-1.5 h-9 px-3 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-500/40 rounded-xl text-xs font-bold text-amber-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                title={language === 'ar' ? `تم الحضور ${todayAttendance.clock_in} — اضغط لتسجيل الانصراف` : `Clocked in at ${todayAttendance.clock_in} — Click to Clock Out`}
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>{language === 'ar' ? `انصراف (${todayAttendance.clock_in})` : `Clock Out (${todayAttendance.clock_in})`}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onClockIn}
+                className="hidden lg:flex items-center gap-1.5 h-9 px-3 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 rounded-xl text-xs font-bold text-cyan-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                title={
+                  todayAttendance?.working_hours
+                    ? (language === 'ar' ? `ساعات اليوم: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}` : `Today: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}`)
+                    : (language === 'ar' ? 'تسجيل حضور الموظف' : 'Employee Clock In')
+                }
+              >
+                <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span>
+                  {todayAttendance?.status === 'Completed'
+                    ? (language === 'ar' ? `${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}` : `${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}`)
+                    : (language === 'ar' ? 'تسجيل حضور' : 'Clock In')}
+                </span>
+              </button>
+            )
+          )}
+
+          {/* IT Developer Exclusive: Temporarily Disable / Re-enable Site Button (Zero Data Deletion) */}
+          {isITAccount && onOpenITSiteControl && (
+            <button
+              type="button"
+              onClick={onOpenITSiteControl}
+              className={`hidden md:flex items-center gap-1.5 h-9 px-3 border rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 ${
+                isSiteDisabled
+                  ? 'bg-emerald-950/70 hover:bg-emerald-900 border-emerald-500/50 text-emerald-300 hover:text-white'
+                  : 'bg-amber-950/70 hover:bg-amber-900 border-amber-500/50 text-amber-300 hover:text-white'
+              }`}
+              title={
+                isSiteDisabled
+                  ? (language === 'ar' ? 'إعادة تفعيل الموقع للمستخدمين (حساب IT فقط)' : 'Re-enable site for users (IT account only)')
+                  : (language === 'ar' ? 'إيقاف الموقع مؤقتاً للتحديث بدون حذف البيانات (حساب IT فقط)' : 'Temporarily disable site for updates without deleting data (IT account only)')
+              }
+            >
+              <Power className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {isSiteDisabled
+                  ? (language === 'ar' ? 'تفعيل الموقع' : 'Enable Site')
+                  : (language === 'ar' ? 'إيقاف مؤقت للموقع' : 'Disable Site')}
+              </span>
+            </button>
+          )}
 
           {/* Administrator-Only Delete All Data Quick Button (Desktop) */}
           {isAdmin && onOpenAdminReset && (
@@ -577,6 +644,68 @@ export function Navbar({
                   </div>
                   <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
                 </a>
+
+                {/* Employee Self Clock-In / Clock-Out Action (Mobile Drawer) */}
+                {(onClockIn || onClockOut) && (
+                  todayAttendance && todayAttendance.status === 'Clocked In' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        if (onClockOut) onClockOut();
+                      }}
+                      className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-amber-950/70 hover:bg-amber-900 border border-amber-500/40 text-amber-300 hover:text-white text-xs font-bold transition-colors cursor-pointer min-h-[46px]"
+                    >
+                      <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>
+                        {language === 'ar'
+                          ? `تسجيل انصراف (تم الحضور ${todayAttendance.clock_in})`
+                          : `Clock Out (Clocked in at ${todayAttendance.clock_in})`}
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        if (onClockIn) onClockIn();
+                      }}
+                      className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 hover:text-white text-xs font-bold transition-colors cursor-pointer min-h-[46px]"
+                    >
+                      <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span>
+                        {todayAttendance?.status === 'Completed'
+                          ? (language === 'ar'
+                              ? `بدء وردية جديدة (اليوم: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`})`
+                              : `Clock In Again (Today: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`})`)
+                          : (language === 'ar' ? 'تسجيل حضور الموظف' : 'Employee Clock In')}
+                      </span>
+                    </button>
+                  )
+                )}
+
+                {/* IT Developer Exclusive: Temporarily Disable / Re-enable Site Action (Mobile Drawer) */}
+                {isITAccount && onOpenITSiteControl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenITSiteControl();
+                    }}
+                    className={`w-full flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition-colors cursor-pointer min-h-[46px] ${
+                      isSiteDisabled
+                        ? 'bg-emerald-950/70 hover:bg-emerald-900 border-emerald-500/40 text-emerald-300 hover:text-white'
+                        : 'bg-amber-950/70 hover:bg-amber-900 border-amber-500/40 text-amber-300 hover:text-white'
+                    }`}
+                  >
+                    <Power className="w-4 h-4 shrink-0" />
+                    <span>
+                      {isSiteDisabled
+                        ? (language === 'ar' ? 'إعادة تفعيل الموقع الآن (IT)' : 'Re-enable Site Now (IT)')
+                        : (language === 'ar' ? 'إيقاف الموقع مؤقتاً للتحديث (IT)' : 'Temporarily Disable Site (IT)')}
+                    </span>
+                  </button>
+                )}
 
                 {/* Administrator-Only Delete All Data Action */}
                 {isAdmin && onOpenAdminReset && (

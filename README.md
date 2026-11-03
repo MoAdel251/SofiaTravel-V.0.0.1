@@ -1,62 +1,20 @@
-# Sofia Travel Management System
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Travel-agency operations platform: customers, reservations, vouchers, tours,
-hotels, flights, visas, transfers, finance, employees and reporting.
+# Run and deploy your AI Studio app
 
-Copyright © 2026 Mohamed Adel Abdullah. All rights reserved.
+This contains everything you need to run your app locally.
 
-## Stack
+View your app in AI Studio: https://ai.studio/apps/d5250360-2f13-4e61-9f65-9d2693ac8c37
 
-- React 19 + Vite 6 + TypeScript
-- Tailwind CSS 4
-- Express API (shared by local Node hosting and Vercel serverless functions)
-- Cloud Firestore database
-- Gemini AI assistant (optional)
+## Run Locally
 
-## Local development
+**Prerequisites:**  Node.js
 
-```bash
-npm install
-npm run dev        # http://localhost:3000
-```
 
-Optional environment variables are documented in `env.example`. When they are
-not provided, the app uses `firebase-applet-config.json`.
-
-## Type check & production build
-
-```bash
-npm run typecheck  # tsc --noEmit
-npm run build      # dist/ static site + dist/server.cjs
-npm start          # serve the production build on :3000
-```
-
-## Deploy to Vercel
-
-1. Import this repository into Vercel.
-2. Framework preset: **Vite** (already pinned in `vercel.json`).
-3. Build command `npm run build`, output directory `dist`.
-4. Add the environment variables from `env.example` if you want to point the
-   deployment at a different Firebase project. Without them, the committed
-   Firebase project is used.
-5. Deploy. Static assets are served from `dist/`; every `/api/*` request is
-   routed to the Express app through the `api/index.ts` serverless function.
-
-The API keeps the same in-memory + Firestore write-through model as the local
-server, and Firestore is the durable database in all environments.
-
-## Accounts
-
-- The protected developer account (`IT`) always has full Administrator
-  privileges. It is restored automatically on server start and cannot be
-  edited, demoted, deactivated or deleted from the employee management UI or
-  the `/api/employees` endpoints.
-- Additional staff and administrator accounts are managed from
-  **Employees → Add Employee**.
-
-## Database rules
-
-The app performs direct Firestore reads/writes from the browser. The rules in
-`firestore.rules` therefore allow access to the application collections. Review
-them before exposing the deployment publicly if you need per-user database
-security.
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

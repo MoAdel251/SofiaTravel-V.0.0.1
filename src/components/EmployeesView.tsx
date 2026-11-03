@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Briefcase, Plus, Phone, Mail, X, Edit2, Trash2, AlertTriangle, Check, Save, Shield, UserX, UserCheck, Lock, Copy
+  Briefcase, Plus, Phone, Mail, X, Edit2, Trash2, AlertTriangle, Check, Save, Shield, UserX, UserCheck, Lock, Copy, Clock
 } from 'lucide-react';
-import { Employee, UserRole } from '../types';
-import { isDeveloperAccount, isReservedDeveloperUsername } from '../lib/developerAccount';
+import { Employee, UserRole, AttendanceRecord } from '../types';
+import { calculateWorkingHours, formatWorkingHoursLabel, normalizeTimeHHMM } from '../utils/attendance';
+import { useLanguage } from '../context/LanguageContext';
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -18,6 +19,21 @@ interface EmployeesViewProps {
   permissionRequests?: any[];
   onApprovePermissionRequest?: (id: string) => void;
   onRejectPermissionRequest?: (id: string, reason?: string) => void;
+  isITAccount?: boolean;
+  attendanceRecords?: AttendanceRecord[];
+  onSaveManualAttendance?: (data: {
+    id?: string;
+    employee_id: string;
+    employee_name: string;
+    date: string;
+    clock_in: string;
+    clock_out?: string;
+    notes?: string;
+  }) => Promise<void> | void;
+  onDeleteAttendance?: (id: string) => Promise<void> | void;
+  onSelfClockIn?: () => Promise<void> | void;
+  onSelfClockOut?: () => Promise<void> | void;
+  todaySelfAttendance?: AttendanceRecord | null;
 }
 
 const EMPLOYEE_DRAFT_KEY = 'sofia_travel_employee_draft_v2';
@@ -129,13 +145,172 @@ export function EmployeesView({
   currentUsername,
   permissionRequests = [],
   onApprovePermissionRequest,
-  onRejectPermissionRequest
+  onRejectPermissionRequest,
+  isITAccount = false,
+  attendanceRecords = [],
+  onSaveManualAttendance,
+  onDeleteAttendance,
+  onSelfClockIn,
+  onSelfClockOut,
+  todaySelfAttendance,
 }: EmployeesViewProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'employees' | 'approvals'>('employees');
+  const { language } = useLanguage();
+  const isAr = language === 'ar';
+  const [activeSubTab, setActiveSubTab] = useState<'employees' | 'attendance' | 'approvals'>('employees');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [savedSuccessMsg, setSavedSuccessMsg] = useState<string | null>(null);
   const [rejectionReasonMap, setRejectionReasonMap] = useState<Record<string, string>>({});
+
+  // Manual Attendance Modal state (IT Developer Account)
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+  const [attendanceFilterDate, setAttendanceFilterDate] = useState<string>('');
+  const [attendanceFilterEmp, setAttendanceFilterEmp] = useState<string>('ALL');
+  const [manualAttForm, setManualAttForm] = useState<{
+    id?: string;
+    employee_id: string;
+    employee_name: string;
+    date: string;
+    clock_in: string;
+    clock_out: string;
+    notes: string;
+  }>({
+    employee_id: '',
+    employee_name: '',
+    date: new Date().toISOString().split('T')[0],
+    clock_in: '09:00',
+    clock_out: '17:00',
+    notes: '',
+  });
+
+  // Combined roster options for attendance (registered employees + default staff)
+  const attendanceRosterOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    employees.forEach(e => {
+      const id = e.id || e.employee_id;
+      const name = e.name || e.full_name || e.username || id;
+      if (id) map.set(id, { id, name });
+    });
+    [
+      { id: 'EMP-2', name: 'Karim Nabil' },
+      { id: 'EMP-3', name: 'Mona Zaki' },
+      { id: 'EMP-4', name: 'Youssef Mahmoud' },
+    ].forEach(sys => {
+      const alreadyByName = Array.from(map.values()).some(v => v.name === sys.name);
+      if (!alreadyByName && !map.has(sys.id)) {
+        map.set(sys.id, sys);
+      }
+    });
+    return Array.from(map.values());
+  }, [employees]);
+
+  // Live preview of working hours in IT Manual Entry modal using the exact same calculation as employee self clock-in/out
+  const previewCalc = useMemo(() => {
+    return calculateWorkingHours(manualAttForm.clock_in, manualAttForm.clock_out || undefined);
+  }, [manualAttForm.clock_in, manualAttForm.clock_out]);
+
+  const openITManualModal = (existing?: AttendanceRecord) => {
+    if (existing) {
+      setManualAttForm({
+        id: existing.id,
+        employee_id: existing.employee_id,
+        employee_name: existing.employee_name,
+        date: existing.date,
+        clock_in: normalizeTimeHHMM(existing.clock_in) || existing.clock_in || '09:00',
+        clock_out: normalizeTimeHHMM(existing.clock_out) || existing.clock_out || '',
+        notes: existing.notes || '',
+      });
+    } else {
+      const firstEmp = attendanceRosterOptions[0];
+      const todayStr = new Date().toISOString().split('T')[0];
+      const existingToday = firstEmp
+        ? attendanceRecords.find(
+            r => (r.employee_id === firstEmp.id || r.employee_name === firstEmp.name) && r.date === todayStr
+          )
+        : undefined;
+      setManualAttForm({
+        id: existingToday?.id,
+        employee_id: firstEmp?.id || '',
+        employee_name: firstEmp?.name || '',
+        date: todayStr,
+        clock_in: existingToday ? (normalizeTimeHHMM(existingToday.clock_in) || existingToday.clock_in) : '09:00',
+        clock_out: existingToday?.clock_out ? (normalizeTimeHHMM(existingToday.clock_out) || existingToday.clock_out) : '17:00',
+        notes: existingToday?.notes || '',
+      });
+    }
+    setShowAttendanceModal(true);
+  };
+
+  const handleManualEmployeeOrDateChange = (empId: string, dateVal: string) => {
+    const selectedEmp = attendanceRosterOptions.find(o => o.id === empId);
+    const empName = selectedEmp?.name || manualAttForm.employee_name;
+    const match = attendanceRecords.find(
+      r => (r.employee_id === empId || (empName && r.employee_name === empName)) && r.date === dateVal
+    );
+    if (match) {
+      setManualAttForm(prev => ({
+        ...prev,
+        id: match.id,
+        employee_id: empId,
+        employee_name: match.employee_name || empName,
+        date: dateVal,
+        clock_in: normalizeTimeHHMM(match.clock_in) || match.clock_in || prev.clock_in,
+        clock_out: match.clock_out ? (normalizeTimeHHMM(match.clock_out) || match.clock_out) : '',
+        notes: match.notes || '',
+      }));
+    } else {
+      setManualAttForm(prev => ({
+        ...prev,
+        id: undefined,
+        employee_id: empId,
+        employee_name: empName,
+        date: dateVal,
+      }));
+    }
+  };
+
+  const handleManualAttendanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onSaveManualAttendance || !isITAccount) return;
+    const targetEmp = attendanceRosterOptions.find(o => o.id === manualAttForm.employee_id);
+    const empName = targetEmp?.name || manualAttForm.employee_name || 'Employee';
+    await onSaveManualAttendance({
+      id: manualAttForm.id,
+      employee_id: manualAttForm.employee_id || empName,
+      employee_name: empName,
+      date: manualAttForm.date,
+      clock_in: manualAttForm.clock_in,
+      clock_out: manualAttForm.clock_out || undefined,
+      notes: manualAttForm.notes,
+    });
+    setShowAttendanceModal(false);
+    setSavedSuccessMsg(
+      isAr
+        ? `تم حفظ وقت الحضور/الانصراف للموظف ${empName} وحساب ساعات العمل (${previewCalc.working_hours_formatted}) بنجاح.`
+        : `Saved clock-in/clock-out for ${empName} — Calculated working hours: ${previewCalc.working_hours_formatted} (${previewCalc.working_hours} hrs).`
+    );
+    setTimeout(() => setSavedSuccessMsg(null), 4500);
+  };
+
+  const sortedFilteredAttendance = useMemo(() => {
+    return [...attendanceRecords]
+      .filter(r => {
+        if (attendanceFilterDate && r.date !== attendanceFilterDate) return false;
+        if (attendanceFilterEmp !== 'ALL' && r.employee_id !== attendanceFilterEmp && r.employee_name !== attendanceFilterEmp) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const keyA = `${a.date || ''} ${a.clock_in || ''}`;
+        const keyB = `${b.date || ''} ${b.clock_in || ''}`;
+        return keyB.localeCompare(keyA);
+      });
+  }, [attendanceRecords, attendanceFilterDate, attendanceFilterEmp]);
+
+  const totalHoursFiltered = useMemo(() => {
+    return Math.round(sortedFilteredAttendance.reduce((sum, r) => sum + (Number(r.working_hours) || 0), 0) * 100) / 100;
+  }, [sortedFilteredAttendance]);
 
   // Deactivate confirmation modal
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
@@ -193,10 +368,6 @@ export function EmployeesView({
   }, []);
 
   const openEditModal = (emp: Employee) => {
-    if (isDeveloperAccount(emp)) {
-      alert('The developer (IT) account is protected and cannot be modified.');
-      return;
-    }
     const isEmpAdmin = emp.is_admin === true || emp.position === 'Administrator';
     setEditingEmployee(emp);
     setFormData({
@@ -290,20 +461,13 @@ export function EmployeesView({
     const src = employees.find(e => e.id === sourceId || e.employee_id === sourceId);
     if (src && src.permissions) {
       handleFormFieldChange({ permissions: [...src.permissions] });
-      alert(`Successfully copied permissions from ${src.name}!`);
+      setSavedSuccessMsg(`Successfully copied permissions from ${src.name}!`);
+      setTimeout(() => setSavedSuccessMsg(null), 3500);
     }
   };
 
   const handleCreateOrUpdate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingEmployee && isDeveloperAccount(editingEmployee)) {
-      alert('The developer (IT) account is protected and cannot be modified.');
-      return;
-    }
-    if (isReservedDeveloperUsername(formData.username) && !(editingEmployee && isDeveloperAccount(editingEmployee))) {
-      alert('The username "IT" is reserved for the protected developer account. Please choose another username.');
-      return;
-    }
     const empName = formData.name || formData.username || 'Employee';
     if (editingEmployee) {
       onEditEmployee(editingEmployee.id, formData);
@@ -348,12 +512,6 @@ export function EmployeesView({
 
   const handleConfirmDeactivate = () => {
     if (!employeeToDeactivate) return;
-    if (isDeveloperAccount(employeeToDeactivate)) {
-      alert('The developer (IT) account is protected and cannot be deactivated.');
-      setShowDeactivateModal(false);
-      setEmployeeToDeactivate(null);
-      return;
-    }
     const newStatus = employeeToDeactivate.account_status === 'Inactive' ? 'Active' : 'Inactive';
     if (onDeactivateEmployee) {
       onDeactivateEmployee(employeeToDeactivate.id, newStatus);
@@ -403,8 +561,8 @@ export function EmployeesView({
         )}
       </div>
 
-      {/* TOP TAB NAVIGATION: STAFF ROSTER vs APPROVAL QUEUE */}
-      <div className="flex items-center gap-2 border-b border-slate-200">
+      {/* TOP TAB NAVIGATION: STAFF ROSTER vs ATTENDANCE & WORKING HOURS vs APPROVAL QUEUE */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200">
         <button
           onClick={() => setActiveSubTab('employees')}
           className={`px-5 py-3 font-bold text-xs flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
@@ -414,7 +572,19 @@ export function EmployeesView({
           }`}
         >
           <Briefcase className="w-4 h-4" />
-          <span>Staff Accounts & Site-Wide Permissions ({employees.length})</span>
+          <span>{isAr ? `حسابات الموظفين والصلاحيات (${employees.length})` : `Staff Accounts & Site-Wide Permissions (${employees.length})`}</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('attendance')}
+          className={`px-5 py-3 font-bold text-xs flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeSubTab === 'attendance'
+              ? 'border-emerald-600 text-emerald-700 bg-white rounded-t-xl shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Clock className="w-4 h-4 text-emerald-600" />
+          <span>{isAr ? `الحضور والانصراف وساعات العمل (${attendanceRecords.length})` : `Attendance & Working Hours (${attendanceRecords.length})`}</span>
         </button>
 
         <button
@@ -426,7 +596,7 @@ export function EmployeesView({
           }`}
         >
           <Shield className="w-4 h-4 text-amber-600" />
-          <span>Administrator Approval Queue</span>
+          <span>{isAr ? 'طلبات موافقة المدير' : 'Administrator Approval Queue'}</span>
           {pendingCount > 0 && (
             <span className="px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
               {pendingCount} PENDING
@@ -469,6 +639,226 @@ export function EmployeesView({
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-semibold flex items-center gap-2 animate-in fade-in">
           <Check className="w-4 h-4 text-emerald-600" />
           <span>{savedSuccessMsg}</span>
+        </div>
+      )}
+
+      {/* TAB: EMPLOYEE ATTENDANCE & WORKING HOURS (Self Clock-In/Out + IT Manual Entry) */}
+      {activeSubTab === 'attendance' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm sm:text-base font-black text-slate-900">
+                  {isAr ? 'سجل حضور وانصراف الموظفين وحساب ساعات العمل' : 'Employee Clock-In / Clock-Out & Working Hours'}
+                </h3>
+                {isITAccount && (
+                  <span className="px-2 py-0.5 bg-slate-900 text-cyan-300 rounded-md text-[10px] font-extrabold uppercase">
+                    {isAr ? 'صلاحية الإدخال اليدوي مفعلة (IT)' : 'IT Manual Time Entry Active'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                {isAr
+                  ? 'يتم حساب عدد ساعات العمل تلقائياً وبنفس الدقة سواء سجل الموظف حضوره/انصرافه بنفسه أو أضافه مطور النظام (IT) يدوياً.'
+                  : 'Working hours are calculated automatically and identically whether the employee clocks in/out themselves or the "IT" developer enters/edits times manually.'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {/* Self Clock-In / Clock-Out button */}
+              {(onSelfClockIn || onSelfClockOut) && (
+                todaySelfAttendance && todaySelfAttendance.status === 'Clocked In' ? (
+                  <button
+                    type="button"
+                    onClick={onSelfClockOut}
+                    className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 cursor-pointer min-h-[42px]"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span>
+                      {isAr
+                        ? `تسجيل انصراف الآن (حضور: ${todaySelfAttendance.clock_in})`
+                        : `Clock Out Now (In: ${todaySelfAttendance.clock_in})`}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onSelfClockIn}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 cursor-pointer min-h-[42px]"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span>{isAr ? 'تسجيل حضور الآن' : 'Clock In Now'}</span>
+                  </button>
+                )
+              )}
+
+              {/* IT Developer Account Manual Clock-In / Clock-Out Button */}
+              {isITAccount && onSaveManualAttendance && (
+                <button
+                  type="button"
+                  onClick={() => openITManualModal()}
+                  className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 cursor-pointer min-h-[42px]"
+                >
+                  <Plus className="w-4 h-4 text-cyan-400" />
+                  <span>
+                    {isAr
+                      ? 'إضافة حضور / انصراف يدوي (IT)'
+                      : 'Manual Clock-In / Clock-Out (IT)'}
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filters & Summary Strip */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 me-2">
+                  {isAr ? 'الموظف:' : 'Employee:'}
+                </label>
+                <select
+                  value={attendanceFilterEmp}
+                  onChange={(e) => setAttendanceFilterEmp(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 font-semibold text-slate-800"
+                >
+                  <option value="ALL">{isAr ? 'جميع الموظفين' : 'All Employees'}</option>
+                  {attendanceRosterOptions.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] font-bold text-slate-500">
+                  {isAr ? 'التاريخ:' : 'Date:'}
+                </label>
+                <input
+                  type="date"
+                  value={attendanceFilterDate}
+                  onChange={(e) => setAttendanceFilterDate(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 font-semibold text-slate-800"
+                />
+                {attendanceFilterDate && (
+                  <button
+                    type="button"
+                    onClick={() => setAttendanceFilterDate('')}
+                    className="text-slate-400 hover:text-slate-700 px-2 py-1 font-bold cursor-pointer"
+                  >
+                    {isAr ? 'الكل' : 'Clear'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="px-3.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold">
+                {isAr
+                  ? `إجمالي ساعات العمل المحسوبة: ${totalHoursFiltered.toFixed(2)} ساعة`
+                  : `Total Calculated Working Hours: ${totalHoursFiltered.toFixed(2)} hrs`}
+              </div>
+            </div>
+          </div>
+
+          {/* Attendance Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-start text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4 font-semibold text-start">{isAr ? 'التاريخ' : 'Date'}</th>
+                    <th className="py-3 px-4 font-semibold text-start">{isAr ? 'الموظف' : 'Employee'}</th>
+                    <th className="py-3 px-4 font-semibold text-start">{isAr ? 'وقت الحضور' : 'Clock In'}</th>
+                    <th className="py-3 px-4 font-semibold text-start">{isAr ? 'وقت الانصراف' : 'Clock Out'}</th>
+                    <th className="py-3 px-4 font-semibold text-start">{isAr ? 'عدد ساعات العمل' : 'Working Hours'}</th>
+                    <th className="py-3 px-4 font-semibold text-start">{isAr ? 'الحالة / الطريقة' : 'Status / Source'}</th>
+                    {isITAccount && (
+                      <th className="py-3 px-4 font-semibold text-end">{isAr ? 'إجراءات IT' : 'IT Actions'}</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sortedFilteredAttendance.length === 0 ? (
+                    <tr>
+                      <td colSpan={isITAccount ? 7 : 6} className="py-10 text-center text-slate-400 text-xs">
+                        {isAr
+                          ? 'لا توجد سجلات حضور وانصراف مسجلة بعد.'
+                          : 'No employee clock-in / clock-out records found yet.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedFilteredAttendance.map(rec => {
+                      const computed = calculateWorkingHours(rec.clock_in, rec.clock_out);
+                      const hoursNum = rec.clock_out ? (rec.working_hours ?? computed.working_hours) : 0;
+                      const hoursFmt = rec.clock_out ? (rec.working_hours_formatted || computed.working_hours_formatted) : undefined;
+                      return (
+                        <tr key={rec.id} className="hover:bg-slate-50/80">
+                          <td className="py-3 px-4 font-mono font-bold text-slate-800">{rec.date}</td>
+                          <td className="py-3 px-4 font-bold text-slate-900">{rec.employee_name}</td>
+                          <td className="py-3 px-4 font-mono font-semibold text-emerald-700">{rec.clock_in || '-'}</td>
+                          <td className="py-3 px-4 font-mono font-semibold text-blue-700">{rec.clock_out || (isAr ? 'قيد العمل...' : 'Active Shift...')}</td>
+                          <td className="py-3 px-4">
+                            {rec.clock_out ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold">
+                                <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                                {formatWorkingHoursLabel(hoursNum, hoursFmt, isAr)}
+                              </span>
+                            ) : (
+                              <span className="text-amber-600 font-semibold">
+                                {isAr ? 'بانتظار تسجيل الانصراف' : 'Awaiting Clock-Out'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                rec.clock_out
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                {rec.clock_out
+                                  ? (isAr ? 'مكتمل' : 'Completed')
+                                  : (isAr ? 'متواجد بالعمل' : 'Clocked In')}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold">
+                                {rec.entry_source === 'IT Manual'
+                                  ? (isAr ? 'إدخال يدوي (IT)' : 'Manual (IT)')
+                                  : (isAr ? 'تسجيل ذاتي' : 'Self Clock')}
+                              </span>
+                            </div>
+                          </td>
+                          {isITAccount && (
+                            <td className="py-3 px-4 text-end">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openITManualModal(rec)}
+                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  <span>{isAr ? 'تعديل الوقت' : 'Edit Time'}</span>
+                                </button>
+                                {onDeleteAttendance && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteAttendance(rec.id)}
+                                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                    title={isAr ? 'حذف السجل' : 'Delete Record'}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -647,11 +1037,6 @@ export function EmployeesView({
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      {isDeveloperAccount(emp) ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-lg font-bold text-[10px]">
-                          <Lock className="w-3 h-3" /> Protected Developer Account
-                        </span>
-                      ) : (
                       <div className="flex items-center justify-end space-x-2">
                         {isAdmin && (
                           <button
@@ -690,7 +1075,6 @@ export function EmployeesView({
                           </button>
                         )}
                       </div>
-                      )}
                     </td>
                   </tr>
                 );
@@ -1069,6 +1453,171 @@ export function EmployeesView({
                 {employeeToDeactivate.account_status === 'Active' ? 'Confirm Deactivation' : 'Confirm Activation'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* IT Developer Manual Clock-In / Clock-Out Modal */}
+      {showAttendanceModal && isITAccount && (
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-auto text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="px-2 py-0.5 bg-slate-900 text-cyan-300 rounded-md text-[10px] font-extrabold uppercase">
+                  IT Developer Account
+                </span>
+                <h3 className="text-base font-bold text-slate-900 mt-1">
+                  {isAr
+                    ? 'إضافة / تعديل وقت حضور أو انصراف موظف يدوياً'
+                    : 'Manual Employee Clock-In / Clock-Out Entry'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAttendanceModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleManualAttendanceSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'اختر الموظف *' : 'Select Employee *'}
+                  </label>
+                  {attendanceRosterOptions.length > 0 ? (
+                    <select
+                      required
+                      value={manualAttForm.employee_id}
+                      onChange={(e) => handleManualEmployeeOrDateChange(e.target.value, manualAttForm.date)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-semibold text-slate-800"
+                    >
+                      {attendanceRosterOptions.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      placeholder={isAr ? 'اسم الموظف' : 'Employee Name'}
+                      value={manualAttForm.employee_name}
+                      onChange={(e) => setManualAttForm(prev => ({
+                        ...prev,
+                        employee_id: e.target.value,
+                        employee_name: e.target.value,
+                      }))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-semibold text-slate-800"
+                    />
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'التاريخ *' : 'Date *'}
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={manualAttForm.date}
+                    onChange={(e) => handleManualEmployeeOrDateChange(manualAttForm.employee_id, e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-semibold text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'وقت الحضور (Clock-In) *' : 'Clock-In Time *'}
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={manualAttForm.clock_in}
+                    onChange={(e) => setManualAttForm(prev => ({ ...prev, clock_in: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-mono font-bold text-emerald-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isAr ? 'وقت الانصراف (Clock-Out)' : 'Clock-Out Time'}
+                  </label>
+                  <input
+                    type="time"
+                    value={manualAttForm.clock_out}
+                    onChange={(e) => setManualAttForm(prev => ({ ...prev, clock_out: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-mono font-bold text-blue-700"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    {isAr
+                      ? 'اتركه فارغاً إذا كان الموظف لا يزال على رأس العمل، وسيتم الحساب فور إضافة وقت الانصراف.'
+                      : 'Leave empty if employee is still clocked in; hours calculate automatically once clock-out is set.'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Automatic Normal Working Hours Calculation Preview */}
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-emerald-950">
+                    {isAr ? 'عدد ساعات العمل المحسوبة تلقائياً:' : 'Automatically Calculated Working Hours:'}
+                  </p>
+                  <p className="text-[11px] text-emerald-700 mt-0.5">
+                    {manualAttForm.clock_in && manualAttForm.clock_out
+                      ? (isAr
+                          ? 'محسوبة بنفس المعادلة القياسية لتسجيل الموظف الذاتي'
+                          : 'Calculated normally, identical to employee self clock-in/clock-out')
+                      : (isAr
+                          ? 'سيتم حساب الساعات فور إدخال وقت الانصراف'
+                          : 'Working hours will calculate once Clock-Out time is entered')}
+                  </p>
+                </div>
+                <div className="text-end shrink-0">
+                  <span className="text-lg font-black text-emerald-700 block">
+                    {manualAttForm.clock_in && manualAttForm.clock_out
+                      ? previewCalc.working_hours_formatted
+                      : '--'}
+                  </span>
+                  {manualAttForm.clock_in && manualAttForm.clock_out && (
+                    <span className="text-[11px] font-bold text-emerald-600">
+                      {previewCalc.working_hours.toFixed(2)} {isAr ? 'ساعة' : 'hrs'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {isAr ? 'ملاحظات (اختياري)' : 'Notes (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  value={manualAttForm.notes}
+                  onChange={(e) => setManualAttForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder={isAr ? 'مثال: إضافة وقت الحضور/الانصراف بواسطة IT' : 'e.g., Manual time entry recorded by IT'}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAttendanceModal(false)}
+                  className="px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl font-bold cursor-pointer"
+                >
+                  {isAr ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs flex items-center gap-2 cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isAr ? 'حفظ وحساب ساعات العمل' : 'Save & Calculate Working Hours'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

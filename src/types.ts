@@ -685,70 +685,6 @@ export interface Employee {
   total_profit?: number;
 }
 
-export type AttendanceStatus = 'Present' | 'Late' | 'Absent' | 'On Leave' | 'Half Day';
-
-export interface AttendanceRecord {
-  id: string;
-  attendance_id: string;
-  employee_id: string;
-  employee_name: string;
-  date: string;
-  check_in_time?: string;
-  check_out_time?: string;
-  status: AttendanceStatus;
-  late_minutes?: number;
-  total_working_hours?: string;
-  notes?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface AttendanceSettings {
-  official_check_in: string;
-  official_check_out: string;
-  grace_period_minutes: number;
-  required_working_hours: number;
-  absence_deduction_type: 'Deduct Daily Rate' | 'No Deduction' | 'Custom Amount';
-  late_deduction_type: 'Per Minute' | 'Per Late Day' | 'No Deduction';
-}
-
-export interface EmployeeWorkSchedule {
-  id: string;
-  schedule_id: string;
-  employee_id: string;
-  employee_name: string;
-  work_start: string;
-  work_end: string;
-  work_days: string[];
-  grace_minutes?: number;
-  notes?: string;
-  created_by?: string;
-  updated_at?: string;
-}
-
-export type EmployeeTargetType =
-  | 'Sales Revenue'
-  | 'Bookings Count'
-  | 'New Customers'
-  | 'Collections'
-  | 'Custom';
-
-export interface EmployeeTarget {
-  id: string;
-  target_id: string;
-  employee_id: string;
-  employee_name: string;
-  period: string;
-  target_type: EmployeeTargetType;
-  title?: string;
-  target_value: number;
-  currency?: string;
-  notes?: string;
-  created_by?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
 export type DocumentType = 
   | 'Passport' 
   | 'Visa' 
@@ -841,12 +777,32 @@ export interface CompanySettings {
   bank_beneficiary_name?: string;
   default_currency: string;
   invoice_prefix: string;
-  supplier_invoice_prefix?: string;
   reservation_prefix: string;
   voucher_prefix?: string;
   payment_methods: string[];
   exchange_rates: ExchangeRate[];
   installment_partners?: InstallmentPartnerAgreement[];
+  site_disabled?: boolean;
+  site_disabled_message?: string;
+  site_disabled_at?: string;
+  site_disabled_by?: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  date: string;
+  clock_in: string;
+  clock_out?: string;
+  working_hours: number;
+  working_hours_formatted?: string;
+  status: 'Clocked In' | 'Completed';
+  entry_source?: 'Employee' | 'IT Manual';
+  recorded_by?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ActivityLog {
@@ -857,6 +813,8 @@ export interface ActivityLog {
   record: string;
   date: string;
   time: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type InvoiceItemType = 

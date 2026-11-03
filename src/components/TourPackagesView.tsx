@@ -16,7 +16,6 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { TourPackage, UserRole } from '../types';
-import { FILE_UPLOADS_ENABLED, FILE_UPLOAD_DISABLED_MESSAGE } from '../lib/featureFlags';
 
 interface TourPackagesViewProps {
   packages: TourPackage[];
@@ -72,11 +71,6 @@ export function TourPackagesView({
   });
 
   const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
-    if (!FILE_UPLOADS_ENABLED) {
-      alert(FILE_UPLOAD_DISABLED_MESSAGE);
-      e.target.value = '';
-      return;
-    }
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -330,26 +324,19 @@ export function TourPackagesView({
                   </div>
 
                   <div className="flex-1 w-full space-y-2">
-                    {FILE_UPLOADS_ENABLED ? (
-                      <label className="block w-full">
-                        <span className="sr-only">Upload local image</span>
-                        <div className="flex items-center justify-center px-4 py-2 border-2 border-dashed border-cyan-300 rounded-xl bg-cyan-50/50 hover:bg-cyan-50 cursor-pointer text-cyan-700 text-xs font-semibold gap-2 transition-colors">
-                          <Upload className="w-4 h-4" />
-                          <span>Upload Image File from Device</span>
-                        </div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handleImageFileUpload(e, false)}
-                          className="hidden"
-                        />
-                      </label>
-                    ) : (
-                      <div className="flex items-center justify-center px-4 py-2 border-2 border-dashed border-slate-200 rounded-xl bg-slate-100 text-slate-500 text-xs font-semibold gap-2">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span>Device uploads disabled — choose a preset below</span>
+                    <label className="block w-full">
+                      <span className="sr-only">Upload local image</span>
+                      <div className="flex items-center justify-center px-4 py-2 border-2 border-dashed border-cyan-300 rounded-xl bg-cyan-50/50 hover:bg-cyan-50 cursor-pointer text-cyan-700 text-xs font-semibold gap-2 transition-colors">
+                        <Upload className="w-4 h-4" />
+                        <span>Upload Image File from Device</span>
                       </div>
-                    )}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={(e) => handleImageFileUpload(e, false)} 
+                        className="hidden" 
+                      />
+                    </label>
 
                     <div className="text-[11px] text-slate-400 text-center font-medium">Or choose a scenic preset:</div>
                     <div className="grid grid-cols-2 gap-1.5">
@@ -534,26 +521,19 @@ export function TourPackagesView({
                   </div>
 
                   <div className="flex-1 w-full space-y-2">
-                    {FILE_UPLOADS_ENABLED ? (
-                      <label className="block w-full">
-                        <span className="sr-only">Upload local image</span>
-                        <div className="flex items-center justify-center px-4 py-2 border-2 border-dashed border-cyan-300 rounded-xl bg-cyan-50/50 hover:bg-cyan-50 cursor-pointer text-cyan-700 text-xs font-semibold gap-2 transition-colors">
-                          <Upload className="w-4 h-4" />
-                          <span>Upload New Image</span>
-                        </div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handleImageFileUpload(e, true)}
-                          className="hidden"
-                        />
-                      </label>
-                    ) : (
-                      <div className="flex items-center justify-center px-4 py-2 border-2 border-dashed border-slate-200 rounded-xl bg-slate-100 text-slate-500 text-xs font-semibold gap-2">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span>Device uploads disabled — choose a preset below</span>
+                    <label className="block w-full">
+                      <span className="sr-only">Upload local image</span>
+                      <div className="flex items-center justify-center px-4 py-2 border-2 border-dashed border-cyan-300 rounded-xl bg-cyan-50/50 hover:bg-cyan-50 cursor-pointer text-cyan-700 text-xs font-semibold gap-2 transition-colors">
+                        <Upload className="w-4 h-4" />
+                        <span>Upload New Image</span>
                       </div>
-                    )}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={(e) => handleImageFileUpload(e, true)} 
+                        className="hidden" 
+                      />
+                    </label>
 
                     <div className="grid grid-cols-2 gap-1.5">
                       {PRESET_PACKAGE_IMAGES.slice(0, 4).map(preset => (

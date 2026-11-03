@@ -39,8 +39,6 @@ export const translations: Translations = {
   nav_employees: { en: 'Employees', ar: 'الموظفين' },
   nav_calendar: { en: 'Calendar', ar: 'التقويم' },
   nav_tasks: { en: 'Tasks', ar: 'المهام' },
-  nav_attendance: { en: 'Attendance', ar: 'الحضور والانصراف' },
-  nav_targets: { en: 'Employee Targets', ar: 'أهداف الموظفين' },
   nav_documents: { en: 'Documents', ar: 'المستندات' },
   nav_reports: { en: 'Reports', ar: 'التقارير' },
   nav_finance_payroll: { en: 'Finance & Payroll', ar: 'المالية والرواتب' },

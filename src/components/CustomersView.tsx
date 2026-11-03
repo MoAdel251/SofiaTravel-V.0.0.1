@@ -213,20 +213,20 @@ export function CustomersView({
       .join('\n');
 
     const text = encodeURIComponent(
-      `✈️ *SOFIA TRAVEL - CUSTOMER ACCOUNT STATEMENT* 📊\n` +
+      `*SOFIA TRAVEL - CUSTOMER ACCOUNT STATEMENT*\n` +
       `-----------------------------------------\n` +
-      `👤 Customer: ${cust.full_name} (${cust.customer_id})\n` +
-      `🛂 Passport: ${cust.passport_number}\n` +
-      `📅 Date: ${new Date().toLocaleDateString()}\n` +
+      `Customer: ${cust.full_name} (${cust.customer_id})\n` +
+      `Passport: ${cust.passport_number}\n` +
+      `Date: ${new Date().toLocaleDateString()}\n` +
       `-----------------------------------------\n` +
-      `💰 *INVOICED BALANCES BY CURRENCY:*\n` +
+      `*INVOICED BALANCES BY CURRENCY:*\n` +
       `${balanceLines}\n` +
       `-----------------------------------------\n` +
-      `🏦 *Bank Wire Transfer Details:*\n` +
-      `🏛️ Bank: ${settings?.bank_name || 'National Bank of Egypt (NBE)'}\n` +
-      `🔢 Account #: ${settings?.bank_account_number || 'EG540003001500000010987654321'}\n` +
-      `🌍 SWIFT: ${settings?.bank_iban_swift || 'NBEGEGCX054'}\n` +
-      `🙏 Thank you for traveling with Sofia Travel!`
+      `*Bank Wire Transfer Details:*\n` +
+      `Bank: ${settings?.bank_name || 'National Bank of Egypt (NBE)'}\n` +
+      `Account #: ${settings?.bank_account_number || 'EG540003001500000010987654321'}\n` +
+      `SWIFT: ${settings?.bank_iban_swift || 'NBEGEGCX054'}\n` +
+      `Thank you for traveling with Sofia Travel!`
     );
     const phone = cust.phone?.replace(/[^0-9]/g, '') || '';
     const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
