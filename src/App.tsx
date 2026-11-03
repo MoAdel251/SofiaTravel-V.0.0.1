@@ -33,6 +33,10 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminResetDataModal } from './components/AdminResetDataModal';
 import { DatabaseConnectionStatus } from './lib/firebase';
 import { isManagerOrAccountantRole, isEmployeeDesignatedAdmin } from './utils/adminDesignation';
+import {
+  getFirstAllowedTab,
+  isTabAllowedForUser,
+} from './utils/accessControl';
 import { 
   UserRole, 
   Customer, 
@@ -81,7 +85,7 @@ import {
 } from './utils/attendance';
 import { SiteMaintenanceOverlay, ITMaintenanceControlModal } from './components/SiteMaintenanceOverlay';
 import { useLanguage } from './context/LanguageContext';
-import { Wrench, Power, BellRing, X } from 'lucide-react';
+import { Wrench, Power, BellRing, X, Lock } from 'lucide-react';
 import {
   PhoneNotificationSupportStatus,
   enableEmployeePhoneNotifications,
@@ -225,7 +229,45 @@ export default function App() {
     userRole === 'Administrator' ||
     isEmployeeDesignatedAdmin(currentEmployee);
   const effectiveUserRole: UserRole = isCurrentAdmin ? 'Administrator' : userRole;
-  const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
+  const currentUserPermissions = isCurrentAdmin ? [] : currentEmployee?.permissions;
+  const accessSubject = {
+    isAdmin: isCurrentAdmin,
+    isITAccount,
+    permissions: currentUserPermissions,
+  };
+  const hasTabAccess = isTabAllowedForUser(currentTab, effectiveUserRole, accessSubject);
+
+  // Revoked / deactivated accounts must lose the portal immediately, even if
+  // they were already signed in when an administrator revoked their access.
+  useEffect(() => {
+    if (!isAuthenticated || !currentEmployee || isITAccount) return;
+    const status = currentEmployee.account_status || currentEmployee.status || 'Active';
+    if (
+      status === 'Inactive' ||
+      status === 'Suspended' ||
+      currentEmployee.login_access_enabled === false
+    ) {
+      setIsAuthenticated(false);
+      setCurrentEmpId('');
+      try {
+        localStorage.setItem('sofia_travel_auth', 'false');
+        localStorage.removeItem('sofia_travel_emp_id');
+      } catch {}
+      showToast(
+        isAr
+          ? 'تم إلغاء صلاحية الوصول إلى هذا الحساب. يرجى التواصل مع مدير النظام.'
+          : 'Your account access has been revoked. Please contact your system administrator.'
+      );
+    }
+  }, [isAuthenticated, currentEmployee, isITAccount, isAr]);
+
+  // When a module permission is revoked while the employee is viewing that page,
+  // immediately move them to the first page they still have access to.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (isTabAllowedForUser(currentTab, effectiveUserRole, accessSubject)) return;
+    setCurrentTab(getFirstAllowedTab(effectiveUserRole, accessSubject));
+  }, [isAuthenticated, currentTab, effectiveUserRole, isCurrentAdmin, isITAccount, currentUserPermissions]);
 
   useEffect(() => {
     if (isAuthenticated && isCurrentAdmin && userRole !== 'Administrator') {
@@ -3607,6 +3649,22 @@ export default function App() {
 
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto overscroll-y-contain w-full max-w-full">
         <main className="flex-1 pb-24 lg:pb-6 w-full max-w-full overflow-x-hidden">
+          {!hasTabAccess ? (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mb-4">
+                <Lock className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-black text-slate-900">
+                {isAr ? 'غير مصرح بالدخول' : 'Access Restricted'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-2 max-w-sm leading-relaxed">
+                {isAr
+                  ? 'تم إلغاء صلاحيتك للوصول إلى هذه الصفحة. يرجى التواصل مع مدير النظام.'
+                  : 'Your access to this page has been revoked. Please contact your system administrator.'}
+              </p>
+            </div>
+          ) : (
+            <>
           {currentTab === 'dashboard' && (
             <DashboardView
               stats={stats}
@@ -4006,6 +4064,8 @@ export default function App() {
           {currentTab === 'activity-log' && (
             <ActivityLogView logs={activityLogs} />
           )}
+            </>
+          )}
         </main>
       </div>
 
@@ -4054,6 +4114,9 @@ export default function App() {
         onOpenQuickAdd={() => setIsQuickAddOpen(true)}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         userRole={effectiveUserRole}
+        userPermissions={currentUserPermissions}
+        isAdmin={isCurrentAdmin}
+        isITAccount={isITAccount}
       />
 
       {/* Quick Add Modal from Bottom Nav */}

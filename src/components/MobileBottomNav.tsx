@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { isTabAllowedForUser } from '../utils/accessControl';
 
 interface MobileBottomNavProps {
   currentTab: string;
@@ -16,6 +17,9 @@ interface MobileBottomNavProps {
   onOpenQuickAdd: () => void;
   onOpenMobileMenu: () => void;
   userRole?: UserRole;
+  userPermissions?: string[];
+  isAdmin?: boolean;
+  isITAccount?: boolean;
 }
 
 export function MobileBottomNav({
@@ -24,8 +28,15 @@ export function MobileBottomNav({
   pendingPermissionCount = 0,
   onOpenQuickAdd,
   onOpenMobileMenu,
+  userRole = 'Sales',
+  userPermissions,
+  isAdmin = false,
+  isITAccount = false,
 }: MobileBottomNavProps) {
   const { t } = useLanguage();
+
+  const canOpen = (tab: string) =>
+    isTabAllowedForUser(tab, userRole, { isAdmin, isITAccount, permissions: userPermissions });
 
   const isInvoicesActive =
     currentTab === 'invoices' ||
@@ -42,6 +53,7 @@ export function MobileBottomNav({
     >
       <div className="grid grid-cols-5 items-center max-w-lg mx-auto">
         {/* Dashboard */}
+        {canOpen('dashboard') && (
         <button
           type="button"
           onClick={() => setCurrentTab('dashboard')}
@@ -54,8 +66,10 @@ export function MobileBottomNav({
           <LayoutDashboard className="w-5 h-5 mb-0.5" />
           <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_dashboard')}</span>
         </button>
+        )}
 
         {/* Vouchers */}
+        {canOpen('vouchers') && (
         <button
           type="button"
           onClick={() => setCurrentTab('vouchers')}
@@ -68,6 +82,7 @@ export function MobileBottomNav({
           <Ticket className="w-5 h-5 mb-0.5" />
           <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
         </button>
+        )}
 
         {/* Center Quick Add Button */}
         <div className="flex justify-center">
@@ -85,6 +100,7 @@ export function MobileBottomNav({
         </div>
 
         {/* Invoices */}
+        {canOpen('invoices') && (
         <button
           type="button"
           onClick={() => setCurrentTab('invoices')}
@@ -97,6 +113,7 @@ export function MobileBottomNav({
           <FileText className="w-5 h-5 mb-0.5" />
           <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
         </button>
+        )}
 
         {/* All Modules App Drawer */}
         <button

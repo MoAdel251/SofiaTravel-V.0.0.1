@@ -9,6 +9,7 @@ import { UserRole, NotificationItem, AttendanceRecord } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useLanguage } from '../context/LanguageContext';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
+import { TAB_PERMISSIONS } from '../utils/accessControl';
 
 function LiveClock() {
   const [time, setTime] = useState(new Date());
@@ -59,7 +60,7 @@ interface NavbarProps {
 
 export function Navbar({
   userRole,
-  userPermissions = [],
+  userPermissions,
   currentCurrency,
   setCurrentCurrency,
   onOpenSearch,
@@ -97,34 +98,36 @@ export function Navbar({
 
   const notifRef = useRef<HTMLDivElement>(null);
 
+  const hasGranularPermissions = Array.isArray(userPermissions);
   const hasPerm = (perm: string | string[]) => {
     if (userRole === 'Administrator') return true;
+    const permissions = userPermissions || [];
     if (Array.isArray(perm)) {
-      return perm.some(p => userPermissions.includes(p));
+      return perm.some(p => permissions.includes(p));
     }
-    return userPermissions.includes(perm);
+    return permissions.includes(perm);
   };
 
   const menuItems = [
-    { id: 'dashboard', labelKey: 'nav_dashboard', defaultLabel: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'vouchers', labelKey: 'nav_vouchers', defaultLabel: 'Customer Vouchers', icon: Ticket, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
-    { id: 'services', labelKey: 'nav_services', defaultLabel: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_trips' },
-    { id: 'customers', labelKey: 'nav_customers', defaultLabel: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
-    { id: 'customer-inquiries', labelKey: 'nav_customer_inquiries', defaultLabel: 'Customer Inquiries', icon: MessageCircle, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
-    { id: 'invoices', labelKey: 'nav_invoices', defaultLabel: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_sales' },
-    { id: 'suppliers', labelKey: 'nav_suppliers', defaultLabel: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: 'view_finance' },
-    { id: 'packages', labelKey: 'nav_packages', defaultLabel: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: 'view_trips' },
-    { id: 'permission-requests', labelKey: 'nav_approval_requests', defaultLabel: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
-    { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
-    { id: 'attendance', labelKey: 'nav_attendance', defaultLabel: 'Attendance & Departure', icon: Clock, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
-    { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
-    { id: 'reports', labelKey: 'nav_reports', defaultLabel: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: 'view_reports' },
-    { id: 'finance-payroll', labelKey: 'nav_finance_payroll', defaultLabel: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator', 'Accountant'], perm: ['view_finance', 'view_payroll'] },
-    { id: 'notifications', labelKey: 'nav_notifications', defaultLabel: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
-    { id: 'settings', labelKey: 'nav_settings', defaultLabel: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'], perm: 'view_settings' },
-    { id: 'activity-log', labelKey: 'nav_audit_log', defaultLabel: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: 'view_settings' }
+    { id: 'dashboard', labelKey: 'nav_dashboard', defaultLabel: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: TAB_PERMISSIONS.dashboard },
+    { id: 'vouchers', labelKey: 'nav_vouchers', defaultLabel: 'Customer Vouchers', icon: Ticket, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: TAB_PERMISSIONS.vouchers },
+    { id: 'services', labelKey: 'nav_services', defaultLabel: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: TAB_PERMISSIONS.services },
+    { id: 'customers', labelKey: 'nav_customers', defaultLabel: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: TAB_PERMISSIONS.customers },
+    { id: 'customer-inquiries', labelKey: 'nav_customer_inquiries', defaultLabel: 'Customer Inquiries', icon: MessageCircle, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: TAB_PERMISSIONS['customer-inquiries'] },
+    { id: 'invoices', labelKey: 'nav_invoices', defaultLabel: 'Invoices', icon: FileText, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: TAB_PERMISSIONS.invoices },
+    { id: 'suppliers', labelKey: 'nav_suppliers', defaultLabel: 'Suppliers', icon: Truck, roles: ['Administrator', 'Manager', 'Operations', 'Accountant'], perm: TAB_PERMISSIONS.suppliers },
+    { id: 'packages', labelKey: 'nav_packages', defaultLabel: 'Tour Packages', icon: Compass, roles: ['Administrator', 'Manager', 'Sales', 'Accountant'], perm: TAB_PERMISSIONS.packages },
+    { id: 'permission-requests', labelKey: 'nav_approval_requests', defaultLabel: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: TAB_PERMISSIONS['permission-requests'] },
+    { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: TAB_PERMISSIONS.employees },
+    { id: 'attendance', labelKey: 'nav_attendance', defaultLabel: 'Attendance & Departure', icon: Clock, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: TAB_PERMISSIONS.attendance },
+    { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: TAB_PERMISSIONS.calendar },
+    { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: TAB_PERMISSIONS.tasks },
+    { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: TAB_PERMISSIONS.documents },
+    { id: 'reports', labelKey: 'nav_reports', defaultLabel: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: TAB_PERMISSIONS.reports },
+    { id: 'finance-payroll', labelKey: 'nav_finance_payroll', defaultLabel: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator', 'Accountant'], perm: TAB_PERMISSIONS['finance-payroll'] },
+    { id: 'notifications', labelKey: 'nav_notifications', defaultLabel: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: TAB_PERMISSIONS.notifications },
+    { id: 'settings', labelKey: 'nav_settings', defaultLabel: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'], perm: TAB_PERMISSIONS.settings },
+    { id: 'activity-log', labelKey: 'nav_audit_log', defaultLabel: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: TAB_PERMISSIONS['activity-log'] }
   ];
 
   const isTodayShiftOpen = Boolean(
@@ -137,10 +140,12 @@ export function Navbar({
 
   const filteredItems = menuItems.filter(item => {
     if (userRole === 'Administrator' || isAdmin || isITAccount) return true;
+    // Self-service attendance stays available so every employee can clock in/out.
     if (item.id === 'attendance') return true;
-    if (item.roles.includes(userRole)) return true;
-    if (userPermissions && userPermissions.length > 0) return hasPerm(item.perm);
-    return false;
+    // Once granular permissions are configured they are authoritative: revoking
+    // a module must remove its page from the employee's navigation.
+    if (hasGranularPermissions) return hasPerm(item.perm);
+    return item.roles.includes(userRole);
   });
 
   const activeItem = filteredItems.find(i => i.id === currentTab) || filteredItems[0];
