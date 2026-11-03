@@ -1,21 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
-  BarChart3, 
   Printer, 
   Download, 
-  FileText, 
   MessageCircle, 
   DollarSign, 
-  Calendar, 
   Plane, 
   Hotel as HotelIcon, 
   Compass, 
-  Users, 
   TrendingUp,
-  ShieldCheck,
   CheckCircle2,
-  Clock,
-  Building
+  Clock
 } from 'lucide-react';
 import { 
   Reservation, 
@@ -26,18 +20,26 @@ import {
   Hotel, 
   Flight, 
   Employee, 
-  CompanySettings 
+  CompanySettings,
+  Voucher,
+  Expense,
+  PayrollRecord,
+  EmployeeAdvance,
+  CommissionRecord
 } from '../types';
-import { SofiaLogo } from './SofiaLogo';
-import { ManagerSignature } from './ManagerSignature';
-import { formatCurrency, convertCurrency } from '../utils/currency';
+import { formatCurrency, convertCurrency, normalizeCurrencyCode, DEFAULT_EXCHANGE_RATES } from '../utils/currency';
 import { CurrencyHighlight } from './CurrencyHighlight';
 
 interface ReportsViewProps {
   reservations: Reservation[];
+  vouchers?: Voucher[];
   customers: Customer[];
   suppliers: Supplier[];
   invoices?: Invoice[];
+  expenses?: Expense[];
+  payrollRecords?: PayrollRecord[];
+  advances?: EmployeeAdvance[];
+  commissions?: CommissionRecord[];
   packages?: TourPackage[];
   hotels?: Hotel[];
   flights?: Flight[];
@@ -48,62 +50,168 @@ interface ReportsViewProps {
 
 export function ReportsView({ 
   reservations = [], 
+  vouchers = [],
   customers = [], 
   suppliers = [],
   invoices = [],
+  expenses = [],
+  payrollRecords = [],
+  advances = [],
+  commissions = [],
   packages = [],
   hotels = [],
   flights = [],
   employees = [],
   settings,
-  currentCurrency = 'USD'
+  currentCurrency = 'EGP'
 }: ReportsViewProps) {
   const [reportTab, setReportTab] = useState<'executive' | 'reservations' | 'hotels' | 'flights' | 'financial' | 'employees'>('executive');
-  const [dateRange, setDateRange] = useState<'month' | 'quarter' | 'year' | 'all'>('month');
 
-  // Group metrics by currency code
-  const totalReservationsCount = reservations.length;
-  const confirmedReservations = reservations.filter(r => r.reservation_status === 'Confirmed' || r.reservation_status === 'Completed' || r.reservation_status === 'Paid');
-  
-  const grossSalesByCurrency = reservations.reduce((acc, r) => {
-    const code = (r.currency || 'USD').toUpperCase();
-    acc[code] = (acc[code] || 0) + (r.selling_price || 0);
-    return acc;
-  }, {} as Record<string, number>);
+  const baseCurr = normalizeCurrencyCode(currentCurrency || settings?.default_currency || 'EGP');
+  const activeRates = settings?.exchange_rates?.length ? settings.exchange_rates : DEFAULT_EXCHANGE_RATES;
+  const toBase = (amt: number, curr?: string) => convertCurrency(Number(amt) || 0, normalizeCurrencyCode(curr || 'EGP'), baseCurr, activeRates);
 
-  const netProfitByCurrency = reservations.reduce((acc, r) => {
-    const code = (r.currency || 'USD').toUpperCase();
-    const profit = r.profit !== undefined ? r.profit : ((r.selling_price || 0) - (r.cost_price || 0));
-    acc[code] = (acc[code] || 0) + profit;
-    return acc;
-  }, {} as Record<string, number>);
+  // Consolidate Reservations + Vouchers without double-counting
+  const allBookings = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<any> = [];
+    reservations.forEach(r => {
+      if (r.id) seen.add(r.id);
+      if (r.reservation_id) seen.add(r.reservation_id);
+      if (r.voucher_number) seen.add(r.voucher_number);
+      list.push(r);
+    });
+    vouchers.forEach(v => {
+      if (seen.has(v.id) || (v.reservation_id && seen.has(v.reservation_id)) || (v.voucher_number && seen.has(v.voucher_number))) return;
+      list.push({
+        id: v.id,
+        reservation_id: v.voucher_number || v.reservation_id || v.id,
+        customer_name: v.customer_name,
+        service_type: v.service_category,
+        travel_date: v.travel_date,
+        return_date: v.return_date || '',
+        selling_price: v.selling_price,
+        cost_price: v.cost_price,
+        paid_amount: v.paid_amount,
+        remaining_amount: v.remaining_amount,
+        profit: (Number(v.selling_price) || 0) - (Number(v.cost_price) || 0),
+        currency: v.currency || 'USD',
+        reservation_status: v.status === 'Cancelled' ? 'Cancelled' : (v.reservation_status || 'Confirmed'),
+        customer_invoice_id: v.customer_invoice_id
+      });
+    });
+    return list;
+  }, [reservations, vouchers]);
 
-  const collectionsByCurrency = invoices.reduce((acc, i) => {
-    const code = (i.currency || 'USD').toUpperCase();
-    acc[code] = (acc[code] || 0) + (i.paid_amount || 0);
-    return acc;
-  }, {} as Record<string, number>);
+  const activeBookings = allBookings.filter(r => r.reservation_status !== 'Cancelled');
+  const customerInvoices = invoices.filter(i => i.payment_status !== 'Cancelled' && (i.recipient_type || 'Customer') === 'Customer');
+  const supplierInvoices = invoices.filter(i => i.payment_status !== 'Cancelled' && i.recipient_type === 'Supplier');
 
-  const receivablesByCurrency = invoices.filter(i => i.recipient_type !== 'Supplier').reduce((acc, i) => {
-    const code = (i.currency || 'USD').toUpperCase();
-    acc[code] = (acc[code] || 0) + (i.balance_due || 0);
-    return acc;
-  }, {} as Record<string, number>);
+  const invoicedBookingRefs = new Set<string>();
+  customerInvoices.forEach(inv => {
+    if (inv.reservation_id) invoicedBookingRefs.add(inv.reservation_id);
+  });
 
-  const payablesByCurrency = invoices.filter(i => i.recipient_type === 'Supplier').reduce((acc, i) => {
-    const code = (i.currency || 'USD').toUpperCase();
-    acc[code] = (acc[code] || 0) + (i.balance_due || 0);
-    return acc;
-  }, {} as Record<string, number>);
+  const uninvoicedBookings = activeBookings.filter(
+    b => !invoicedBookingRefs.has(b.id) && !invoicedBookingRefs.has(b.reservation_id)
+  );
+
+  // Synchronized Gross Sales & Net Operating Profit (matching Finance Dashboard & P&L)
+  const grossSalesByCurrency = useMemo(() => {
+    const map: Record<string, number> = {};
+    customerInvoices.forEach(inv => {
+      const code = normalizeCurrencyCode(inv.currency || 'USD');
+      map[code] = (map[code] || 0) + (Number(inv.total_amount) || 0);
+    });
+    uninvoicedBookings.forEach(r => {
+      const code = normalizeCurrencyCode(r.currency || 'USD');
+      map[code] = (map[code] || 0) + (Number(r.selling_price) || 0);
+    });
+    return map;
+  }, [customerInvoices, uninvoicedBookings]);
+
+  const synchronizedFinancials = useMemo(() => {
+    const totalRevenue =
+      customerInvoices.reduce((s, i) => s + toBase(i.total_amount, i.currency), 0) +
+      uninvoicedBookings.reduce((s, b) => s + toBase(b.selling_price, b.currency), 0);
+
+    const directCosts =
+      supplierInvoices.reduce((s, i) => s + toBase(i.total_amount, i.currency), 0) +
+      activeBookings.reduce((s, b) => s + toBase(b.cost_price, b.currency), 0);
+
+    const opex = expenses.reduce((s, e) => s + toBase(e.amount, e.currency), 0);
+    const payrollBase = payrollRecords.reduce(
+      (s, p) => s + toBase(Math.max(0, (Number(p.basic_salary) || 0) + (Number(p.allowances) || 0) + (Number(p.bonus) || 0) - (Number(p.deductions) || 0)), p.currency || 'EGP'),
+      0
+    );
+    const commTotal = commissions.reduce((s, c) => s + toBase(c.commission_amount, c.currency || 'EGP'), 0);
+    const advancesOutstanding = advances
+      .filter(a => a.status === 'Outstanding' || a.status === 'Approved' || a.status === 'Partially Repaid')
+      .reduce((s, a) => s + toBase(a.outstanding_amount ?? a.amount, a.currency || 'EGP'), 0);
+
+    const netOperatingProfit = totalRevenue - directCosts - opex - payrollBase - commTotal;
+    return {
+      totalRevenue,
+      directCosts,
+      opex,
+      payrollBase,
+      commTotal,
+      advancesOutstanding,
+      netOperatingProfit
+    };
+  }, [customerInvoices, uninvoicedBookings, supplierInvoices, activeBookings, expenses, payrollRecords, commissions, advances, baseCurr, activeRates]);
+
+  const collectionsByCurrency = useMemo(() => {
+    const map: Record<string, number> = {};
+    customerInvoices.forEach(i => {
+      const code = normalizeCurrencyCode(i.currency || 'USD');
+      map[code] = (map[code] || 0) + (Number(i.paid_amount) || 0);
+    });
+    uninvoicedBookings.forEach(b => {
+      const code = normalizeCurrencyCode(b.currency || 'USD');
+      map[code] = (map[code] || 0) + (Number(b.paid_amount) || 0);
+    });
+    return map;
+  }, [customerInvoices, uninvoicedBookings]);
+
+  const receivablesByCurrency = useMemo(() => {
+    const map: Record<string, number> = {};
+    customerInvoices.forEach(i => {
+      const due = Math.max(0, Number(i.balance_due ?? ((Number(i.total_amount) || 0) - (Number(i.paid_amount) || 0))));
+      if (due > 0) {
+        const code = normalizeCurrencyCode(i.currency || 'USD');
+        map[code] = (map[code] || 0) + due;
+      }
+    });
+    uninvoicedBookings.forEach(b => {
+      const due = Math.max(0, Number(b.remaining_amount ?? ((Number(b.selling_price) || 0) - (Number(b.paid_amount) || 0))));
+      if (due > 0) {
+        const code = normalizeCurrencyCode(b.currency || 'USD');
+        map[code] = (map[code] || 0) + due;
+      }
+    });
+    return map;
+  }, [customerInvoices, uninvoicedBookings]);
+
+  const payablesByCurrency = useMemo(() => {
+    const map: Record<string, number> = {};
+    supplierInvoices.forEach(i => {
+      const due = Math.max(0, Number(i.balance_due ?? ((Number(i.total_amount) || 0) - (Number(i.paid_amount) || 0))));
+      if (due > 0) {
+        const code = normalizeCurrencyCode(i.currency || 'USD');
+        map[code] = (map[code] || 0) + due;
+      }
+    });
+    return map;
+  }, [supplierInvoices]);
 
   const formatCurrencyMap = (map: Record<string, number>) => {
-    const keys = Object.keys(map);
-    if (keys.length === 0) return 'USD 0';
+    const keys = Object.keys(map).filter(k => map[k] !== 0);
+    if (keys.length === 0) return `${baseCurr} 0`;
     return keys.map(k => `${k} ${map[k].toLocaleString()}`).join(' | ');
   };
 
-  // WhatsApp Manager Report Dispatcher (Requirement 12)
-  const sendManagerReportWhatsApp = () => {
+  const whatsappHref = useMemo(() => {
     const text = encodeURIComponent(
       `*SOFIA TRAVEL - EXECUTIVE MANAGER INTELLIGENCE REPORT*\n` +
       `=========================================\n` +
@@ -111,47 +219,41 @@ export function ReportsView({
       `Company: ${settings?.company_name || 'Sofia Travel Egypt'}\n` +
       `=========================================\n\n` +
       `*1. KEY PERFORMANCE METRICS:*\n` +
-      `• Total Reservations: ${totalReservationsCount} (${confirmedReservations.length} Confirmed)\n` +
+      `• Total Bookings & Vouchers: ${allBookings.length}\n` +
+      `• Customer & Supplier Invoices: ${invoices.length}\n` +
       `• Registered Clients: ${customers.length}\n` +
-      `• Active Suppliers/Hotels/Airlines: ${suppliers.length}\n` +
-      `• Available Tour Packages: ${packages.length}\n\n` +
-      `*2. FINANCIAL PERFORMANCE BY CURRENCY:*\n` +
-      `• *Gross Sales:* ${formatCurrencyMap(grossSalesByCurrency)}\n` +
-      `• *Operating Net Profit:* ${formatCurrencyMap(netProfitByCurrency)}\n` +
-      `• *Total Collections:* ${formatCurrencyMap(collectionsByCurrency)}\n` +
-      `• *Customer Receivables Pending:* ${formatCurrencyMap(receivablesByCurrency)}\n` +
-      `• *Supplier Payables Pending:* ${formatCurrencyMap(payablesByCurrency)}\n\n` +
-      `*3. OPERATIONAL INVENTORY HIGHLIGHTS:*\n` +
-      `• Partner Hotel Contracts: ${hotels.length} verified properties\n` +
-      `• Active Flight Routes: ${flights.length} scheduled sectors\n\n` +
-      `*Bank Wire Confirmation:*\n` +
-      `Bank: ${settings?.bank_name || 'National Bank of Egypt (NBE)'}\n` +
-      `Account: ${settings?.bank_account_number || 'EG540003001500000010987654321'}\n` +
-      `=========================================\n` +
-      `Report Generated for Executive General Manager`
+      `• Active Suppliers: ${suppliers.length}\n\n` +
+      `*2. SYNCHRONIZED P&L SUMMARY (${baseCurr}):*\n` +
+      `• *Total Revenue:* ${formatCurrency(synchronizedFinancials.totalRevenue, baseCurr)}\n` +
+      `• *Operating Expenses:* ${formatCurrency(synchronizedFinancials.opex, baseCurr)}\n` +
+      `• *Payroll & Commissions:* ${formatCurrency(synchronizedFinancials.payrollBase + synchronizedFinancials.commTotal, baseCurr)}\n` +
+      `• *Net Operating Profit:* ${formatCurrency(synchronizedFinancials.netOperatingProfit, baseCurr)}\n` +
+      `• *Collections:* ${formatCurrencyMap(collectionsByCurrency)}\n` +
+      `• *Client Receivables:* ${formatCurrencyMap(receivablesByCurrency)}\n` +
+      `• *Supplier Payables:* ${formatCurrencyMap(payablesByCurrency)}\n`
     );
-
     const phone = settings?.whatsapp?.replace(/[^0-9]/g, '') || '';
-    const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
-    window.open(url, '_blank');
-  };
+    return phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+  }, [allBookings.length, invoices.length, customers.length, suppliers.length, synchronizedFinancials, baseCurr, collectionsByCurrency, receivablesByCurrency, payablesByCurrency, settings]);
 
   // Export CSV Report
   const exportExecutiveCSV = () => {
-    const headers = ['Report Category,Entity / Metric,Amounts By Currency,Status'];
+    const headers = ['Report Category,Entity / Metric,Amount,Status'];
     const rows = [
-      `"Financial","Gross Sales","${formatCurrencyMap(grossSalesByCurrency)}","Audited"`,
-      `"Financial","Net Profit","${formatCurrencyMap(netProfitByCurrency)}","Audited"`,
-      `"Financial","Collections Received","${formatCurrencyMap(collectionsByCurrency)}","Received"`,
-      `"Financial","Client Receivables","${formatCurrencyMap(receivablesByCurrency)}","Pending"`,
-      `"Operations","Total Reservations",${totalReservationsCount},"Active"`,
-      `"Operations","Total Customers",${customers.length},"Active"`,
-      `"Operations","Active Tour Packages",${packages.length},"Inventory"`,
-      `"Operations","Partner Hotels",${hotels.length},"Inventory"`,
-      `"Operations","Flight Schedules",${flights.length},"Inventory"`
+      `"Profit & Loss","Total Synchronized Revenue","${formatCurrency(synchronizedFinancials.totalRevenue, baseCurr)}","Audited"`,
+      `"Profit & Loss","Direct Supplier & Trip Costs","${formatCurrency(synchronizedFinancials.directCosts, baseCurr)}","Audited"`,
+      `"Profit & Loss","Operating Expenses","${formatCurrency(synchronizedFinancials.opex, baseCurr)}","Audited"`,
+      `"Profit & Loss","Payroll Base Salaries","${formatCurrency(synchronizedFinancials.payrollBase, baseCurr)}","Audited"`,
+      `"Profit & Loss","Employee Commissions","${formatCurrency(synchronizedFinancials.commTotal, baseCurr)}","Audited"`,
+      `"Profit & Loss","Net Operating Profit","${formatCurrency(synchronizedFinancials.netOperatingProfit, baseCurr)}","Audited"`,
+      `"Balance Sheet","Employee Advances Outstanding","${formatCurrency(synchronizedFinancials.advancesOutstanding, baseCurr)}","Active"`,
+      `"Collections","Collections Received","${formatCurrencyMap(collectionsByCurrency)}","Received"`,
+      `"Receivables","Client Receivables","${formatCurrencyMap(receivablesByCurrency)}","Pending"`,
+      `"Operations","Total Bookings & Vouchers",${allBookings.length},"Active"`,
+      `"Operations","Total Invoices",${invoices.length},"Active"`
     ];
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers, ...rows].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -166,19 +268,21 @@ export function ReportsView({
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Executive Manager Reports & WhatsApp</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Executive Manager Reports & Synchronized P&L</h1>
           <p className="text-sm text-slate-500">
-            Comprehensive business intelligence aggregating reservations, hotels, flights, financials, and employee performance.
+            Comprehensive business intelligence synchronized with Invoices, Bookings, Expenses, Payroll, Advances, and Commissions.
           </p>
         </div>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={sendManagerReportWhatsApp}
+        <div className="flex flex-wrap items-center gap-3">
+          <a
+            href={whatsappHref}
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
           >
             <MessageCircle className="w-4 h-4" />
             <span>Send to Manager via WhatsApp</span>
-          </button>
+          </a>
           <button
             onClick={exportExecutiveCSV}
             className="flex items-center space-x-2 bg-white hover:bg-slate-50 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 shadow-xs transition-colors cursor-pointer"
@@ -199,12 +303,12 @@ export function ReportsView({
       {/* Tabs */}
       <div className="flex items-center flex-wrap gap-2 border-b border-slate-200 pb-2">
         {[
-          { id: 'executive', label: 'Executive Overview' },
-          { id: 'reservations', label: `Reservations (${reservations.length})` },
+          { id: 'executive', label: 'Executive & P&L Overview' },
+          { id: 'reservations', label: `Bookings & Vouchers (${allBookings.length})` },
           { id: 'hotels', label: `Hotel Inventory (${hotels.length})` },
           { id: 'flights', label: `Flight Schedules (${flights.length})` },
-          { id: 'financial', label: 'Financial & Billing' },
-          { id: 'employees', label: 'Staff Performance' },
+          { id: 'financial', label: `Invoices & Billing (${invoices.length})` },
+          { id: 'employees', label: `Staff Performance (${employees.length})` },
         ].map(tab => (
           <button
             key={tab.id}
@@ -223,44 +327,27 @@ export function ReportsView({
       {/* 1. EXECUTIVE DASHBOARD TAB */}
       {reportTab === 'executive' && (
         <div className="space-y-6">
-          {/* Executive Stat Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
               <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
-                <span>Gross Revenue</span>
+                <span>Total Revenue ({baseCurr})</span>
                 <TrendingUp className="w-4 h-4 text-cyan-600" />
               </div>
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {Object.keys(grossSalesByCurrency).length === 0 ? (
-                  <span className="text-xl font-extrabold text-slate-900"><CurrencyHighlight amount={0} currency="USD" /></span>
-                ) : (
-                  Object.keys(grossSalesByCurrency).map(c => (
-                    <span key={c} className="text-sm font-extrabold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-xl">
-                      <CurrencyHighlight amount={grossSalesByCurrency[c]} currency={c} />
-                    </span>
-                  ))
-                )}
+              <div className="text-xl font-black text-slate-900">
+                {formatCurrency(synchronizedFinancials.totalRevenue, baseCurr)}
               </div>
-              <p className="text-[11px] text-slate-400">Exact booked revenue per currency</p>
+              <p className="text-[11px] text-slate-400">Invoices + Uninvoiced Bookings</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
               <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
-                <span>Operating Net Profit</span>
+                <span>Net Operating Profit (P&L)</span>
                 <DollarSign className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {Object.keys(netProfitByCurrency).length === 0 ? (
-                  <span className="text-xl font-extrabold text-emerald-600"><CurrencyHighlight amount={0} currency="USD" /></span>
-                ) : (
-                  Object.keys(netProfitByCurrency).map(c => (
-                    <span key={c} className="text-sm font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl">
-                      <CurrencyHighlight amount={netProfitByCurrency[c]} currency={c} />
-                    </span>
-                  ))
-                )}
+              <div className={`text-xl font-black ${synchronizedFinancials.netOperatingProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {formatCurrency(synchronizedFinancials.netOperatingProfit, baseCurr)}
               </div>
-              <p className="text-[11px] text-slate-400">Net earnings per currency</p>
+              <p className="text-[11px] text-slate-400">After Costs, Expenses, Payroll & Commissions</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
@@ -270,7 +357,7 @@ export function ReportsView({
               </div>
               <div className="flex flex-wrap gap-1.5 mt-1">
                 {Object.keys(collectionsByCurrency).length === 0 ? (
-                  <span className="text-xl font-extrabold text-blue-600"><CurrencyHighlight amount={0} currency="USD" /></span>
+                  <span className="text-xl font-extrabold text-blue-600"><CurrencyHighlight amount={0} currency={baseCurr} /></span>
                 ) : (
                   Object.keys(collectionsByCurrency).map(c => (
                     <span key={c} className="text-sm font-extrabold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-xl">
@@ -279,7 +366,7 @@ export function ReportsView({
                   ))
                 )}
               </div>
-              <p className="text-[11px] text-slate-400">Collected invoice funds</p>
+              <p className="text-[11px] text-slate-400">Collected invoice & booking funds</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
@@ -289,7 +376,7 @@ export function ReportsView({
               </div>
               <div className="flex flex-wrap gap-1.5 mt-1">
                 {Object.keys(receivablesByCurrency).length === 0 ? (
-                  <span className="text-xl font-extrabold text-amber-600"><CurrencyHighlight amount={0} currency="USD" /></span>
+                  <span className="text-xl font-extrabold text-amber-600"><CurrencyHighlight amount={0} currency={baseCurr} /></span>
                 ) : (
                   Object.keys(receivablesByCurrency).map(c => (
                     <span key={c} className="text-sm font-extrabold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-xl">
@@ -299,6 +386,30 @@ export function ReportsView({
                 )}
               </div>
               <p className="text-[11px] text-slate-400">Outstanding client balances</p>
+            </div>
+          </div>
+
+          {/* Synchronized Financial System Breakdown */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs grid grid-cols-2 sm:grid-cols-5 gap-4 text-xs">
+            <div>
+              <span className="text-slate-400 font-semibold">Supplier & Trip Costs</span>
+              <div className="text-sm font-black text-rose-600 mt-1">{formatCurrency(synchronizedFinancials.directCosts, baseCurr)}</div>
+            </div>
+            <div>
+              <span className="text-slate-400 font-semibold">Operating Expenses</span>
+              <div className="text-sm font-black text-rose-600 mt-1">{formatCurrency(synchronizedFinancials.opex, baseCurr)}</div>
+            </div>
+            <div>
+              <span className="text-slate-400 font-semibold">December Payroll Base</span>
+              <div className="text-sm font-black text-indigo-700 mt-1">{formatCurrency(synchronizedFinancials.payrollBase, baseCurr)}</div>
+            </div>
+            <div>
+              <span className="text-slate-400 font-semibold">Employee Commissions</span>
+              <div className="text-sm font-black text-emerald-700 mt-1">{formatCurrency(synchronizedFinancials.commTotal, baseCurr)}</div>
+            </div>
+            <div>
+              <span className="text-slate-400 font-semibold">Employee Advances</span>
+              <div className="text-sm font-black text-amber-700 mt-1">{formatCurrency(synchronizedFinancials.advancesOutstanding, baseCurr)}</div>
             </div>
           </div>
 
@@ -367,7 +478,7 @@ export function ReportsView({
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
               <tr>
-                <th className="py-3.5 px-4 font-semibold">Reservation ID</th>
+                <th className="py-3.5 px-4 font-semibold">Booking / Voucher ID</th>
                 <th className="py-3.5 px-4 font-semibold">Customer</th>
                 <th className="py-3.5 px-4 font-semibold">Service Type</th>
                 <th className="py-3.5 px-4 font-semibold">Dates</th>
@@ -378,12 +489,12 @@ export function ReportsView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {reservations.map(r => (
+              {allBookings.map(r => (
                 <tr key={r.id} className="hover:bg-slate-50/80">
                   <td className="py-3.5 px-4 font-bold text-slate-900">{r.reservation_id}</td>
                   <td className="py-3.5 px-4 font-semibold text-slate-800">{r.customer_name}</td>
                   <td className="py-3.5 px-4 text-xs text-slate-600">{r.service_type}</td>
-                  <td className="py-3.5 px-4 text-xs text-slate-500">{r.travel_date} → {r.return_date}</td>
+                  <td className="py-3.5 px-4 text-xs text-slate-500">{r.travel_date} {r.return_date ? `→ ${r.return_date}` : ''}</td>
                   <td className="py-3.5 px-4 font-bold text-slate-900"><CurrencyHighlight amount={r.selling_price || 0} currency={r.currency || 'USD'} /></td>
                   <td className="py-3.5 px-4 text-xs text-slate-500"><CurrencyHighlight amount={r.cost_price || 0} currency={r.currency || 'USD'} /></td>
                   <td className="py-3.5 px-4 font-bold text-emerald-600"><CurrencyHighlight amount={r.profit !== undefined ? r.profit : ((r.selling_price || 0) - (r.cost_price || 0))} currency={r.currency || 'USD'} /></td>
@@ -507,25 +618,30 @@ export function ReportsView({
               <tr>
                 <th className="py-3.5 px-4 font-semibold">Employee</th>
                 <th className="py-3.5 px-4 font-semibold">Role & Department</th>
-                <th className="py-3.5 px-4 font-semibold">Contact Details</th>
-                <th className="py-3.5 px-4 font-semibold">System Actions Logged</th>
+                <th className="py-3.5 px-4 font-semibold">December Salary (EGP)</th>
+                <th className="py-3.5 px-4 font-semibold">Recorded Commissions</th>
                 <th className="py-3.5 px-4 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {employees.map(emp => (
-                <tr key={emp.id} className="hover:bg-slate-50/80">
-                  <td className="py-3.5 px-4 font-bold text-slate-900">{emp.name}</td>
-                  <td className="py-3.5 px-4 text-xs text-slate-700">{emp.position} • {emp.department}</td>
-                  <td className="py-3.5 px-4 text-xs text-slate-600">{emp.email} • {emp.phone}</td>
-                  <td className="py-3.5 px-4 font-semibold text-cyan-700 text-xs">Active Contributor</td>
-                  <td className="py-3.5 px-4">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                      {emp.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {employees.map(emp => {
+                const empComms = commissions
+                  .filter(c => c.employee_id === emp.id || c.employee_name === emp.name)
+                  .reduce((s, c) => s + toBase(c.commission_amount, c.currency || 'EGP'), 0);
+                return (
+                  <tr key={emp.id} className="hover:bg-slate-50/80">
+                    <td className="py-3.5 px-4 font-bold text-slate-900">{emp.name}</td>
+                    <td className="py-3.5 px-4 text-xs text-slate-700">{emp.position} • {emp.department}</td>
+                    <td className="py-3.5 px-4 font-bold text-slate-800">{formatCurrency(emp.salary || 0, 'EGP')}</td>
+                    <td className="py-3.5 px-4 font-bold text-emerald-700">{formatCurrency(empComms, baseCurr)}</td>
+                    <td className="py-3.5 px-4">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                        {emp.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

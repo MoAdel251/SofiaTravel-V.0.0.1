@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Briefcase, Plus, Phone, Mail, X, Edit2, Trash2, AlertTriangle, Check, Save, Shield, UserX, UserCheck, Lock, Copy, Clock
+  Briefcase, Plus, Phone, Mail, X, Edit2, Trash2, AlertTriangle, Check, Save, Shield, UserX, UserCheck, Lock, Copy, Clock, RotateCcw
 } from 'lucide-react';
 import { Employee, UserRole, AttendanceRecord } from '../types';
 import {
@@ -11,6 +11,7 @@ import {
   normalizeTimeHHMM,
 } from '../utils/attendance';
 import { useLanguage } from '../context/LanguageContext';
+import { isManagerOrAccountantRole, isEmployeeDesignatedAdmin } from '../utils/adminDesignation';
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -36,6 +37,7 @@ interface EmployeesViewProps {
     clock_out?: string;
     notes?: string;
   }) => Promise<void> | void;
+  onResetAttendanceTime?: (id: string, target: 'clock_in' | 'clock_out' | 'both') => Promise<void> | void;
   onDeleteAttendance?: (id: string) => Promise<void> | void;
   onSelfClockIn?: () => Promise<void> | void;
   onSelfClockOut?: () => Promise<void> | void;
@@ -155,6 +157,7 @@ export function EmployeesView({
   isITAccount = false,
   attendanceRecords = [],
   onSaveManualAttendance,
+  onResetAttendanceTime,
   onDeleteAttendance,
   onSelfClockIn,
   onSelfClockOut,
@@ -170,6 +173,7 @@ export function EmployeesView({
 
   // Manual Attendance Modal state (IT Developer Account)
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+  const [resetModalRecord, setResetModalRecord] = useState<AttendanceRecord | null>(null);
   const [attendanceFilterDate, setAttendanceFilterDate] = useState<string>('');
   const [filterPrevTwoDays, setFilterPrevTwoDays] = useState<boolean>(false);
   const [attendanceFilterEmp, setAttendanceFilterEmp] = useState<string>('ALL');
@@ -300,6 +304,27 @@ export function EmployeesView({
     setTimeout(() => setSavedSuccessMsg(null), 4500);
   };
 
+  const handleConfirmResetTime = async (rec: AttendanceRecord, target: 'clock_in' | 'clock_out' | 'both') => {
+    if (!isITAccount || !onResetAttendanceTime) return;
+    await onResetAttendanceTime(rec.id, target);
+    setResetModalRecord(null);
+    setShowAttendanceModal(false);
+    setSavedSuccessMsg(
+      target === 'clock_out'
+        ? isAr
+          ? `تمت إعادة ضبط وقت الانصراف للموظف ${rec.employee_name} (${rec.date}) — يمكن للموظف الآن تسجيل الانصراف بشكل طبيعي.`
+          : `Reset clock-out time for ${rec.employee_name} (${rec.date}) — employee can now clock out normally.`
+        : target === 'clock_in'
+        ? isAr
+          ? `تمت إعادة ضبط وقت الحضور للموظف ${rec.employee_name} (${rec.date}) — يمكن للموظف الآن تسجيل الحضور بشكل طبيعي.`
+          : `Reset clock-in time for ${rec.employee_name} (${rec.date}) — employee can now clock in normally.`
+        : isAr
+        ? `تمت إعادة ضبط وقتي الحضور والانصراف للموظف ${rec.employee_name} (${rec.date}) — يمكن للموظف الآن التسجيل بشكل طبيعي.`
+        : `Reset clock-in & clock-out times for ${rec.employee_name} (${rec.date}) — employee can now clock in and out normally.`
+    );
+    setTimeout(() => setSavedSuccessMsg(null), 5000);
+  };
+
   const sortedFilteredAttendance = useMemo(() => {
     return [...attendanceRecords]
       .filter(r => {
@@ -325,6 +350,7 @@ export function EmployeesView({
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [employeeToDeactivate, setEmployeeToDeactivate] = useState<Employee | null>(null);
   const [deactivateReason, setDeactivateReason] = useState('');
+  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   
   const ALL_PERMISSIONS = useMemo(() => {
     return PERMISSION_GROUPS.flatMap(g => g.permissions.map(p => p.id));
@@ -340,8 +366,10 @@ export function EmployeesView({
     email: '',
     phone: '',
     is_admin: false,
-    status: 'Active' as const,
-    account_status: 'Active' as const,
+    account_type: 'Employee' as 'Admin' | 'Employee',
+    designation: 'Employee' as string,
+    status: 'Active' as 'Active' | 'On Leave' | 'Inactive',
+    account_status: 'Active' as 'Active' | 'Inactive' | 'Suspended',
     permissions: [
       'view_dashboard',
       'view_customers', 'add_customer',
@@ -377,7 +405,7 @@ export function EmployeesView({
   }, []);
 
   const openEditModal = (emp: Employee) => {
-    const isEmpAdmin = emp.is_admin === true || emp.position === 'Administrator';
+    const isEmpAdmin = isEmployeeDesignatedAdmin(emp);
     setEditingEmployee(emp);
     setFormData({
       name: emp.name || '',
@@ -389,6 +417,8 @@ export function EmployeesView({
       email: emp.email || '',
       phone: emp.phone || '',
       is_admin: isEmpAdmin,
+      account_type: isEmpAdmin ? 'Admin' : 'Employee',
+      designation: isEmpAdmin ? 'Admin' : 'Employee',
       status: emp.status || 'Active',
       account_status: emp.account_status || 'Active',
       permissions: isEmpAdmin 
@@ -404,7 +434,14 @@ export function EmployeesView({
       const draft = localStorage.getItem(EMPLOYEE_DRAFT_KEY);
       if (draft) {
         const parsed = JSON.parse(draft);
-        setFormData({ ...initialFormState, ...parsed });
+        const merged = { ...initialFormState, ...parsed };
+        if (isITAccount && isManagerOrAccountantRole(merged.position, merged.department)) {
+          merged.is_admin = true;
+          merged.account_type = 'Admin';
+          merged.designation = 'Admin';
+          merged.permissions = ALL_PERMISSIONS;
+        }
+        setFormData(merged);
       } else {
         setFormData(initialFormState);
       }
@@ -416,6 +453,48 @@ export function EmployeesView({
 
   const handleFormFieldChange = (updates: Partial<typeof initialFormState>) => {
     const updated = { ...formData, ...updates };
+
+    // Auto-update default department when selecting Manager or Accountant if department was untouched default
+    if (updates.position !== undefined && updates.department === undefined) {
+      const posLower = String(updates.position || '').trim().toLowerCase();
+      if ((posLower.includes('accountant') || posLower.includes('محاسب')) && (formData.department === 'Sales' || formData.department === 'Management')) {
+        updated.department = 'Accounting';
+      } else if ((posLower.includes('manager') || posLower.includes('مدير')) && (formData.department === 'Sales' || formData.department === 'Accounting')) {
+        updated.department = 'Management';
+      }
+    }
+
+    // Requirement: When the IT department adds an account for managers or accountants, designate their account as "Admin"
+    if (
+      isITAccount &&
+      (updates.position !== undefined || updates.department !== undefined || !editingEmployee) &&
+      updates.is_admin === undefined
+    ) {
+      if (isManagerOrAccountantRole(updated.position, updated.department)) {
+        updated.is_admin = true;
+        updated.account_type = 'Admin';
+        updated.designation = 'Admin';
+        updated.permissions = ALL_PERMISSIONS;
+      } else if (
+        !editingEmployee &&
+        formData.is_admin &&
+        isManagerOrAccountantRole(formData.position, formData.department) &&
+        updated.position !== 'Administrator'
+      ) {
+        updated.is_admin = false;
+        updated.account_type = 'Employee';
+        updated.designation = 'Employee';
+        updated.permissions = initialFormState.permissions;
+      }
+    }
+
+    if (updates.position === 'Administrator') {
+      updated.is_admin = true;
+      updated.account_type = 'Admin';
+      updated.designation = 'Admin';
+      updated.permissions = ALL_PERMISSIONS;
+    }
+
     setFormData(updated);
     if (!editingEmployee) {
       try {
@@ -432,14 +511,23 @@ export function EmployeesView({
 
   const handleAdminToggle = (isAdminSelected: boolean) => {
     if (isAdminSelected) {
+      const keepPosition =
+        formData.position &&
+        formData.position !== 'Sales Executive'
+          ? formData.position
+          : 'Administrator';
       handleFormFieldChange({
         is_admin: true,
-        position: 'Administrator',
+        account_type: 'Admin',
+        designation: 'Admin',
+        position: keepPosition,
         permissions: ALL_PERMISSIONS
       });
     } else {
       handleFormFieldChange({
         is_admin: false,
+        account_type: 'Employee',
+        designation: 'Employee',
         position: formData.position === 'Administrator' ? 'Sales Executive' : formData.position,
         permissions: ['view_dashboard', 'view_customers', 'view_trips', 'view_bookings', 'view_sales']
       });
@@ -478,8 +566,31 @@ export function EmployeesView({
   const handleCreateOrUpdate = (e: React.FormEvent) => {
     e.preventDefault();
     const empName = formData.name || formData.username || 'Employee';
+    const isITAddingMgrOrAcc =
+      !editingEmployee &&
+      isITAccount &&
+      isManagerOrAccountantRole(formData.position, formData.department);
+    const shouldBeAdmin = Boolean(
+      formData.is_admin ||
+      isITAddingMgrOrAcc ||
+      formData.position === 'Administrator'
+    );
+
+    const payload: Partial<Employee> & { username?: string; password?: string } = {
+      ...formData,
+      is_admin: shouldBeAdmin,
+      account_type: shouldBeAdmin ? 'Admin' : 'Employee',
+      designation: shouldBeAdmin ? 'Admin' : 'Employee',
+      role: shouldBeAdmin ? 'Admin' : formData.position,
+      permissions: shouldBeAdmin ? ALL_PERMISSIONS : formData.permissions,
+    };
+
     if (editingEmployee) {
-      onEditEmployee(editingEmployee.id, formData);
+      // Preserve existing password if left blank on edit
+      if (!payload.password && editingEmployee.password) {
+        payload.password = editingEmployee.password;
+      }
+      onEditEmployee(editingEmployee.id, payload);
       onAddAuditLog({
         id: 'LOG-' + Date.now(),
         user_name: currentUsername,
@@ -487,12 +598,17 @@ export function EmployeesView({
         action: 'Updated',
         record_type: 'Employee Permissions & Account',
         record_id: editingEmployee.employee_id || editingEmployee.id,
-        new_value: `Updated profile & permissions for ${empName}`,
+        new_value: `Updated profile & permissions for ${empName}${shouldBeAdmin ? ' [Admin]' : ''}`,
         date_time: new Date().toLocaleString()
       });
-      setSavedSuccessMsg(`Updated details and permissions for ${empName}`);
+      setSavedSuccessMsg(
+        shouldBeAdmin
+          ? `Updated details for ${empName} (Designated as Admin)`
+          : `Updated details and permissions for ${empName}`
+      );
     } else {
-      onAddEmployee(formData);
+      payload.created_by = isITAccount ? 'IT' : currentUsername;
+      onAddEmployee(payload);
       onAddAuditLog({
         id: 'LOG-' + Date.now(),
         user_name: currentUsername,
@@ -500,17 +616,25 @@ export function EmployeesView({
         action: 'Created',
         record_type: 'Employee Account',
         record_id: 'EMP-' + Date.now(),
-        new_value: `Created employee ${empName} with specific permissions`,
+        new_value: shouldBeAdmin
+          ? `Created ${formData.position} account ${empName} designated as Admin`
+          : `Created employee ${empName} with specific permissions`,
         date_time: new Date().toLocaleString()
       });
-      setSavedSuccessMsg(`Created employee record and user account for ${empName}`);
+      setSavedSuccessMsg(
+        shouldBeAdmin
+          ? (isAr
+              ? `تم إنشاء حساب ${empName} (${formData.position}) وتعيينه كمسؤول (Admin) بنجاح!`
+              : `Created ${formData.position} account for ${empName} — Designated as "Admin"!`)
+          : `Created employee record and user account for ${empName}`
+      );
     }
     localStorage.removeItem(EMPLOYEE_DRAFT_KEY);
     setHasUnsavedDraft(false);
     setShowAddModal(false);
     setEditingEmployee(null);
     setFormData(initialFormState);
-    setTimeout(() => setSavedSuccessMsg(null), 4000);
+    setTimeout(() => setSavedSuccessMsg(null), 4500);
   };
 
   const handleDiscardDraft = () => {
@@ -831,13 +955,19 @@ export function EmployeesView({
                         <tr key={rec.id} className="hover:bg-slate-50/80">
                           <td className="py-3 px-4 font-mono font-bold text-slate-800">{rec.date}</td>
                           <td className="py-3 px-4 font-bold text-slate-900">{rec.employee_name}</td>
-                          <td className="py-3 px-4 font-mono font-semibold text-emerald-700">{inVal || '-'}</td>
+                          <td className="py-3 px-4 font-mono font-semibold text-emerald-700">
+                            {inVal || (isAr ? 'بانتظار الحضور...' : 'Awaiting Clock-In...')}
+                          </td>
                           <td className="py-3 px-4 font-mono font-semibold text-blue-700">{outVal || (isAr ? 'قيد العمل...' : 'Active Shift...')}</td>
                           <td className="py-3 px-4">
-                            {!shiftOpen && outVal ? (
+                            {!shiftOpen && inVal && outVal ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold">
                                 <Clock className="w-3.5 h-3.5 text-emerald-600" />
                                 {formatWorkingHoursLabel(hoursNum, hoursFmt, isAr)}
+                              </span>
+                            ) : !inVal ? (
+                              <span className="text-amber-600 font-semibold">
+                                {isAr ? 'بانتظار تسجيل الحضور' : 'Awaiting Clock-In'}
                               </span>
                             ) : (
                               <span className="text-amber-600 font-semibold">
@@ -848,11 +978,13 @@ export function EmployeesView({
                           <td className="py-3 px-4">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                !shiftOpen && outVal
+                                !shiftOpen && inVal && outVal
                                   ? 'bg-emerald-100 text-emerald-800'
                                   : 'bg-amber-100 text-amber-800'
                               }`}>
-                                {!shiftOpen && outVal
+                                {!inVal
+                                  ? (isAr ? 'بانتظار الحضور' : 'Awaiting Clock-In')
+                                  : !shiftOpen && outVal
                                   ? (isAr ? 'مكتمل' : 'Completed')
                                   : (isAr ? 'متواجد بالعمل' : 'Clocked In')}
                               </span>
@@ -866,11 +998,16 @@ export function EmployeesView({
                                   ? (isAr ? 'إدخال يدوي (IT)' : 'Manual (IT)')
                                   : (isAr ? 'تسجيل ذاتي' : 'Self Clock')}
                               </span>
+                              {rec.reset_by_it && rec.entry_source !== 'IT Manual' && (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
+                                  {isAr ? 'تمت إعادة الضبط' : 'Reset by IT'}
+                                </span>
+                              )}
                             </div>
                           </td>
                           {isITAccount && (
                             <td className="py-3 px-4 text-end">
-                              <div className="inline-flex items-center gap-1.5">
+                              <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
                                 <button
                                   type="button"
                                   onClick={() => openITManualModal(rec)}
@@ -879,6 +1016,21 @@ export function EmployeesView({
                                   <Edit2 className="w-3 h-3" />
                                   <span>{isAr ? 'تعديل الوقت' : 'Edit Time'}</span>
                                 </button>
+                                {onResetAttendanceTime && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setResetModalRecord(rec)}
+                                    className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                                    title={
+                                      isAr
+                                        ? 'إعادة ضبط وقت الحضور أو الانصراف للسماح للموظف بالتسجيل بشكل طبيعي'
+                                        : 'Reset clock-in or clock-out time so the employee can clock in/out normally'
+                                    }
+                                  >
+                                    <RotateCcw className="w-3 h-3 text-amber-700" />
+                                    <span>{isAr ? 'إعادة ضبط الوقت' : 'Reset Time'}</span>
+                                  </button>
+                                )}
                                 {onDeleteAttendance && (
                                   <button
                                     type="button"
@@ -1037,31 +1189,39 @@ export function EmployeesView({
             <tbody className="divide-y divide-slate-100">
               {employees.map(emp => {
                 const displayName = emp.name || (emp as any).full_name || 'Staff Member';
-                const isEmpAdmin = emp.is_admin === true || emp.position === 'Administrator';
-                const displayPosition = isEmpAdmin ? 'Administrator' : (emp.position || (emp as any).job_title || 'Sales Executive');
+                const isEmpAdmin = isEmployeeDesignatedAdmin(emp);
+                const rawPosition = emp.position || (emp as any).job_title || (isEmpAdmin ? 'Admin' : 'Sales Executive');
                 const permCount = (emp.permissions || []).length;
                 const accStatus = emp.account_status || emp.status || 'Active';
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/80">
                     <td className="py-3 px-4 font-mono font-bold text-slate-900">{emp.employee_id || emp.id}</td>
                     <td className="py-3 px-4">
-                      <span className="font-bold text-slate-900 block">{displayName}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-slate-900">{displayName}</span>
+                        {isEmpAdmin && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-extrabold text-[10px] uppercase tracking-wider">
+                            <Shield className="w-2.5 h-2.5 text-blue-600" /> Admin
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[10px] text-slate-400 font-mono">@{emp.username || 'n/a'}</span>
                     </td>
                     <td className="py-3 px-4">
-                      {isEmpAdmin ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg font-bold text-[11px]">
-                          <Shield className="w-3 h-3 text-blue-600" /> Administrator
-                        </span>
-                      ) : (
-                        <span className="font-semibold text-cyan-700 block">{displayPosition}</span>
-                      )}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-cyan-700">{rawPosition}</span>
+                        {isEmpAdmin && rawPosition.toLowerCase() !== 'admin' && rawPosition.toLowerCase() !== 'administrator' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-600 text-white rounded-md font-bold text-[10px]">
+                            <Shield className="w-2.5 h-2.5" /> Admin
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[10px] text-slate-500 block">{emp.department || 'Sales'}</span>
                     </td>
                     <td className="py-3 px-4">
                       {isEmpAdmin ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold text-[10px] shadow-xs">
-                          <Shield className="w-3 h-3" /> Full System Access (All Pages)
+                          <Shield className="w-3 h-3" /> Admin — Full System Access (All Pages)
                         </span>
                       ) : (
                         <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg font-bold text-[10px]">
@@ -1104,11 +1264,8 @@ export function EmployeesView({
                         )}
                         {isAdmin && (
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Permanently delete employee ${displayName}? Historical data will be unlinked.`)) {
-                                onDeleteEmployee(emp.id);
-                              }
-                            }}
+                            type="button"
+                            onClick={() => setEmployeeToDelete(emp)}
                             className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors cursor-pointer"
                             title="Hard Delete"
                           >
@@ -1204,19 +1361,29 @@ export function EmployeesView({
                         <Shield className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-sm font-black ${formData.is_admin ? 'text-white' : 'text-slate-900'}`}>
-                            Designate as System Administrator
+                            Designate Account as “Admin”
                           </span>
                           {formData.is_admin && (
-                            <span className="px-2 py-0.5 bg-blue-500/30 border border-blue-400/40 text-blue-200 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
-                              Full Privileges Granted
+                            <span className="px-2.5 py-0.5 bg-cyan-500/25 border border-cyan-400/50 text-cyan-200 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
+                              Admin • Full Privileges Granted
                             </span>
                           )}
                         </div>
                         <p className={`text-xs mt-0.5 ${formData.is_admin ? 'text-blue-200' : 'text-slate-500'}`}>
-                          Grants complete administrative control with full, unrestricted access to all pages (Finance & Payroll, Employee Management, Audit Logs, Settings, Invoices, Bookings, Reports, etc.).
+                          Grants complete Admin control with full, unrestricted access to all pages (Finance & Payroll, Employee Management, Audit Logs, Settings, Invoices, Bookings, Reports, etc.).
                         </p>
+                        {isITAccount && isManagerOrAccountantRole(formData.position, formData.department) && (
+                          <p className="text-[11px] font-bold text-emerald-300 mt-1.5 flex items-center gap-1.5">
+                            <Check className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              {isAr
+                                ? 'سياسة قسم IT: حسابات المديرين والمحاسبين المضافة بواسطة IT يتم تعيينها تلقائياً كحساب "Admin".'
+                                : 'IT Department Policy: Manager & Accountant accounts added by IT are automatically designated as "Admin".'}
+                            </span>
+                          </p>
+                        )}
                       </div>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -1224,9 +1391,10 @@ export function EmployeesView({
                         type="checkbox"
                         checked={formData.is_admin}
                         onChange={(e) => handleAdminToggle(e.target.checked)}
+                        disabled={!editingEmployee && isITAccount && isManagerOrAccountantRole(formData.position, formData.department)}
                         className="sr-only peer"
                       />
-                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 peer-disabled:opacity-80"></div>
                     </label>
                   </div>
                 </div>
@@ -1265,15 +1433,43 @@ export function EmployeesView({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Job Title / Position</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.position}
-                    onChange={(e) => handleFormFieldChange({ position: e.target.value as any })}
-                    placeholder="e.g. Sales Executive"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium"
-                  />
+                  <label className="block font-bold text-slate-700 mb-1">Role / Job Title *</label>
+                  <div className="space-y-1.5">
+                    <select
+                      value={
+                        ['Manager', 'Accountant', 'Administrator', 'Sales Executive', 'Sales', 'Reservation Agent', 'Operations', 'Customer Service'].includes(formData.position)
+                          ? formData.position
+                          : 'CUSTOM'
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val !== 'CUSTOM') {
+                          handleFormFieldChange({ position: val });
+                        } else {
+                          handleFormFieldChange({ position: '' });
+                        }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-800"
+                    >
+                      <option value="Manager">Manager {isITAccount ? '(Auto-Admin)' : ''}</option>
+                      <option value="Accountant">Accountant {isITAccount ? '(Auto-Admin)' : ''}</option>
+                      <option value="Administrator">Administrator (Admin)</option>
+                      <option value="Sales Executive">Sales Executive</option>
+                      <option value="Sales">Sales</option>
+                      <option value="Reservation Agent">Reservation Agent</option>
+                      <option value="Operations">Operations</option>
+                      <option value="Customer Service">Customer Service</option>
+                      <option value="CUSTOM">Other / Custom Title...</option>
+                    </select>
+                    <input
+                      type="text"
+                      required
+                      value={formData.position}
+                      onChange={(e) => handleFormFieldChange({ position: e.target.value })}
+                      placeholder="e.g. Manager, Accountant, Sales Executive"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-medium text-[11px]"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Department</label>
@@ -1282,6 +1478,7 @@ export function EmployeesView({
                     required
                     value={formData.department}
                     onChange={(e) => handleFormFieldChange({ department: e.target.value })}
+                    placeholder="e.g. Management, Accounting, Sales"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium"
                   />
                 </div>
@@ -1498,6 +1695,51 @@ export function EmployeesView({
         </div>
       )}
 
+      {/* Hard Delete Employee Confirmation Modal (No window.confirm) */}
+      {employeeToDelete && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-xs">
+            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              {isAr ? 'حذف حساب الموظف نهائياً؟' : 'Permanently Delete Employee Account?'}
+            </h3>
+            <p className="text-slate-600 text-center leading-relaxed">
+              {isAr ? (
+                <>
+                  هل أنت متأكد من حذف حساب <strong>{employeeToDelete.name}</strong> ({employeeToDelete.employee_id || employeeToDelete.id})؟ سيتم إلغاء ربطه بالسجلات التاريخية.
+                </>
+              ) : (
+                <>
+                  Permanently delete employee <strong>{employeeToDelete.name}</strong> ({employeeToDelete.employee_id || employeeToDelete.id})? Historical records will remain preserved and unlinked.
+                </>
+              )}
+            </p>
+            <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setEmployeeToDelete(null)}
+                className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl font-semibold cursor-pointer"
+              >
+                {isAr ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = employeeToDelete;
+                  setEmployeeToDelete(null);
+                  onDeleteEmployee(target.id);
+                }}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-xs cursor-pointer"
+              >
+                {isAr ? 'تأكيد الحذف' : 'Delete Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* IT Developer Manual Clock-In / Clock-Out Modal */}
       {showAttendanceModal && isITAccount && (
         <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -1642,6 +1884,58 @@ export function EmployeesView({
                 />
               </div>
 
+              {manualAttForm.id && onResetAttendanceTime && (() => {
+                const matchedRec = attendanceRecords.find(r => r.id === manualAttForm.id);
+                if (!matchedRec) return null;
+                const hasIn = Boolean((matchedRec.clock_in || matchedRec.check_in_time || '').trim());
+                const rawMOut = (matchedRec.clock_out || matchedRec.check_out_time || '').trim();
+                const hasOut = Boolean(rawMOut && rawMOut !== '--' && rawMOut !== '-');
+                return (
+                  <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 space-y-2.5">
+                    <div className="flex items-center gap-1.5 text-amber-900 font-bold">
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span>
+                        {isAr
+                          ? 'إعادة ضبط الوقت المضاف بالخطأ (للسماح للموظف بالتسجيل بنفسه):'
+                          : 'Reset Mistaken Manual Time (Allow Employee to Clock In/Out Normally):'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {hasIn && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmResetTime(matchedRec, 'clock_in')}
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>{isAr ? 'إعادة ضبط وقت الحضور' : 'Reset Clock-In'}</span>
+                        </button>
+                      )}
+                      {hasOut && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmResetTime(matchedRec, 'clock_out')}
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>{isAr ? 'إعادة ضبط وقت الانصراف' : 'Reset Clock-Out'}</span>
+                        </button>
+                      )}
+                      {hasIn && hasOut && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmResetTime(matchedRec, 'both')}
+                          className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>{isAr ? 'إعادة ضبط الحضور والانصراف معاً' : 'Reset Both Times'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -1662,6 +1956,135 @@ export function EmployeesView({
           </div>
         </div>
       )}
+
+      {/* IT Reset Clock-In / Clock-Out Time Modal */}
+      {resetModalRecord && isITAccount && onResetAttendanceTime && (() => {
+        const recIn = (resetModalRecord.clock_in || resetModalRecord.check_in_time || '').trim();
+        const rawRecOut = (resetModalRecord.clock_out || resetModalRecord.check_out_time || '').trim();
+        const recOut = rawRecOut === '--' || rawRecOut === '-' ? '' : rawRecOut;
+        return (
+          <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-xs">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                <div>
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] font-extrabold uppercase">
+                    {isAr ? 'إعادة ضبط بواسطة IT' : 'IT Time Reset'}
+                  </span>
+                  <h3 className="text-base font-black text-slate-900 mt-1">
+                    {isAr
+                      ? 'إعادة ضبط وقت الحضور أو الانصراف'
+                      : 'Reset Employee Clock-In / Clock-Out Time'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResetModalRecord(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'الموظف:' : 'Employee:'}</span>
+                  <span className="font-black text-slate-900">{resetModalRecord.employee_name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'التاريخ:' : 'Date:'}</span>
+                  <span className="font-mono font-bold text-slate-800">{resetModalRecord.date}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'وقت الحضور الحالي:' : 'Current Clock-In:'}</span>
+                  <span className="font-mono font-bold text-emerald-700">{recIn || (isAr ? 'غير مسجل' : 'Not set')}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'وقت الانصراف الحالي:' : 'Current Clock-Out:'}</span>
+                  <span className="font-mono font-bold text-blue-700">{recOut || (isAr ? 'غير مسجل' : 'Not set')}</span>
+                </div>
+              </div>
+
+              <p className="text-slate-600 leading-relaxed">
+                {isAr
+                  ? 'اختر الوقت الذي تمت إضافته بالخطأ لإعادة ضبطه، وسيتمكن الموظف فوراً من تسجيل الحضور أو الانصراف بنفسه بشكل طبيعي:'
+                  : 'Select which time entry was added by mistake to reset it. The employee will immediately be able to clock in or clock out normally:'}
+              </p>
+
+              <div className="space-y-2.5">
+                {recIn && (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmResetTime(resetModalRecord, 'clock_in')}
+                    className="w-full p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 font-bold flex items-center justify-between cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>
+                        {isAr
+                          ? `إعادة ضبط وقت الحضور (${recIn})`
+                          : `Reset Clock-In Time (${recIn})`}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-white text-emerald-700 border border-emerald-200">
+                      {isAr ? 'يسمح بتسجيل الحضور' : 'Allows Clock-In'}
+                    </span>
+                  </button>
+                )}
+
+                {recOut && (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmResetTime(resetModalRecord, 'clock_out')}
+                    className="w-full p-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 font-bold flex items-center justify-between cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 text-blue-700 shrink-0" />
+                      <span>
+                        {isAr
+                          ? `إعادة ضبط وقت الانصراف (${recOut})`
+                          : `Reset Clock-Out Time (${recOut})`}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-white text-blue-700 border border-blue-200">
+                      {isAr ? 'يسمح بتسجيل الانصراف' : 'Allows Clock-Out'}
+                    </span>
+                  </button>
+                )}
+
+                {recIn && recOut && (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmResetTime(resetModalRecord, 'both')}
+                    className="w-full p-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold flex items-center justify-between cursor-pointer transition-colors shadow-xs"
+                  >
+                    <span className="flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 shrink-0" />
+                      <span>
+                        {isAr
+                          ? 'إعادة ضبط وقتي الحضور والانصراف معاً'
+                          : 'Reset Both Clock-In & Clock-Out'}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-amber-800 text-amber-100">
+                      {isAr ? 'إعادة ضبط كاملة' : 'Full Reset'}
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setResetModalRecord(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+                >
+                  {isAr ? 'إلغاء' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -32,6 +32,7 @@ import { MobileQuickActionModal } from './components/MobileQuickActionModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminResetDataModal } from './components/AdminResetDataModal';
 import { DatabaseConnectionStatus } from './lib/firebase';
+import { isManagerOrAccountantRole, isEmployeeDesignatedAdmin } from './utils/adminDesignation';
 import { 
   UserRole, 
   Customer, 
@@ -68,6 +69,7 @@ import {
   AttendanceSettings
 } from './types';
 import { dataService } from './services/dataService';
+import { convertCurrency } from './utils/currency';
 import {
   calculateWorkingHours,
   extractAttendanceAndLoginLogs,
@@ -221,9 +223,18 @@ export default function App() {
   const isCurrentAdmin =
     isITAccount ||
     userRole === 'Administrator' ||
-    currentEmployee?.is_admin === true ||
-    currentEmployee?.position === 'Administrator';
+    isEmployeeDesignatedAdmin(currentEmployee);
+  const effectiveUserRole: UserRole = isCurrentAdmin ? 'Administrator' : userRole;
   const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
+
+  useEffect(() => {
+    if (isAuthenticated && isCurrentAdmin && userRole !== 'Administrator') {
+      setUserRole('Administrator');
+      try {
+        localStorage.setItem('sofia_travel_role', 'Administrator');
+      } catch {}
+    }
+  }, [isAuthenticated, isCurrentAdmin, userRole]);
 
   // Merge & normalize attendance records and employee login/logout logs retrieved from Firestore
   const attendanceLoginLogs = useMemo(
@@ -239,7 +250,7 @@ export default function App() {
     [rawAttendanceRecords, employees, attendanceLoginLogs]
   );
 
-  const isAuthorizedToDirectlyModify = isITAccount || userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant';
+  const isAuthorizedToDirectlyModify = isCurrentAdmin || effectiveUserRole === 'Manager' || effectiveUserRole === 'Accountant';
 
   // Helper to log employee entries immediately so Management sees live website activity on the Dashboard
   const recordEmployeeActivity = async (action: string, moduleName: string, recordRef: string) => {
@@ -465,30 +476,68 @@ export default function App() {
     const upcomingTripsCount = combinedBookings.filter(r => r.travel_date && r.travel_date >= todayStr).length;
 
     const nonCancelledBookings = combinedBookings.filter(r => r.reservation_status !== 'Cancelled');
-    const salesConverted = nonCancelledBookings.reduce((acc, r) => acc + convertAmount(Number(r.selling_price) || 0, r.currency), 0);
-    const supplierCostsConverted = nonCancelledBookings.reduce((acc, r) => acc + convertAmount(Number(r.cost_price) || 0, r.currency), 0);
+
+    // Prevent double-counting between Invoices and Bookings
+    const invoicedReservationRefs = new Set<string>();
+    const supplierInvoicedRefs = new Set<string>();
+    const activeCustomerInvoices = invoices.filter(
+      inv => inv.payment_status !== 'Cancelled' && (inv.recipient_type || 'Customer') === 'Customer'
+    );
+    const activeSupplierInvoices = invoices.filter(
+      inv => inv.payment_status !== 'Cancelled' && inv.recipient_type === 'Supplier'
+    );
+
+    activeCustomerInvoices.forEach(inv => {
+      if (inv.reservation_id) invoicedReservationRefs.add(inv.reservation_id);
+      (inv.items || []).forEach(it => {
+        if (it.item_reference_id) invoicedReservationRefs.add(it.item_reference_id);
+      });
+    });
+    activeSupplierInvoices.forEach(inv => {
+      if (inv.reservation_id) supplierInvoicedRefs.add(inv.reservation_id);
+      (inv.items || []).forEach(it => {
+        if (it.item_reference_id) supplierInvoicedRefs.add(it.item_reference_id);
+      });
+    });
+
+    const uninvoicedCustomerBookings = nonCancelledBookings.filter(
+      r => !invoicedReservationRefs.has(r.id) && !invoicedReservationRefs.has(r.reservation_id)
+    );
+    const uninvoicedSupplierBookings = nonCancelledBookings.filter(
+      r => !supplierInvoicedRefs.has(r.id) && !supplierInvoicedRefs.has(r.reservation_id)
+    );
+
+    const salesConverted =
+      activeCustomerInvoices.reduce((acc, inv) => acc + convertAmount(Number(inv.total_amount) || 0, inv.currency), 0) +
+      uninvoicedCustomerBookings.reduce((acc, r) => acc + convertAmount(Number(r.selling_price) || 0, r.currency), 0);
+
+    const supplierCostsConverted =
+      activeSupplierInvoices.reduce((acc, inv) => acc + convertAmount(Number(inv.total_amount) || 0, inv.currency), 0) +
+      uninvoicedSupplierBookings.reduce((acc, r) => acc + convertAmount(Number(r.cost_price) || 0, r.currency), 0);
+
     const expensesConverted = expenses.reduce((acc, e) => acc + convertAmount(Number(e.amount) || 0, e.currency), 0);
-    const netProfitConverted = salesConverted - supplierCostsConverted - expensesConverted;
+    const payrollBaseConverted = payrollRecords.reduce((acc, p) => {
+      const baseCost = Math.max(0, (Number(p.basic_salary) || 0) + (Number(p.allowances) || 0) + (Number(p.bonus) || 0) - (Number(p.deductions) || 0));
+      return acc + convertAmount(baseCost, p.currency || 'EGP');
+    }, 0);
+    const commissionsConverted = commissions.reduce((acc, c) => acc + convertAmount(Number(c.commission_amount) || 0, c.currency || 'EGP'), 0);
+
+    const netProfitConverted = salesConverted - supplierCostsConverted - expensesConverted - payrollBaseConverted - commissionsConverted;
 
     // Outstanding Receivables & Payables (synchronized across bookings, invoices, customers & suppliers)
     const outstandingByCurr: Record<string, number> = {};
     let bookingOutstandingConverted = 0;
-    const invoicedReservationRefs = new Set<string>();
 
-    invoices.forEach(inv => {
-      if (inv.reservation_id) invoicedReservationRefs.add(inv.reservation_id);
+    activeCustomerInvoices.forEach(inv => {
       const bal = Number(inv.balance_due ?? ((Number(inv.total_amount) || 0) - (Number(inv.paid_amount) || 0)));
-      if (bal > 0 && inv.payment_status !== 'Cancelled') {
-        if ((inv.recipient_type || 'Customer') === 'Customer') {
-          const curr = normalizeCurr(inv.currency);
-          outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + bal;
-          bookingOutstandingConverted += convertAmount(bal, curr);
-        }
+      if (bal > 0) {
+        const curr = normalizeCurr(inv.currency);
+        outstandingByCurr[curr] = (outstandingByCurr[curr] || 0) + bal;
+        bookingOutstandingConverted += convertAmount(bal, curr);
       }
     });
 
-    nonCancelledBookings.forEach(r => {
-      if (invoicedReservationRefs.has(r.id) || invoicedReservationRefs.has(r.reservation_id)) return;
+    uninvoicedCustomerBookings.forEach(r => {
       const rem = Number(r.remaining_amount ?? ((Number(r.selling_price) || 0) - (Number(r.paid_amount) || 0)));
       if (rem > 0) {
         const curr = normalizeCurr(r.currency);
@@ -535,12 +584,35 @@ export default function App() {
       Profit: 0
     }));
 
-    nonCancelledBookings.forEach(r => {
+    activeCustomerInvoices.forEach(inv => {
+      if (!inv.issue_date) return;
+      const date = new Date(inv.issue_date);
+      if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
+        const monthIdx = date.getMonth();
+        monthlyData[monthIdx].Sales += Math.round(convertAmount(Number(inv.total_amount) || 0, inv.currency));
+      }
+    });
+    activeSupplierInvoices.forEach(inv => {
+      if (!inv.issue_date) return;
+      const date = new Date(inv.issue_date);
+      if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
+        const monthIdx = date.getMonth();
+        monthlyData[monthIdx].Expenses += Math.round(convertAmount(Number(inv.total_amount) || 0, inv.currency));
+      }
+    });
+    uninvoicedCustomerBookings.forEach(r => {
       if (!r.booking_date) return;
       const date = new Date(r.booking_date);
       if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
         const monthIdx = date.getMonth();
         monthlyData[monthIdx].Sales += Math.round(convertAmount(Number(r.selling_price) || 0, r.currency));
+      }
+    });
+    uninvoicedSupplierBookings.forEach(r => {
+      if (!r.booking_date) return;
+      const date = new Date(r.booking_date);
+      if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
+        const monthIdx = date.getMonth();
         monthlyData[monthIdx].Expenses += Math.round(convertAmount(Number(r.cost_price) || 0, r.currency));
       }
     });
@@ -649,6 +721,9 @@ export default function App() {
     customerPayments,
     supplierPayments,
     expenses,
+    payrollRecords,
+    advances,
+    commissions,
     tasks,
     attendanceRecords,
     activityLogs,
@@ -2126,11 +2201,19 @@ export default function App() {
   };
 
   const handleAddEmployee = async (data: Partial<Employee> & { username?: string; password?: string }) => {
-    const newId = `EMP-${Date.now().toString(36).toUpperCase()}`;
+    const newId = data.id && String(data.id).trim() ? String(data.id).trim() : `EMP-${Date.now().toString(36).toUpperCase()}`;
     const empPos = (data.position || 'Sales') as EmployeePosition;
+    const autoAdminByIT =
+      isITAccount &&
+      isManagerOrAccountantRole(empPos, data.department, data.role);
+    const shouldBeAdmin = Boolean(
+      data.is_admin ||
+      autoAdminByIT ||
+      empPos === 'Administrator'
+    );
+
     const empRecord: Employee = {
-      id: newId,
-      employee_id: `E-${Math.floor(100 + Math.random() * 900)}`,
+      employee_id: data.employee_id || `E-${Math.floor(100 + Math.random() * 900)}`,
       name: data.name || 'Staff Member',
       phone: data.phone || '',
       email: data.email || '',
@@ -2140,78 +2223,99 @@ export default function App() {
       salary: Number(data.salary) || 1200,
       commission_rate: Number(data.commission_rate) || 5,
       status: data.status || 'Active',
+      account_status: data.account_status || 'Active',
       username: data.username || `emp_${Date.now().toString(36)}`,
       password: data.password || 'Sofia@123',
       reservations_count: 0,
       total_sales: 0,
       total_profit: 0,
-      ...data
+      ...data,
+      id: newId,
+      is_admin: shouldBeAdmin,
+      account_type: shouldBeAdmin ? 'Admin' : 'Employee',
+      designation: shouldBeAdmin ? 'Admin' : 'Employee',
+      role: shouldBeAdmin ? 'Admin' : String(empPos),
+      created_by: data.created_by || (isITAccount ? 'IT' : currentUsername),
     };
-    setEmployees(prev => [empRecord, ...prev]);
+    setEmployees(prev => [empRecord, ...prev.filter(e => e.id !== newId)]);
     await dataService.saveDocument('employees', newId, empRecord, '/api/employees', 'POST');
     fetchAllData();
   };
 
   const handleEditEmployee = async (id: string, data: Partial<Employee>) => {
-    const emp = employees.find(e => e.id === id);
+    const emp = employees.find(e => e.id === id || e.employee_id === id);
+    const docId = emp?.id || id;
     const itemName = emp ? `Employee ${emp.name}` : id;
     if (!isAuthorizedToDirectlyModify) {
       setPermissionModalState({
         isOpen: true,
         actionType: 'Edit',
         moduleName: 'Employees',
-        itemId: id,
+        itemId: docId,
         itemName,
         proposedChanges: data
       });
       return;
     }
-    const updated = {
-      ...emp,
+    const nextPos = (data.position || emp?.position || 'Sales') as EmployeePosition;
+    const nextIsAdmin =
+      data.is_admin !== undefined
+        ? Boolean(data.is_admin)
+        : isEmployeeDesignatedAdmin(emp);
+    const updated: Employee = {
+      ...(emp as Employee),
       ...data,
+      id: docId,
       name: data.name || emp?.name || 'Staff Member',
-      position: (data.position || emp?.position || 'Sales') as EmployeePosition
+      position: nextPos,
+      is_admin: nextIsAdmin,
+      account_type: nextIsAdmin ? 'Admin' : 'Employee',
+      designation: nextIsAdmin ? 'Admin' : 'Employee',
+      role: nextIsAdmin ? 'Admin' : String(nextPos),
     };
-    setEmployees(prev => prev.map(e => (e.id === id ? (updated as Employee) : e)));
-    await dataService.saveDocument('employees', id, updated, `/api/employees/${id}`, 'PUT');
+    setEmployees(prev => prev.map(e => (e.id === docId ? updated : e)));
+    await dataService.saveDocument('employees', docId, updated, `/api/employees/${docId}`, 'PUT');
     fetchAllData();
   };
 
   const handleDeleteEmployee = async (id: string) => {
-    const emp = employees.find(e => e.id === id);
+    const emp = employees.find(e => e.id === id || e.employee_id === id);
+    const docId = emp?.id || id;
     const itemName = emp ? `Employee ${emp.name}` : id;
     if (!isAuthorizedToDirectlyModify) {
       setPermissionModalState({
         isOpen: true,
         actionType: 'Delete',
         moduleName: 'Employees',
-        itemId: id,
+        itemId: docId,
         itemName
       });
       return;
     }
-    setEmployees(prev => prev.filter(e => e.id !== id));
-    await dataService.deleteDocument('employees', id, `/api/employees/${id}`);
+    setEmployees(prev => prev.filter(e => e.id !== docId && e.employee_id !== id));
+    await dataService.deleteDocument('employees', docId, `/api/employees/${docId}`);
     fetchAllData();
   };
 
   const handleAddExpense = async (data: any) => {
-    const newId = "EXP-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+    const newId = data.id || ("EXP-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+    const expCurr = data.currency || settings.default_currency || "EGP";
     const newExp: Expense = {
+      ...data,
       id: newId,
-      expense_id: `EXP-2026-${(expenses?.length || 0) + 101}`,
+      expense_id: data.expense_id || `EXP-2026-${(expenses?.length || 0) + 101}`,
       category: data.category || "Office",
       description: data.description || "General expense",
       amount: Number(data.amount) || 0,
-      currency: "USD",
+      currency: expCurr,
       date: data.date || new Date().toISOString().split('T')[0],
-      employee_id: currentEmployee?.id || currentEmpId || currentUsername || "Admin",
-      employee_name: currentEmployee?.name || currentUsername || "Admin",
+      employee_id: data.employee_id || currentEmployee?.id || currentEmpId || currentUsername || "Admin",
+      employee_name: data.employee_name || currentEmployee?.name || currentUsername || "Admin",
       payment_method: data.payment_method || "Cash",
       notes: data.notes || "",
-      ...data
+      status: data.status || "Paid"
     };
-    setExpenses(prev => [newExp, ...prev]);
+    setExpenses(prev => [newExp, ...prev.filter(e => e.id !== newId)]);
     await dataService.saveDocument('expenses', newId, newExp, '/api/expenses', 'POST');
     await recordEmployeeActivity(`Recorded expense: ${newExp.description} (${newExp.amount} ${newExp.currency})`, 'Expenses', newExp.expense_id);
     fetchAllData();
@@ -2229,27 +2333,120 @@ export default function App() {
     fetchAllData();
   };
 
-  const handleGeneratePayroll = async (month: string) => {
-    const generated: PayrollRecord[] = employees.map(emp => ({
-      id: `PAY-${month}-${emp.id}`,
-      payroll_month: month,
-      employee_id: emp.id,
-      employee_name: emp.name,
-      job_title: emp.position,
-      department: emp.department || 'General',
-      basic_salary: emp.salary || 5000,
-      allowances: 500,
-      commission: 250,
-      bonus: 100,
-      deductions: 150,
-      advances: 100,
-      net_salary: (emp.salary || 5000) + 500 + 250 + 100 - 150 - 100,
-      currency: 'USD',
-      status: 'Pending'
-    }));
-    setPayrollRecords(prev => [...generated.filter(g => !prev.some(p => p.id === g.id)), ...prev]);
+  const handleGeneratePayroll = async (month?: string) => {
+    // Default strictly to December salary (YYYY-12) since employment began in November
+    const targetMonth = month || `${new Date().getFullYear()}-12`;
+    const activeRates = settings?.exchange_rates?.length ? settings.exchange_rates : undefined;
+    const isDecemberCycle = targetMonth.endsWith('-12');
+    const yearPrefix = targetMonth.slice(0, 4);
+
+    const activeStaff = employees.filter(
+      emp => emp.status !== 'Inactive' && emp.account_status !== 'Inactive'
+    );
+
+    const generated: PayrollRecord[] = [];
+    const commissionsToMarkAdded: CommissionRecord[] = [];
+
+    activeStaff.forEach(emp => {
+      const recId = `PAY-${targetMonth}-${emp.id}`;
+      const existing = payrollRecords.find(p => p.id === recId);
+      // Do not overwrite already Paid records
+      if (existing && existing.status === 'Paid') {
+        generated.push(existing);
+        return;
+      }
+
+      const basicSalaryEgp = Number(emp.salary) || 0;
+
+      // Aggregate employee's Pending / Added-to-Payroll commissions for this cycle
+      // When generating December (YYYY-12), include November (YYYY-11) + December (YYYY-12) commissions since employment began in November
+      const empCommissions = commissions.filter(c => {
+        if (c.employee_id !== emp.id && (c.employee_name || '').toLowerCase() !== (emp.name || '').toLowerCase()) {
+          return false;
+        }
+        if (c.status === 'Paid') return false;
+        if (!c.date) return true;
+        const cYm = String(c.date).slice(0, 7);
+        if (isDecemberCycle) {
+          return cYm === `${yearPrefix}-11` || cYm === `${yearPrefix}-12` || c.status === 'Pending';
+        }
+        return cYm === targetMonth || c.status === 'Pending';
+      });
+
+      const commissionEgp = Math.round(
+        empCommissions.reduce(
+          (sum, c) => sum + convertCurrency(Number(c.commission_amount) || 0, c.currency || 'EGP', 'EGP', activeRates),
+          0
+        ) * 100
+      ) / 100;
+
+      empCommissions.forEach(c => {
+        if (c.status === 'Pending') {
+          commissionsToMarkAdded.push({ ...c, status: 'Added to Payroll' });
+        }
+      });
+
+      // Aggregate approved/outstanding Payroll Deduction advances for this employee
+      const empAdvancesEgp = Math.round(
+        advances
+          .filter(
+            a =>
+              (a.employee_id === emp.id || (a.employee_name || '').toLowerCase() === (emp.name || '').toLowerCase()) &&
+              (a.status === 'Outstanding' || a.status === 'Approved' || a.status === 'Partially Repaid') &&
+              (a.repayment_method === 'Payroll Deduction' || !a.repayment_method)
+          )
+          .reduce(
+            (sum, a) => sum + convertCurrency(Number(a.outstanding_amount ?? a.amount) || 0, a.currency || 'EGP', 'EGP', activeRates),
+            0
+          ) * 100
+      ) / 100;
+
+      const allowances = existing ? (Number(existing.allowances) || 0) : 0;
+      const bonus = existing ? (Number(existing.bonus) || 0) : 0;
+      const deductions = existing ? (Number(existing.deductions) || 0) : 0;
+      const grossBeforeAdv = Math.max(0, basicSalaryEgp + allowances + commissionEgp + bonus - deductions);
+      const deductibleAdvances = Math.min(grossBeforeAdv, empAdvancesEgp);
+      const netSalary = Math.max(0, Math.round((grossBeforeAdv - deductibleAdvances) * 100) / 100);
+
+      generated.push({
+        id: recId,
+        payroll_month: targetMonth,
+        employee_id: emp.id,
+        employee_name: emp.name,
+        job_title: emp.position,
+        department: emp.department || 'General',
+        basic_salary: basicSalaryEgp,
+        allowances,
+        commission: commissionEgp,
+        bonus,
+        deductions,
+        advances: deductibleAdvances,
+        net_salary: netSalary,
+        currency: 'EGP',
+        status: existing?.status || 'Pending'
+      });
+    });
+
+    setPayrollRecords(prev => {
+      const map = new Map(prev.map(p => [p.id, p]));
+      generated.forEach(g => map.set(g.id, g));
+      return Array.from(map.values());
+    });
+
     for (const rec of generated) {
       await dataService.saveDocument('payroll_records', rec.id, rec, '/api/payroll-records', 'POST');
+    }
+
+    if (commissionsToMarkAdded.length > 0) {
+      setCommissions(prev =>
+        prev.map(c => {
+          const updated = commissionsToMarkAdded.find(u => u.id === c.id);
+          return updated || c;
+        })
+      );
+      for (const comm of commissionsToMarkAdded) {
+        await dataService.saveDocument('commission_records', comm.id, comm, `/api/commission-records/${comm.id}`, 'PUT');
+      }
     }
   };
 
@@ -2262,8 +2459,13 @@ export default function App() {
     }
   };
 
+  const handleDeletePayroll = async (id: string) => {
+    setPayrollRecords(prev => prev.filter(p => p.id !== id));
+    await dataService.deleteDocument('payroll_records', id, `/api/payroll-records/${id}`);
+  };
+
   const handleAddAdvance = async (adv: EmployeeAdvance) => {
-    setAdvances(prev => [adv, ...prev]);
+    setAdvances(prev => [adv, ...prev.filter(a => a.id !== adv.id)]);
     await dataService.saveDocument('employee_advances', adv.id, adv, '/api/employee-advances', 'POST');
   };
 
@@ -2278,8 +2480,13 @@ export default function App() {
   };
 
   const handleAddCommission = async (comm: CommissionRecord) => {
-    setCommissions(prev => [comm, ...prev]);
+    setCommissions(prev => [comm, ...prev.filter(c => c.id !== comm.id)]);
     await dataService.saveDocument('commission_records', comm.id, comm, '/api/commission-records', 'POST');
+  };
+
+  const handleUpdateCommission = async (comm: CommissionRecord) => {
+    setCommissions(prev => prev.map(c => c.id === comm.id ? comm : c));
+    await dataService.saveDocument('commission_records', comm.id, comm, `/api/commission-records/${comm.id}`, 'PUT');
   };
 
   const handleDeleteCommission = async (id: string) => {
@@ -2534,6 +2741,13 @@ export default function App() {
     attendanceRecords.find(
       a =>
         a.date === todayDateStr &&
+        !a.clock_in &&
+        !a.check_in_time &&
+        (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
+    ) ||
+    attendanceRecords.find(
+      a =>
+        a.date === todayDateStr &&
         (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
     ) ||
     null;
@@ -2541,6 +2755,52 @@ export default function App() {
   const handleSelfClockIn = async () => {
     const now = new Date();
     const clockInHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    // If IT reset this employee's clock-in time on an existing record for today, populate clock_in on that record normally
+    const awaitingClockInRec = attendanceRecords.find(
+      a =>
+        a.date === todayDateStr &&
+        !a.clock_in &&
+        !a.check_in_time &&
+        (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
+    );
+
+    if (awaitingClockInRec) {
+      const existingOutRaw = awaitingClockInRec.clock_out || awaitingClockInRec.check_out_time || '';
+      const existingOut = existingOutRaw === '--' || existingOutRaw === '-' ? '' : existingOutRaw;
+      const calc = calculateWorkingHours(clockInHHMM, existingOut || undefined);
+      const updatedRec: AttendanceRecord = {
+        ...awaitingClockInRec,
+        clock_in: clockInHHMM,
+        check_in_time: clockInHHMM,
+        clock_out: existingOut,
+        check_out_time: existingOut,
+        login_time: clockInHHMM,
+        working_hours: existingOut ? calc.working_hours : 0,
+        working_hours_formatted: existingOut ? calc.working_hours_formatted : '0h 00m',
+        total_working_hours: existingOut ? calc.working_hours_formatted : '--',
+        status: existingOut ? 'Completed' : 'Clocked In',
+        entry_source: 'Employee',
+        recorded_by: activeSelfName,
+        reset_by_it: false,
+        updated_at: now.toISOString(),
+        updatedAt: now.toISOString(),
+      };
+
+      setRawAttendanceRecords(prev => prev.map(a => (a.id === awaitingClockInRec.id ? updatedRec : a)));
+      await dataService.saveDocument('attendance', awaitingClockInRec.id, updatedRec, `/api/attendance/${awaitingClockInRec.id}`, 'PUT');
+      await dataService.deleteDocument('employee_attendance', awaitingClockInRec.id);
+      await recordEmployeeActivity(`Self Log In (${clockInHHMM})`, 'Attendance', activeSelfId);
+      showToast(
+        existingOut
+          ? (isAr
+              ? `تم تسجيل الحضور في ${clockInHHMM} — ساعات العمل: ${calc.working_hours_formatted}`
+              : `Clocked in at ${clockInHHMM} — Working hours: ${calc.working_hours_formatted}`)
+          : (isAr ? `تم تسجيل الحضور في ${clockInHHMM}` : `Clocked in at ${clockInHHMM}`)
+      );
+      return;
+    }
+
     const calc = calculateWorkingHours(clockInHHMM, '');
     const ts = Date.now();
     const newAttId = `ATT-${ts}-${activeSelfId}`;
@@ -2596,16 +2856,21 @@ export default function App() {
       clock_out: clockOutHHMM,
       check_in_time: checkInRef,
       check_out_time: clockOutHHMM,
+      logout_time: clockOutHHMM,
       working_hours: calc.working_hours,
       working_hours_formatted: calc.working_hours_formatted,
       total_working_hours: calc.working_hours_formatted,
       status: calc.status,
+      entry_source: 'Employee',
+      recorded_by: activeSelfName,
+      reset_by_it: false,
       updated_at: now.toISOString(),
       updatedAt: now.toISOString(),
     };
 
     setRawAttendanceRecords(prev => prev.map(a => (a.id === openRec.id ? updatedRec : a)));
     await dataService.saveDocument('attendance', openRec.id, updatedRec, `/api/attendance/${openRec.id}`, 'PUT');
+    await dataService.deleteDocument('employee_attendance', openRec.id);
     await recordEmployeeActivity(
       `Self Log Out (${clockOutHHMM} — ${calc.working_hours_formatted})`,
       'Attendance',
@@ -2663,6 +2928,7 @@ export default function App() {
       status: calc.status,
       entry_source: 'IT Manual',
       recorded_by: 'IT',
+      reset_by_it: false,
       notes: data.notes || '',
       created_at: existing?.created_at || existing?.createdAt || nowIso,
       updated_at: nowIso,
@@ -2686,6 +2952,7 @@ export default function App() {
       });
     } catch {}
     await dataService.saveDocument('attendance', targetId, record);
+    await dataService.deleteDocument('employee_attendance', targetId);
 
     await recordEmployeeActivity(
       `Attendance Edited (${record.employee_name} — ${record.date}: ${record.clock_in}${record.clock_out ? ` → ${record.clock_out}, ${record.working_hours_formatted}` : ''})`,
@@ -2701,6 +2968,110 @@ export default function App() {
         : (isAr
             ? `تم تسجيل حضور ${record.employee_name} الساعة ${record.clock_in}`
             : `Recorded clock-in for ${record.employee_name} at ${record.clock_in}`)
+    );
+  };
+
+  const handleResetAttendanceTimeByIT = async (id: string, target: 'clock_in' | 'clock_out' | 'both') => {
+    if (!isITAccount) {
+      showToast(
+        isAr
+          ? 'غير مصرح: إعادة ضبط وقت الحضور أو الانصراف متاحة لحساب IT فقط.'
+          : 'Access Denied: Only the "IT" developer account can reset clock-in/clock-out times.'
+      );
+      return;
+    }
+
+    const existing = attendanceRecords.find(a => a.id === id);
+    if (!existing) return;
+
+    const currentIn = (existing.clock_in || existing.check_in_time || '').trim();
+    const rawOut = (existing.clock_out || existing.check_out_time || '').trim();
+    const currentOut = rawOut === '--' || rawOut === '-' ? '' : rawOut;
+
+    const nextIn = target === 'clock_in' || target === 'both' ? '' : currentIn;
+    const nextOut = target === 'clock_out' || target === 'both' ? '' : currentOut;
+    const empName = existing.employee_name || 'Employee';
+
+    if (!nextIn && !nextOut) {
+      setRawAttendanceRecords(prev => prev.filter(a => a.id !== id));
+      try {
+        await fetch(`/api/attendance/${id}/reset`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-acting-user': 'IT',
+          },
+          body: JSON.stringify({ target }),
+        });
+      } catch {}
+      await dataService.deleteDocument('attendance', id);
+      await dataService.deleteDocument('employee_attendance', id);
+      await recordEmployeeActivity(
+        `Reset attendance time (${empName} — ${existing.date}) so employee can clock in/out normally`,
+        'Attendance',
+        existing.employee_id || id
+      );
+      showToast(
+        isAr
+          ? `تمت إعادة ضبط سجل ${empName} (${existing.date}) — يمكن للموظف الآن تسجيل الحضور والانصراف بشكل طبيعي.`
+          : `Reset attendance for ${empName} (${existing.date}) — employee can now clock in and clock out normally.`
+      );
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const updatedRec: AttendanceRecord = {
+      ...existing,
+      id,
+      clock_in: nextIn,
+      clock_out: nextOut,
+      check_in_time: nextIn,
+      check_out_time: nextOut,
+      login_time: nextIn ? (existing.login_time || nextIn) : '',
+      logout_time: nextOut ? (existing.logout_time || nextOut) : '',
+      working_hours: 0,
+      working_hours_formatted: '0h 00m',
+      total_working_hours: '--',
+      late_minutes: nextIn ? (Number(existing.late_minutes) || 0) : 0,
+      early_departure_minutes: nextOut ? (Number(existing.early_departure_minutes) || 0) : 0,
+      attendance_status: nextIn ? (existing.attendance_status || 'Present') : 'Present',
+      status: 'Clocked In',
+      entry_source: 'Employee',
+      recorded_by: empName,
+      reset_by_it: true,
+      reset_at: nowIso,
+      updated_at: nowIso,
+      updatedAt: nowIso,
+    };
+
+    setRawAttendanceRecords(prev => prev.map(a => (a.id === id ? updatedRec : a)));
+    try {
+      await fetch(`/api/attendance/${id}/reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': 'IT',
+        },
+        body: JSON.stringify({ target }),
+      });
+    } catch {}
+    await dataService.saveDocument('attendance', id, updatedRec);
+    await dataService.deleteDocument('employee_attendance', id);
+
+    await recordEmployeeActivity(
+      `Reset ${target === 'clock_in' ? 'clock-in' : 'clock-out'} time for ${empName} (${existing.date}) — employee can clock ${target === 'clock_in' ? 'in' : 'out'} normally`,
+      'Attendance',
+      existing.employee_id || id
+    );
+
+    showToast(
+      target === 'clock_out'
+        ? (isAr
+            ? `تمت إعادة ضبط وقت الانصراف للموظف ${empName} — الوردية مفتوحة الآن ويمكن للموظف تسجيل الانصراف بشكل طبيعي.`
+            : `Reset clock-out time for ${empName} — shift is open again and the employee can clock out normally.`)
+        : (isAr
+            ? `تمت إعادة ضبط وقت الحضور للموظف ${empName} — يمكن للموظف الآن تسجيل الحضور بشكل طبيعي.`
+            : `Reset clock-in time for ${empName} — the employee can now clock in normally.`)
     );
   };
 
@@ -3080,7 +3451,7 @@ export default function App() {
       )}
 
       <Navbar
-        userRole={userRole}
+        userRole={effectiveUserRole}
         userPermissions={currentUserPermissions}
         setUserRole={setUserRole}
         currentCurrency={currentCurrency}
@@ -3164,10 +3535,15 @@ export default function App() {
           {currentTab === 'permission-requests' && (
             <PermissionRequestsView
               requests={permissionRequests}
-              userRole={userRole}
+              userRole={effectiveUserRole}
               currentUsername={currentUsername}
               onApproveRequest={handleApprovePermissionRequest}
               onRejectRequest={handleRejectPermissionRequest}
+              advances={advances}
+              employees={employees}
+              currentEmployee={currentEmployee}
+              onAddAdvance={handleAddAdvance}
+              onUpdateAdvance={handleUpdateAdvance}
             />
           )}
 
@@ -3202,7 +3578,7 @@ export default function App() {
               inquiries={customerInquiries}
               employees={employees}
               customers={customers}
-              userRole={userRole}
+              userRole={effectiveUserRole}
               userPermissions={currentUserPermissions}
               currentUser={currentUsername}
               onSaveInquiry={handleSaveInquiry}
@@ -3333,8 +3709,10 @@ export default function App() {
           )}
           {currentTab === 'finance-payroll' && (
             <FinancePayrollView
-              userRole={userRole}
+              userRole={effectiveUserRole}
               currentUsername={currentUsername}
+              isAdmin={isCurrentAdmin}
+              isITAccount={isITAccount}
               expenses={expenses}
               onAddExpense={handleAddExpense}
               onUpdateExpense={handleUpdateExpense}
@@ -3342,18 +3720,33 @@ export default function App() {
               payrollRecords={payrollRecords}
               onGeneratePayroll={handleGeneratePayroll}
               onUpdatePayrollStatus={handleUpdatePayrollStatus}
+              onDeletePayroll={handleDeletePayroll}
               advances={advances}
               onAddAdvance={handleAddAdvance}
               onUpdateAdvance={handleUpdateAdvance}
               onDeleteAdvance={handleDeleteAdvance}
               commissions={commissions}
               onAddCommission={handleAddCommission}
+              onUpdateCommission={handleUpdateCommission}
               onDeleteCommission={handleDeleteCommission}
               reservations={reservations}
+              vouchers={vouchers}
+              invoices={invoices}
+              customers={customers}
               suppliers={suppliers}
               employees={employees}
+              visas={visas}
+              flights={flights}
+              hotels={hotels}
+              transfers={transfers}
+              cruises={cruises}
+              tours={tours}
+              dayTrips={dayTrips}
+              customerPayments={customerPayments}
+              supplierPayments={supplierPayments}
               auditLogs={financeAuditLogs}
               onAddAuditLog={handleAddAuditLog}
+              onNavigateTab={setCurrentTab}
               settings={settings}
               companyCurrency={settings.default_currency || 'EGP'}
             />
@@ -3376,7 +3769,7 @@ export default function App() {
               onUpdateInvoice={handleUpdateInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onUpdateReservation={handleUpdateReservation}
-              userRole={userRole}
+              userRole={effectiveUserRole}
               currentCurrency={currentCurrency}
             />
           )}
@@ -3387,7 +3780,7 @@ export default function App() {
               onEditEmployee={handleEditEmployee}
               onDeleteEmployee={handleDeleteEmployee}
               onDeactivateEmployee={handleDeactivateEmployee}
-              userRole={isITAccount ? 'Administrator' : userRole}
+              userRole={effectiveUserRole}
               userPermissions={currentUserPermissions}
               onAddAuditLog={handleAddAuditLog}
               currentUsername={currentUsername}
@@ -3397,6 +3790,7 @@ export default function App() {
               isITAccount={isITAccount}
               attendanceRecords={attendanceRecords}
               onSaveManualAttendance={handleSaveManualAttendanceByIT}
+              onResetAttendanceTime={handleResetAttendanceTimeByIT}
               onDeleteAttendance={handleDeleteAttendanceByIT}
               onSelfClockIn={handleSelfClockIn}
               onSelfClockOut={handleSelfClockOut}
@@ -3410,7 +3804,7 @@ export default function App() {
               loginLogs={attendanceLoginLogs}
               workSchedules={workSchedules}
               attendanceSettings={attendanceSettings}
-              userRole={userRole}
+              userRole={effectiveUserRole}
               currentUsername={currentUsername}
               currentEmpId={activeSelfId}
               isAdmin={isCurrentAdmin}
@@ -3419,6 +3813,7 @@ export default function App() {
               onSelfClockIn={handleSelfClockIn}
               onSelfClockOut={handleSelfClockOut}
               onSaveManualAttendance={handleSaveManualAttendanceByIT}
+              onResetAttendanceTime={handleResetAttendanceTimeByIT}
               onDeleteAttendance={handleDeleteAttendanceByIT}
               onSyncFromDatabase={fetchAllData}
             />
@@ -3436,7 +3831,7 @@ export default function App() {
             <TasksView
               tasks={tasks}
               employees={employees}
-              userRole={userRole}
+              userRole={effectiveUserRole}
               onAddTask={handleAddTask}
               onUpdateTask={handleUpdateTask}
             />
@@ -3467,10 +3862,15 @@ export default function App() {
           )}
           {currentTab === 'reports' && (
             <ReportsView 
-              reservations={reservations} 
+              reservations={reservations}
+              vouchers={vouchers}
               customers={customers} 
               suppliers={suppliers}
               invoices={invoices}
+              expenses={expenses}
+              payrollRecords={payrollRecords}
+              advances={advances}
+              commissions={commissions}
               packages={packages}
               hotels={hotels}
               flights={flights}
@@ -3490,7 +3890,7 @@ export default function App() {
               currentEmployee={currentEmployee}
               currentUsername={currentUsername}
               currentEmpId={activeSelfId}
-              userRole={userRole}
+              userRole={effectiveUserRole}
               isAdmin={isCurrentAdmin}
               isITAccount={isITAccount}
               onPermissionStatusChange={setPhonePermStatus}
@@ -3502,7 +3902,7 @@ export default function App() {
               settings={settings} 
               onUpdateSettings={handleUpdateSettings} 
               onClearAllData={handleClearAllDatabase}
-              userRole={userRole}
+              userRole={effectiveUserRole}
               isAdmin={isCurrentAdmin}
               dbStatus={dbStatus}
               onVerifyDatabase={handleVerifyDatabase}
@@ -3541,7 +3941,7 @@ export default function App() {
         itemName={permissionModalState.itemName}
         proposedChanges={permissionModalState.proposedChanges}
         currentUsername={currentUsername}
-        userRole={userRole}
+        userRole={effectiveUserRole}
         onSubmitRequest={(reason, changes) => 
           handleSubmitPermissionRequest(
             permissionModalState.moduleName,
@@ -3561,7 +3961,7 @@ export default function App() {
         pendingPermissionCount={permissionRequests.filter(r => r.status === 'Pending').length}
         onOpenQuickAdd={() => setIsQuickAddOpen(true)}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-        userRole={userRole}
+        userRole={effectiveUserRole}
       />
 
       {/* Quick Add Modal from Bottom Nav */}
@@ -3569,7 +3969,7 @@ export default function App() {
         isOpen={isQuickAddOpen}
         onClose={() => setIsQuickAddOpen(false)}
         onSelectAction={handleSelectQuickAdd}
-        userRole={userRole}
+        userRole={effectiveUserRole}
       />
 
       {/* Administrator-Only Delete All Data Modal */}

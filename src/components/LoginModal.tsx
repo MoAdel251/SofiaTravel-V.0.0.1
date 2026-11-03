@@ -3,6 +3,7 @@ import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
 import { UserRole, Employee } from '../types';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
 import { useLanguage } from '../context/LanguageContext';
+import { isEmployeeDesignatedAdmin } from '../utils/adminDesignation';
 
 interface LoginModalProps {
   employees?: Employee[];
@@ -18,7 +19,7 @@ export function LoginModal({ onLogin, companyName, employees = [], isSiteDisable
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  // Pre-configured system administrator and staff accounts
+  // Pre-configured system administrator and fallback staff accounts
   const systemAccounts = [
     { name: 'IT', pass: 'S2026', role: 'Administrator' as UserRole, id: 'SYS-IT-ADMIN' },
     { name: 'Karim Nabil', pass: 'KN02', role: 'Manager' as UserRole, id: 'EMP-2' },
@@ -42,22 +43,19 @@ export function LoginModal({ onLogin, companyName, employees = [], isSiteDisable
       return;
     }
 
-    const matchedSystemAccount = systemAccounts.find(
-      acc => acc.name === inputUser && acc.pass === inputPass
+    // 1. Always keep the "IT" developer account prioritized (works even during maintenance mode)
+    const itSystemAccount = systemAccounts.find(
+      acc => acc.name === 'IT' && acc.name === inputUser && acc.pass === inputPass
     );
-
-    if (matchedSystemAccount) {
-      if (isSiteDisabled && matchedSystemAccount.name !== 'IT') {
-        setError(
-          language === 'ar'
-            ? 'الموقع متوقف مؤقتاً للتحديثات. الدخول متاح فقط لحساب مطور النظام (IT).'
-            : 'The site is temporarily disabled for updates. Only the "IT" developer account can sign in right now.'
-        );
-        return;
-      }
-      onLogin(matchedSystemAccount.name, matchedSystemAccount.role, matchedSystemAccount.id);
+    if (itSystemAccount) {
+      onLogin(itSystemAccount.name, itSystemAccount.role, itSystemAccount.id);
       return;
     }
+
+    // 2. Check live employee accounts stored in Cloud Firestore (including IT-created Manager & Accountant Admin accounts)
+    const matchedEmployeeByIdentity = employees.find(emp => {
+      return emp.name === inputUser || emp.username === inputUser || emp.email === inputUser;
+    });
 
     const matchedEmployee = employees.find(emp => {
       const matchName = emp.name === inputUser || emp.username === inputUser || emp.email === inputUser;
@@ -88,7 +86,7 @@ export function LoginModal({ onLogin, companyName, employees = [], isSiteDisable
       }
 
       let role: UserRole = 'Sales';
-      if (isEmpIT || matchedEmployee.is_admin || matchedEmployee.position === 'Administrator') {
+      if (isEmpIT || isEmployeeDesignatedAdmin(matchedEmployee)) {
         role = 'Administrator';
       } else if (
         matchedEmployee.position === 'Manager' ||
@@ -97,13 +95,33 @@ export function LoginModal({ onLogin, companyName, employees = [], isSiteDisable
         matchedEmployee.position === 'Customer Service' ||
         matchedEmployee.position === 'Sales'
       ) {
-        role = matchedEmployee.position;
+        role = matchedEmployee.position as UserRole;
       } else if (matchedEmployee.position === 'Reservation Agent') {
         role = 'Sales';
       }
       const displayName = matchedEmployee.name || matchedEmployee.username || inputUser;
       onLogin(displayName, role, matchedEmployee.id || matchedEmployee.employee_id);
       return;
+    }
+
+    // 3. Fallback to pre-configured system accounts only if no overriding employee record exists in Firestore
+    if (!matchedEmployeeByIdentity) {
+      const matchedSystemAccount = systemAccounts.find(
+        acc => acc.name === inputUser && acc.pass === inputPass
+      );
+
+      if (matchedSystemAccount) {
+        if (isSiteDisabled && matchedSystemAccount.name !== 'IT') {
+          setError(
+            language === 'ar'
+              ? 'الموقع متوقف مؤقتاً للتحديثات. الدخول متاح فقط لحساب مطور النظام (IT).'
+              : 'The site is temporarily disabled for updates. Only the "IT" developer account can sign in right now.'
+          );
+          return;
+        }
+        onLogin(matchedSystemAccount.name, matchedSystemAccount.role, matchedSystemAccount.id);
+        return;
+      }
     }
 
     setError(

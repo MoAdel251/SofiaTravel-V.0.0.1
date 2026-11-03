@@ -15,6 +15,7 @@ import {
   Database,
   FileText,
   AlertCircle,
+  RotateCcw,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -56,6 +57,7 @@ interface AttendanceDepartureViewProps {
     clock_out?: string;
     notes?: string;
   }) => Promise<void> | void;
+  onResetAttendanceTime?: (id: string, target: 'clock_in' | 'clock_out' | 'both') => Promise<void> | void;
   onDeleteAttendance?: (id: string) => Promise<void> | void;
   onSyncFromDatabase?: () => Promise<void> | void;
 }
@@ -78,6 +80,7 @@ export function AttendanceDepartureView({
   onSelfClockIn,
   onSelfClockOut,
   onSaveManualAttendance,
+  onResetAttendanceTime,
   onDeleteAttendance,
   onSyncFromDatabase,
 }: AttendanceDepartureViewProps) {
@@ -98,6 +101,7 @@ export function AttendanceDepartureView({
 
   // IT Manual Clock-In / Clock-Out Modal State
   const [showManualModal, setShowManualModal] = useState(false);
+  const [resetModalRecord, setResetModalRecord] = useState<AttendanceRecord | null>(null);
   const [manualForm, setManualForm] = useState<{
     id?: string;
     employee_id: string;
@@ -381,6 +385,27 @@ export function AttendanceDepartureView({
         : `Saved attendance & departure for ${empName} (${manualForm.date}) — Calculated working hours: ${previewCalc.working_hours_formatted}`
     );
     setTimeout(() => setBannerMessage(null), 4500);
+  };
+
+  const handleConfirmResetTime = async (rec: AttendanceRecord, target: 'clock_in' | 'clock_out' | 'both') => {
+    if (!isITAccount || !onResetAttendanceTime) return;
+    await onResetAttendanceTime(rec.id, target);
+    setResetModalRecord(null);
+    setShowManualModal(false);
+    setBannerMessage(
+      target === 'clock_out'
+        ? isAr
+          ? `تمت إعادة ضبط وقت الانصراف للموظف ${rec.employee_name} (${rec.date}) — يمكن للموظف الآن تسجيل الانصراف بشكل طبيعي.`
+          : `Reset departure time for ${rec.employee_name} (${rec.date}) — employee can now clock out normally.`
+        : target === 'clock_in'
+        ? isAr
+          ? `تمت إعادة ضبط وقت الحضور للموظف ${rec.employee_name} (${rec.date}) — يمكن للموظف الآن تسجيل الحضور بشكل طبيعي.`
+          : `Reset check-in time for ${rec.employee_name} (${rec.date}) — employee can now clock in normally.`
+        : isAr
+        ? `تمت إعادة ضبط وقتي الحضور والانصراف للموظف ${rec.employee_name} (${rec.date}) — يمكن للموظف الآن التسجيل بشكل طبيعي.`
+        : `Reset check-in & departure times for ${rec.employee_name} (${rec.date}) — employee can now clock in and out normally.`
+    );
+    setTimeout(() => setBannerMessage(null), 5000);
   };
 
   const selfShiftOpen = isAttendanceShiftOpen(todaySelfAttendance);
@@ -823,7 +848,13 @@ export function AttendanceDepartureView({
                         </td>
 
                         <td className="py-3.5 px-4 font-mono font-bold text-emerald-700">
-                          {checkIn || '-'}
+                          {checkIn ? (
+                            checkIn
+                          ) : (
+                            <span className="text-amber-600 font-sans font-semibold">
+                              {isAr ? 'بانتظار تسجيل الحضور...' : 'Awaiting Check-In...'}
+                            </span>
+                          )}
                         </td>
 
                         <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
@@ -837,10 +868,14 @@ export function AttendanceDepartureView({
                         </td>
 
                         <td className="py-3.5 px-4">
-                          {!shiftOpen && checkOut ? (
+                          {!shiftOpen && checkIn && checkOut ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold">
                               <Clock className="w-3.5 h-3.5 text-emerald-600" />
                               {formatWorkingHoursLabel(hoursNum, hoursFmt, isAr)}
+                            </span>
+                          ) : !checkIn ? (
+                            <span className="text-amber-600 font-semibold">
+                              {isAr ? 'بانتظار تسجيل الحضور' : 'Awaiting Check-In'}
                             </span>
                           ) : (
                             <span className="text-amber-600 font-semibold">
@@ -853,12 +888,16 @@ export function AttendanceDepartureView({
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span
                               className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                                shiftOpen
+                                shiftOpen || !checkIn
                                   ? 'bg-amber-100 text-amber-800'
                                   : 'bg-emerald-100 text-emerald-800'
                               }`}
                             >
-                              {shiftOpen
+                              {!checkIn
+                                ? isAr
+                                  ? 'بانتظار الحضور'
+                                  : 'Awaiting Check-In'
+                                : shiftOpen
                                 ? isAr
                                   ? 'حاضر الآن'
                                   : 'Checked In'
@@ -882,12 +921,18 @@ export function AttendanceDepartureView({
                                 {isAr ? 'معدل بواسطة IT' : 'IT Manual'}
                               </span>
                             )}
+
+                            {rec.reset_by_it && rec.entry_source !== 'IT Manual' && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
+                                {isAr ? 'تمت إعادة الضبط' : 'Reset by IT'}
+                              </span>
+                            )}
                           </div>
                         </td>
 
                         {isITAccount && (
                           <td className="py-3.5 px-4 text-end">
-                            <div className="inline-flex items-center gap-1.5">
+                            <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
                               <button
                                 type="button"
                                 onClick={() => openManualModal(rec)}
@@ -896,6 +941,21 @@ export function AttendanceDepartureView({
                                 <Edit2 className="w-3 h-3" />
                                 <span>{isAr ? 'تعديل' : 'Edit'}</span>
                               </button>
+                              {onResetAttendanceTime && (
+                                <button
+                                  type="button"
+                                  onClick={() => setResetModalRecord(rec)}
+                                  className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                                  title={
+                                    isAr
+                                      ? 'إعادة ضبط وقت الحضور أو الانصراف للسماح للموظف بالتسجيل بشكل طبيعي'
+                                      : 'Reset clock-in or clock-out time so the employee can clock in/out normally'
+                                  }
+                                >
+                                  <RotateCcw className="w-3 h-3 text-amber-700" />
+                                  <span>{isAr ? 'إعادة ضبط الوقت' : 'Reset Time'}</span>
+                                </button>
+                              )}
                               {onDeleteAttendance && (
                                 <button
                                   type="button"
@@ -1187,6 +1247,58 @@ export function AttendanceDepartureView({
                 />
               </div>
 
+              {manualForm.id && onResetAttendanceTime && (() => {
+                const matchedRec = accessibleRecords.find(r => r.id === manualForm.id);
+                if (!matchedRec) return null;
+                const hasIn = Boolean((matchedRec.clock_in || matchedRec.check_in_time || '').trim());
+                const rawMOut = (matchedRec.clock_out || matchedRec.check_out_time || '').trim();
+                const hasOut = Boolean(rawMOut && rawMOut !== '--' && rawMOut !== '-');
+                return (
+                  <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 space-y-2.5">
+                    <div className="flex items-center gap-1.5 text-amber-900 font-bold">
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span>
+                        {isAr
+                          ? 'إعادة ضبط الوقت المضاف بالخطأ (للسماح للموظف بالتسجيل بنفسه):'
+                          : 'Reset Mistaken Manual Time (Allow Employee to Clock In/Out Normally):'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {hasIn && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmResetTime(matchedRec, 'clock_in')}
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>{isAr ? 'إعادة ضبط وقت الحضور' : 'Reset Clock-In'}</span>
+                        </button>
+                      )}
+                      {hasOut && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmResetTime(matchedRec, 'clock_out')}
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>{isAr ? 'إعادة ضبط وقت الانصراف' : 'Reset Clock-Out'}</span>
+                        </button>
+                      )}
+                      {hasIn && hasOut && (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmResetTime(matchedRec, 'both')}
+                          className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>{isAr ? 'إعادة ضبط الحضور والانصراف معاً' : 'Reset Both Times'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -1207,6 +1319,135 @@ export function AttendanceDepartureView({
           </div>
         </div>
       )}
+
+      {/* IT Reset Clock-In / Clock-Out Time Modal */}
+      {resetModalRecord && isITAccount && onResetAttendanceTime && (() => {
+        const recIn = (resetModalRecord.clock_in || resetModalRecord.check_in_time || '').trim();
+        const rawRecOut = (resetModalRecord.clock_out || resetModalRecord.check_out_time || '').trim();
+        const recOut = rawRecOut === '--' || rawRecOut === '-' ? '' : rawRecOut;
+        return (
+          <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-xs">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                <div>
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] font-extrabold uppercase">
+                    {isAr ? 'إعادة ضبط بواسطة IT' : 'IT Time Reset'}
+                  </span>
+                  <h3 className="text-base font-black text-slate-900 mt-1">
+                    {isAr
+                      ? 'إعادة ضبط وقت الحضور أو الانصراف'
+                      : 'Reset Employee Clock-In / Clock-Out Time'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResetModalRecord(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'الموظف:' : 'Employee:'}</span>
+                  <span className="font-black text-slate-900">{resetModalRecord.employee_name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'التاريخ:' : 'Date:'}</span>
+                  <span className="font-mono font-bold text-slate-800">{resetModalRecord.date}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'وقت الحضور الحالي:' : 'Current Check-In:'}</span>
+                  <span className="font-mono font-bold text-emerald-700">{recIn || (isAr ? 'غير مسجل' : 'Not set')}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">{isAr ? 'وقت الانصراف الحالي:' : 'Current Check-Out:'}</span>
+                  <span className="font-mono font-bold text-blue-700">{recOut || (isAr ? 'غير مسجل' : 'Not set')}</span>
+                </div>
+              </div>
+
+              <p className="text-slate-600 leading-relaxed">
+                {isAr
+                  ? 'اختر الوقت الذي تمت إضافته بالخطأ لإعادة ضبطه، وسيتمكن الموظف فوراً من تسجيل الحضور أو الانصراف بنفسه بشكل طبيعي:'
+                  : 'Select which time entry was added by mistake to reset it. The employee will immediately be able to clock in or clock out normally:'}
+              </p>
+
+              <div className="space-y-2.5">
+                {recIn && (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmResetTime(resetModalRecord, 'clock_in')}
+                    className="w-full p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 font-bold flex items-center justify-between cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>
+                        {isAr
+                          ? `إعادة ضبط وقت الحضور (${recIn})`
+                          : `Reset Clock-In Time (${recIn})`}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-white text-emerald-700 border border-emerald-200">
+                      {isAr ? 'يسمح بتسجيل الحضور' : 'Allows Clock-In'}
+                    </span>
+                  </button>
+                )}
+
+                {recOut && (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmResetTime(resetModalRecord, 'clock_out')}
+                    className="w-full p-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 font-bold flex items-center justify-between cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 text-blue-700 shrink-0" />
+                      <span>
+                        {isAr
+                          ? `إعادة ضبط وقت الانصراف (${recOut})`
+                          : `Reset Clock-Out Time (${recOut})`}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-white text-blue-700 border border-blue-200">
+                      {isAr ? 'يسمح بتسجيل الانصراف' : 'Allows Clock-Out'}
+                    </span>
+                  </button>
+                )}
+
+                {recIn && recOut && (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmResetTime(resetModalRecord, 'both')}
+                    className="w-full p-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold flex items-center justify-between cursor-pointer transition-colors shadow-xs"
+                  >
+                    <span className="flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 shrink-0" />
+                      <span>
+                        {isAr
+                          ? 'إعادة ضبط وقتي الحضور والانصراف معاً'
+                          : 'Reset Both Clock-In & Clock-Out'}
+                      </span>
+                    </span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-amber-800 text-amber-100">
+                      {isAr ? 'إعادة ضبط كاملة' : 'Full Reset'}
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setResetModalRecord(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+                >
+                  {isAr ? 'إلغاء' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

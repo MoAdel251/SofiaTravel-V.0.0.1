@@ -413,7 +413,7 @@ export function normalizeAttendanceRecord(
   // Match employee log-in / log-out timestamps for this date if available
   let loginTime = raw.login_time || '';
   let logoutTime = raw.logout_time || '';
-  if (dateStr && loginLogs.length > 0) {
+  if (dateStr && loginLogs.length > 0 && !raw.reset_by_it) {
     const dayLogs = loginLogs.filter(
       l =>
         l.date === dateStr &&
@@ -428,15 +428,20 @@ export function normalizeAttendanceRecord(
     if (!loginTime && loginEntry?.time) loginTime = loginEntry.time;
     if (!logoutTime && logoutEntry?.time) logoutTime = logoutEntry.time;
   }
+  if (raw.reset_by_it && !cleanIn) loginTime = '';
+  if (raw.reset_by_it && !cleanOut) logoutTime = '';
 
-  const isEditedByIT =
-    raw.entry_source === 'IT Manual' ||
-    raw.recorded_by === 'IT' ||
-    loginLogs.some(
-      l =>
-        l.record_id === raw.id &&
-        /attendance edited|manual/i.test(`${l.action} ${l.details}`)
-    );
+  const isEditedByIT = raw.reset_by_it
+    ? raw.entry_source === 'IT Manual'
+    : (
+        raw.entry_source === 'IT Manual' ||
+        raw.recorded_by === 'IT' ||
+        loginLogs.some(
+          l =>
+            l.record_id === raw.id &&
+            /attendance edited|manual/i.test(`${l.action} ${l.details}`)
+        )
+      );
 
   const originalAttendanceStatus =
     raw.attendance_status ||
@@ -468,6 +473,8 @@ export function normalizeAttendanceRecord(
     status: shiftCompleted ? 'Completed' : 'Clocked In',
     entry_source: isEditedByIT ? 'IT Manual' : (raw.entry_source || 'Employee'),
     recorded_by: raw.recorded_by || (isEditedByIT ? 'IT' : resolvedName),
+    reset_by_it: Boolean(raw.reset_by_it),
+    reset_at: raw.reset_at,
     login_time: loginTime || cleanIn || undefined,
     logout_time: logoutTime || cleanOut || undefined,
     notes: raw.notes || '',

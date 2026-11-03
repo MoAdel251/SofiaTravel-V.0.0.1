@@ -349,9 +349,16 @@ export const dataService = {
     // 3. Synchronize with Backend API endpoint (if running)
     if (apiEndpoint) {
       try {
+        let actingUser = '';
+        try {
+          actingUser = localStorage.getItem('sofia_travel_user') || '';
+        } catch {}
         await fetch(apiEndpoint, {
           method: apiMethod,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(actingUser ? { 'x-acting-user': actingUser } : {}),
+          },
           body: JSON.stringify(cleanData),
         });
       } catch (apiErr) {

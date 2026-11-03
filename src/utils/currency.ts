@@ -9,6 +9,24 @@ export const DEFAULT_EXCHANGE_RATES: ExchangeRate[] = [
   { currency: 'AED', rate_to_usd: 13.6 },
 ];
 
+const FALLBACK_PER_USD: Record<string, number> = {
+  USD: 1.0,
+  EGP: 50.0,
+  EUR: 0.92,
+  GBP: 0.79,
+  SAR: 3.75,
+  AED: 3.67,
+};
+
+export function normalizeCurrencyCode(currency: string = 'EGP'): string {
+  const c = String(currency || 'EGP').trim().toUpperCase();
+  if (c === '$' || c === 'US$') return 'USD';
+  if (c === '€') return 'EUR';
+  if (c === '£') return 'GBP';
+  if (c === 'ج.م' || c === 'LE' || c === 'EGP') return 'EGP';
+  return c || 'EGP';
+}
+
 /**
  * Returns currency symbol / abbreviation strictly according to system rules:
  * - Egyptian Pound -> 'EGP'
@@ -17,9 +35,8 @@ export const DEFAULT_EXCHANGE_RATES: ExchangeRate[] = [
  * - Others -> standard code
  */
 export function getCurrencySymbol(currency: string = 'EGP'): string {
-  const code = (currency || 'EGP').toUpperCase().trim();
+  const code = normalizeCurrencyCode(currency);
   switch (code) {
-    case '$':
     case 'USD':
       return '$';
     case 'EGP':
@@ -51,8 +68,8 @@ export function formatCurrency(
     maximumFractionDigits: 2,
   });
 
-  const code = (currency || 'EGP').toUpperCase().trim();
-  if (code === 'USD' || code === '$') {
+  const code = normalizeCurrencyCode(currency);
+  if (code === 'USD') {
     return `$${numStr} USD`;
   } else if (code === 'EGP') {
     return `${numStr} EGP`;
@@ -66,7 +83,40 @@ export function formatCurrency(
 }
 
 /**
- * Convert an amount from one currency to another using exchange rates (Base currency: EGP).
+ * Resolves how many EGP equal 1 unit of `curr`, supporting both:
+ * 1) Server USD-base rates (e.g., USD: 1.0, EUR: 0.92, EGP: 48.5)
+ * 2) Client EGP-base rates (e.g., EGP: 1.0, USD: 50.0, EUR: 55.0)
+ */
+export function getRateInEgp(
+  currency: string = 'EGP',
+  rates: ExchangeRate[] = DEFAULT_EXCHANGE_RATES
+): number {
+  const code = normalizeCurrencyCode(currency);
+  if (code === 'EGP') return 1.0;
+
+  const list = Array.isArray(rates) && rates.length > 0 ? rates : DEFAULT_EXCHANGE_RATES;
+  const egpEntry = list.find(r => normalizeCurrencyCode(r.currency) === 'EGP');
+  const isUnitsPerUSD = !egpEntry || Number(egpEntry.rate_to_usd) > 5;
+
+  if (isUnitsPerUSD) {
+    const egpPerUsd = egpEntry && Number(egpEntry.rate_to_usd) > 0 ? Number(egpEntry.rate_to_usd) : FALLBACK_PER_USD.EGP;
+    if (code === 'USD') return egpPerUsd;
+    const targetEntry = list.find(r => normalizeCurrencyCode(r.currency) === code);
+    const unitsPerUsd = targetEntry && Number(targetEntry.rate_to_usd) > 0
+      ? Number(targetEntry.rate_to_usd)
+      : (FALLBACK_PER_USD[code] || 1.0);
+    return unitsPerUsd > 0 ? egpPerUsd / unitsPerUsd : egpPerUsd;
+  } else {
+    const targetEntry = list.find(r => normalizeCurrencyCode(r.currency) === code);
+    if (targetEntry && Number(targetEntry.rate_to_usd) > 0) {
+      return Number(targetEntry.rate_to_usd);
+    }
+    return 50.0 / (FALLBACK_PER_USD[code] || 1.0);
+  }
+}
+
+/**
+ * Convert an amount from one currency to another using exchange rates.
  */
 export function convertCurrency(
   amount: number,
@@ -74,26 +124,15 @@ export function convertCurrency(
   toCurrency: string = 'EGP',
   rates: ExchangeRate[] = DEFAULT_EXCHANGE_RATES
 ): number {
-  const normalize = (curr: string) => {
-    const c = (curr || 'EGP').toUpperCase().trim();
-    return c === '$' ? 'USD' : c;
-  };
-  const from = normalize(fromCurrency);
-  const to = normalize(toCurrency);
-  if (!amount || from === to) return amount;
+  const num = Number(amount) || 0;
+  const from = normalizeCurrencyCode(fromCurrency);
+  const to = normalizeCurrencyCode(toCurrency);
+  if (num === 0 || from === to) return num;
 
-  const getRateToEgp = (curr: string) => {
-    if (curr === 'EGP') return 1.0;
-    const r = rates.find(x => (x.currency || '').toUpperCase() === curr);
-    return r ? Number(r.rate_to_usd) : (curr === 'USD' ? 50.0 : curr === 'EUR' ? 55.0 : 1.0);
-  };
-
-  const fromRate = getRateToEgp(from); // 1 Unit = fromRate EGP
-  const toRate = getRateToEgp(to);     // 1 Unit = toRate EGP
-
-  // Amount in EGP
-  const inEgp = amount * fromRate;
-  return toRate > 0 ? inEgp / toRate : inEgp;
+  const fromInEgp = getRateInEgp(from, rates);
+  const toInEgp = getRateInEgp(to, rates);
+  const inEgp = num * fromInEgp;
+  return toInEgp > 0 ? inEgp / toInEgp : inEgp;
 }
 
 /**
@@ -105,18 +144,17 @@ export function calculateEgpEquivalent(
   exchangeRate?: number,
   rates: ExchangeRate[] = DEFAULT_EXCHANGE_RATES
 ): { rate: number; egpEquivalent: number } {
-  const curr = (currency || 'EGP').toUpperCase().trim();
+  const curr = normalizeCurrencyCode(currency);
+  const num = Number(amount) || 0;
   if (curr === 'EGP') {
-    return { rate: 1.0, egpEquivalent: Number(amount) || 0 };
+    return { rate: 1.0, egpEquivalent: num };
   }
-  let rate = exchangeRate;
-  if (!rate || rate <= 0) {
-    const found = rates.find(r => (r.currency || '').toUpperCase() === curr);
-    rate = found ? Number(found.rate_to_usd) : (curr === 'USD' ? 50.0 : curr === 'EUR' ? 55.0 : 1.0);
-  }
+  const computedRate = getRateInEgp(curr, rates);
+  // Only trust explicit exchangeRate if it represents EGP per unit (e.g., > 1 for USD/EUR/SAR)
+  const rate = exchangeRate && exchangeRate > 1.5 ? Number(exchangeRate) : computedRate;
   return {
-    rate,
-    egpEquivalent: (Number(amount) || 0) * rate
+    rate: Math.round(rate * 100) / 100,
+    egpEquivalent: num * rate,
   };
 }
 
@@ -129,12 +167,13 @@ export function formatMultiCurrencyDisplay(
   exchangeRate?: number,
   rates: ExchangeRate[] = DEFAULT_EXCHANGE_RATES
 ): string {
-  const { rate, egpEquivalent } = calculateEgpEquivalent(amount, currency, exchangeRate, rates);
-  const origFormatted = formatCurrency(amount, currency);
-  if (currency.toUpperCase() === 'EGP') {
+  const code = normalizeCurrencyCode(currency);
+  const { rate, egpEquivalent } = calculateEgpEquivalent(amount, code, exchangeRate, rates);
+  const origFormatted = formatCurrency(amount, code);
+  if (code === 'EGP') {
     return origFormatted;
   }
-  return `${origFormatted} (Rate: 1 ${currency} = ${rate} EGP → Equivalent: ${formatCurrency(egpEquivalent, 'EGP')})`;
+  return `${origFormatted} (Rate: 1 ${code} = ${rate} EGP → Equivalent: ${formatCurrency(egpEquivalent, 'EGP')})`;
 }
 
 export function formatTripleCurrencyString(
@@ -142,6 +181,7 @@ export function formatTripleCurrencyString(
   sourceCurrency: string = 'USD',
   rates: ExchangeRate[] = DEFAULT_EXCHANGE_RATES
 ): string {
-  const { egpEquivalent } = calculateEgpEquivalent(amount, sourceCurrency, undefined, rates);
-  return `${formatCurrency(amount, sourceCurrency)} (Equivalent: ${formatCurrency(egpEquivalent, 'EGP')})`;
+  const code = normalizeCurrencyCode(sourceCurrency);
+  const { egpEquivalent } = calculateEgpEquivalent(amount, code, undefined, rates);
+  return `${formatCurrency(amount, code)} (Equivalent: ${formatCurrency(egpEquivalent, 'EGP')})`;
 }

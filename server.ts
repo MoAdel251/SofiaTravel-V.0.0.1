@@ -1069,11 +1069,11 @@ app.put("/api/attendance/:id", async (req, res) => {
   const mergedClockIn =
     req.body.clock_in !== undefined
       ? req.body.clock_in
-      : (req.body.check_in_time !== undefined ? req.body.check_in_time : (existing.clock_in || existing.check_in_time));
+      : (req.body.check_in_time !== undefined ? req.body.check_in_time : (existing.clock_in || existing.check_in_time || ''));
   const mergedClockOut =
     req.body.clock_out !== undefined
       ? req.body.clock_out
-      : (req.body.check_out_time !== undefined ? req.body.check_out_time : (existing.clock_out || existing.check_out_time));
+      : (req.body.check_out_time !== undefined ? req.body.check_out_time : (existing.clock_out || existing.check_out_time || ''));
   const calc = calculateServerWorkingHours(mergedClockIn, mergedClockOut || null);
   const shiftCompleted = Boolean(mergedClockIn && mergedClockOut);
   const nowIso = new Date().toISOString();
@@ -1082,29 +1082,109 @@ app.put("/api/attendance/:id", async (req, res) => {
     ...existing,
     ...req.body,
     id,
-    clock_in: mergedClockIn,
+    clock_in: mergedClockIn || '',
     clock_out: mergedClockOut || '',
-    check_in_time: mergedClockIn,
+    check_in_time: mergedClockIn || '',
     check_out_time: mergedClockOut || '',
     working_hours: shiftCompleted ? calc.working_hours : 0,
     working_hours_formatted: shiftCompleted ? calc.working_hours_formatted : '0h 00m',
     total_working_hours: shiftCompleted ? calc.working_hours_formatted : '--',
-    status: calc.status,
+    status: shiftCompleted ? 'Completed' : 'Clocked In',
     updated_at: nowIso,
     updatedAt: nowIso
   };
 
   if (idx !== -1) db.attendance[idx] = updated;
   else db.attendance.unshift(updated);
+  db.employee_attendance = (db.employee_attendance || []).filter((a: any) => a.id !== id);
 
   await saveToFirestore('attendance', id, updated);
+  await deleteFromFirestore('employee_attendance', id);
   await logActivity(
     actingUser || updated.employee_name || 'Employee',
-    isManualRequest ? 'Attendance Edited' : 'Self Log Out',
+    isManualRequest ? 'Attendance Edited' : (shiftCompleted ? 'Self Log Out' : 'Self Log In'),
     'Attendance',
     updated.employee_id || id
   );
   res.json(updated);
+});
+
+app.post("/api/attendance/:id/reset", async (req, res) => {
+  const actingUser = String((req.headers['x-acting-user'] as string) || req.body?._actingUser || '').trim();
+  if (actingUser !== 'IT') {
+    return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can reset employee clock-in/clock-out times.' });
+  }
+  const { id } = req.params;
+  const target: 'clock_in' | 'clock_out' | 'both' =
+    req.body?.target === 'clock_in' || req.body?.target === 'clock_out' ? req.body.target : 'both';
+
+  await loadMergedAttendanceFromFirestore();
+  const idx = (db.attendance || []).findIndex((a: any) => a.id === id);
+  const existing = idx !== -1 ? db.attendance[idx] : null;
+  if (!existing) {
+    return res.json({ deleted: true, id });
+  }
+
+  const currentIn = String(existing.clock_in || existing.check_in_time || '').trim();
+  const rawOut = String(existing.clock_out || existing.check_out_time || '').trim();
+  const currentOut = rawOut === '--' || rawOut === '-' ? '' : rawOut;
+
+  const nextIn = target === 'clock_in' || target === 'both' ? '' : currentIn;
+  const nextOut = target === 'clock_out' || target === 'both' ? '' : currentOut;
+  const empName = existing.employee_name || 'Employee';
+
+  if (!nextIn && !nextOut) {
+    db.attendance = (db.attendance || []).filter((a: any) => a.id !== id);
+    db.employee_attendance = (db.employee_attendance || []).filter((a: any) => a.id !== id);
+    await deleteFromFirestore('attendance', id);
+    await deleteFromFirestore('employee_attendance', id);
+    await logActivity(
+      'IT',
+      `Reset attendance record for ${empName} (${existing.date || ''}) — employee can clock in/out normally`,
+      'Attendance',
+      existing.employee_id || id
+    );
+    return res.json({ deleted: true, id });
+  }
+
+  const nowIso = new Date().toISOString();
+  const updated = {
+    ...existing,
+    id,
+    clock_in: nextIn,
+    clock_out: nextOut,
+    check_in_time: nextIn,
+    check_out_time: nextOut,
+    login_time: nextIn ? (existing.login_time || nextIn) : '',
+    logout_time: nextOut ? (existing.logout_time || nextOut) : '',
+    working_hours: 0,
+    working_hours_formatted: '0h 00m',
+    total_working_hours: '--',
+    late_minutes: nextIn ? (Number(existing.late_minutes) || 0) : 0,
+    early_departure_minutes: nextOut ? (Number(existing.early_departure_minutes) || 0) : 0,
+    attendance_status: nextIn ? (existing.attendance_status || 'Present') : 'Present',
+    status: 'Clocked In',
+    entry_source: 'Employee',
+    recorded_by: empName,
+    reset_by_it: true,
+    reset_at: nowIso,
+    updated_at: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (idx !== -1) db.attendance[idx] = updated;
+  else db.attendance.unshift(updated);
+  db.employee_attendance = (db.employee_attendance || []).filter((a: any) => a.id !== id);
+
+  await saveToFirestore('attendance', id, updated);
+  await deleteFromFirestore('employee_attendance', id);
+  await logActivity(
+    'IT',
+    `Reset ${target === 'clock_in' ? 'clock-in' : 'clock-out'} time for ${empName} (${existing.date || ''}) — employee can clock ${target === 'clock_in' ? 'in' : 'out'} normally`,
+    'Attendance',
+    existing.employee_id || id
+  );
+  return res.json({ deleted: false, record: updated });
 });
 
 app.delete("/api/attendance/:id", async (req, res) => {
@@ -2534,6 +2614,13 @@ app.put("/api/payroll-records/:id", async (req, res) => {
   res.json(newRec);
 });
 
+app.delete("/api/payroll-records/:id", async (req, res) => {
+  const { id } = req.params;
+  db.payroll_records = db.payroll_records.filter(p => p.id !== id);
+  await deleteFromFirestore('payroll_records', id);
+  res.json({ success: true });
+});
+
 // Employee Advances
 app.get("/api/employee-advances", async (req, res) => {
   const advances = await getCollectionDocs('employee_advances');
@@ -2541,11 +2628,17 @@ app.get("/api/employee-advances", async (req, res) => {
 });
 
 app.post("/api/employee-advances", async (req, res) => {
+  const advId = req.body.id || ("ADV-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const adv = {
-    id: req.body.id || ("ADV-" + Math.random().toString(36).substring(2, 7).toUpperCase()),
-    ...req.body
+    ...req.body,
+    id: advId
   };
-  db.employee_advances.push(adv);
+  const idx = db.employee_advances.findIndex(a => a.id === adv.id);
+  if (idx >= 0) {
+    db.employee_advances[idx] = adv;
+  } else {
+    db.employee_advances.push(adv);
+  }
   await saveToFirestore('employee_advances', adv.id, adv);
   res.json(adv);
 });
@@ -2554,11 +2647,11 @@ app.put("/api/employee-advances/:id", async (req, res) => {
   const { id } = req.params;
   const idx = db.employee_advances.findIndex(a => a.id === id);
   if (idx >= 0) {
-    db.employee_advances[idx] = { ...db.employee_advances[idx], ...req.body };
+    db.employee_advances[idx] = { ...db.employee_advances[idx], ...req.body, id };
     await saveToFirestore('employee_advances', id, db.employee_advances[idx]);
     return res.json(db.employee_advances[idx]);
   }
-  const newAdv = { id, ...req.body };
+  const newAdv = { ...req.body, id };
   db.employee_advances.push(newAdv);
   await saveToFirestore('employee_advances', id, newAdv);
   res.json(newAdv);
@@ -2578,13 +2671,33 @@ app.get("/api/commission-records", async (req, res) => {
 });
 
 app.post("/api/commission-records", async (req, res) => {
+  const commId = req.body.id || ("COMM-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const comm = {
-    id: req.body.id || ("COMM-" + Math.random().toString(36).substring(2, 7).toUpperCase()),
-    ...req.body
+    ...req.body,
+    id: commId
   };
-  db.commission_records.push(comm);
+  const idx = db.commission_records.findIndex(c => c.id === comm.id);
+  if (idx >= 0) {
+    db.commission_records[idx] = comm;
+  } else {
+    db.commission_records.push(comm);
+  }
   await saveToFirestore('commission_records', comm.id, comm);
   res.json(comm);
+});
+
+app.put("/api/commission-records/:id", async (req, res) => {
+  const { id } = req.params;
+  const idx = db.commission_records.findIndex(c => c.id === id);
+  if (idx >= 0) {
+    db.commission_records[idx] = { ...db.commission_records[idx], ...req.body, id };
+    await saveToFirestore('commission_records', id, db.commission_records[idx]);
+    return res.json(db.commission_records[idx]);
+  }
+  const newComm = { ...req.body, id };
+  db.commission_records.push(newComm);
+  await saveToFirestore('commission_records', id, newComm);
+  res.json(newComm);
 });
 
 app.delete("/api/commission-records/:id", async (req, res) => {
@@ -2601,11 +2714,17 @@ app.get("/api/finance-audit-logs", async (req, res) => {
 });
 
 app.post("/api/finance-audit-logs", async (req, res) => {
+  const logId = req.body.id || ("LOG-F-" + Math.random().toString(36).substring(2, 7).toUpperCase());
   const log = {
-    id: req.body.id || ("LOG-F-" + Math.random().toString(36).substring(2, 7).toUpperCase()),
-    ...req.body
+    ...req.body,
+    id: logId
   };
-  db.finance_audit_logs.push(log);
+  const idx = db.finance_audit_logs.findIndex(l => l.id === log.id);
+  if (idx >= 0) {
+    db.finance_audit_logs[idx] = log;
+  } else {
+    db.finance_audit_logs.push(log);
+  }
   await saveToFirestore('finance_audit_logs', log.id, log);
   res.json(log);
 });
@@ -2650,10 +2769,33 @@ app.get("/api/employees", async (req, res) => {
 });
 
 app.post("/api/employees", async (req, res) => {
-  const data = req.body;
+  const data = req.body || {};
   const name = data.name || data.full_name || 'New Employee';
   const position = data.position || data.job_title || data.role || 'Sales Executive';
   const empId = data.id || ("EMP-" + Math.random().toString(36).substring(2, 7).toUpperCase());
+  const actingUser = String((req.headers['x-acting-user'] as string) || data.created_by || '').trim();
+  const isCreatedByIT = actingUser.toUpperCase() === 'IT';
+  const posLower = String(position || '').trim().toLowerCase();
+  const deptLower = String(data.department || '').trim().toLowerCase();
+  const roleLower = String(data.role || '').trim().toLowerCase();
+  const isManagerOrAccountant =
+    ['manager', 'accountant', 'مدير', 'محاسب', 'رئيس حسابات', 'مدير عام', 'مدير فرع', 'مدير مالي'].some(
+      kw => posLower.includes(kw) || roleLower.includes(kw)
+    ) ||
+    posLower === 'accounting' ||
+    posLower === 'المحاسبة' ||
+    posLower === 'الحسابات' ||
+    ((deptLower === 'accounting' || deptLower === 'المحاسبة' || deptLower === 'الحسابات') &&
+      (!posLower || posLower === 'sales executive' || posLower === 'staff member'));
+
+  const shouldBeAdmin = Boolean(
+    data.is_admin === true ||
+    posLower === 'administrator' ||
+    posLower === 'admin' ||
+    String(data.account_type || '').toLowerCase() === 'admin' ||
+    (isCreatedByIT && isManagerOrAccountant)
+  );
+
   const emp = {
     employee_id: data.employee_id || ("E-" + Math.floor(200 + Math.random() * 800)),
     joining_date: data.joining_date || new Date().toISOString().split('T')[0],
@@ -2663,7 +2805,11 @@ app.post("/api/employees", async (req, res) => {
     full_name: data.full_name || name,
     position,
     job_title: data.job_title || position,
-    role: data.role || position,
+    is_admin: shouldBeAdmin,
+    account_type: shouldBeAdmin ? 'Admin' : (data.account_type || 'Employee'),
+    designation: shouldBeAdmin ? 'Admin' : (data.designation || 'Employee'),
+    role: shouldBeAdmin ? 'Admin' : (data.role || position),
+    created_by: data.created_by || actingUser || 'Administrator',
     status: data.status || 'Active',
     salary: Number(data.salary) || 0
   };
@@ -2673,7 +2819,7 @@ app.post("/api/employees", async (req, res) => {
   } else {
     db.employees.push(emp);
   }
-  await logActivity((req.headers['x-acting-user'] as string) || "Administrator", `Created/Updated employee account ${emp.name}`, "Employees", emp.employee_id);
+  await logActivity(actingUser || "Administrator", `Created/Updated employee account ${emp.name}${shouldBeAdmin ? ' [Admin]' : ''}`, "Employees", emp.employee_id);
   await saveToFirestore('employees', emp.id, emp);
   res.json(emp);
 });

@@ -5,16 +5,15 @@ import {
   XCircle, 
   Clock, 
   User, 
-  FileText, 
   Search, 
-  Filter, 
-  AlertCircle,
   Trash2,
   Edit3,
   Shield,
-  ArrowRight
+  DollarSign,
+  Plus
 } from 'lucide-react';
-import { PermissionRequest, UserRole } from '../types';
+import { PermissionRequest, UserRole, EmployeeAdvance, Employee } from '../types';
+import { formatCurrency } from '../utils/currency';
 
 interface PermissionRequestsViewProps {
   requests: PermissionRequest[];
@@ -22,6 +21,11 @@ interface PermissionRequestsViewProps {
   currentUsername: string;
   onApproveRequest: (id: string) => Promise<void> | void;
   onRejectRequest: (id: string, reason?: string) => Promise<void> | void;
+  advances?: EmployeeAdvance[];
+  employees?: Employee[];
+  currentEmployee?: Employee | null;
+  onAddAdvance?: (advance: EmployeeAdvance) => Promise<void> | void;
+  onUpdateAdvance?: (advance: EmployeeAdvance) => Promise<void> | void;
 }
 
 export function PermissionRequestsView({
@@ -29,7 +33,12 @@ export function PermissionRequestsView({
   userRole,
   currentUsername,
   onApproveRequest,
-  onRejectRequest
+  onRejectRequest,
+  advances = [],
+  employees = [],
+  currentEmployee = null,
+  onAddAdvance,
+  onUpdateAdvance
 }: PermissionRequestsViewProps) {
   const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,7 +46,18 @@ export function PermissionRequestsView({
   const [rejectionReason, setRejectionReason] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
 
+  // Employee Salary Advance Request Modal State
+  const [showAdvanceRequestModal, setShowAdvanceRequestModal] = useState(false);
+  const [advanceForm, setAdvanceForm] = useState({
+    employee_id: currentEmployee?.id || '',
+    amount: '',
+    currency: 'EGP',
+    reason: '',
+    repayment_method: 'Payroll Deduction'
+  });
+
   const canApprove = userRole === 'Administrator' || userRole === 'Manager';
+  const canApproveAdvances = userRole === 'Administrator' || userRole === 'Manager' || userRole === 'Accountant';
 
   const filteredRequests = requests.filter(r => {
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
@@ -48,6 +68,14 @@ export function PermissionRequestsView({
       (r.reason || "").toLowerCase().includes(searchTerm.toLowerCase());
     return matchesStatus && matchesSearch;
   });
+
+  const visibleAdvances = canApproveAdvances
+    ? advances
+    : advances.filter(a =>
+        a.employee_id === currentEmployee?.id ||
+        (a.employee_name || '').toLowerCase() === (currentEmployee?.name || currentUsername || '').toLowerCase() ||
+        (a.requested_by || '').toLowerCase() === (currentUsername || '').toLowerCase()
+      );
 
   const pendingCount = requests.filter(r => r.status === 'Pending').length;
   const approvedCount = requests.filter(r => r.status === 'Approved').length;
@@ -74,6 +102,65 @@ export function PermissionRequestsView({
     }
   };
 
+  const handleSubmitAdvanceRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onAddAdvance) return;
+    const amt = Number(advanceForm.amount) || 0;
+    if (amt <= 0) return;
+
+    const targetEmp =
+      employees.find(emp => emp.id === advanceForm.employee_id) ||
+      currentEmployee ||
+      employees.find(emp => (emp.username || emp.name || '').toLowerCase() === currentUsername.toLowerCase());
+
+    const newAdv: EmployeeAdvance = {
+      id: 'ADV-' + Date.now(),
+      advance_id: 'ADV-' + Math.floor(1000 + Math.random() * 9000),
+      employee_id: targetEmp?.id || currentUsername,
+      employee_name: targetEmp?.name || currentUsername,
+      date: new Date().toISOString().split('T')[0],
+      amount: amt,
+      currency: advanceForm.currency || 'EGP',
+      reason: advanceForm.reason || 'Salary advance request',
+      repayment_method: advanceForm.repayment_method || 'Payroll Deduction',
+      outstanding_amount: amt,
+      status: 'Requested',
+      requested_by: currentUsername
+    };
+
+    await onAddAdvance(newAdv);
+    setShowAdvanceRequestModal(false);
+    setAdvanceForm({
+      employee_id: currentEmployee?.id || '',
+      amount: '',
+      currency: 'EGP',
+      reason: '',
+      repayment_method: 'Payroll Deduction'
+    });
+  };
+
+  const handleApproveAdvanceRequest = async (adv: EmployeeAdvance) => {
+    if (!onUpdateAdvance) return;
+    await onUpdateAdvance({
+      ...adv,
+      status: 'Outstanding',
+      outstanding_amount: Number(adv.amount) || 0,
+      approved_by: currentUsername,
+      approved_at: new Date().toISOString().split('T')[0]
+    });
+  };
+
+  const handleRejectAdvanceRequest = async (adv: EmployeeAdvance) => {
+    if (!onUpdateAdvance) return;
+    await onUpdateAdvance({
+      ...adv,
+      status: 'Rejected',
+      outstanding_amount: 0,
+      approved_by: currentUsername,
+      approved_at: new Date().toISOString().split('T')[0]
+    });
+  };
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-slate-50 min-h-screen">
       {/* Header */}
@@ -84,13 +171,114 @@ export function PermissionRequestsView({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-              Permission & Approval Requests
+              Permission & Financial Advance Requests
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Employees must obtain manager or admin authorization to edit or delete content. Review and execute pending requests here.
+            Review employee edit/delete authorization requests and submit or approve employee salary advances synchronized directly with the Finance Dashboard.
           </p>
         </div>
+        {onAddAdvance && (
+          <button
+            onClick={() => {
+              setAdvanceForm({
+                employee_id: currentEmployee?.id || (employees[0]?.id || ''),
+                amount: '',
+                currency: 'EGP',
+                reason: '',
+                repayment_method: 'Payroll Deduction'
+              });
+              setShowAdvanceRequestModal(true);
+            }}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer self-start md:self-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Request Salary Advance</span>
+          </button>
+        )}
+      </div>
+
+      {/* Employee Salary Advance Requests Section (Synced with Finance Dashboard) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <DollarSign className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-extrabold text-slate-900">Employee Salary Advances (Synced with Finance Dashboard)</h2>
+              <p className="text-[11px] text-slate-500">All requested and approved employee advances appear live on the Finance Dashboard & Payroll.</p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold self-start sm:self-auto">
+            {visibleAdvances.filter(a => a.status === 'Requested').length} Pending Requests • {visibleAdvances.filter(a => a.status === 'Outstanding' || a.status === 'Approved' || a.status === 'Partially Repaid').length} Active
+          </span>
+        </div>
+
+        {visibleAdvances.length === 0 ? (
+          <p className="text-xs text-slate-400 py-3 text-center">No salary advance requests recorded yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider">
+                <tr>
+                  <th className="py-2.5 px-3">Ref #</th>
+                  <th className="py-2.5 px-3">Employee</th>
+                  <th className="py-2.5 px-3">Date</th>
+                  <th className="py-2.5 px-3">Amount</th>
+                  <th className="py-2.5 px-3">Repayment</th>
+                  <th className="py-2.5 px-3">Reason</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  {canApproveAdvances && <th className="py-2.5 px-3 text-right">Action</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {visibleAdvances.map(adv => (
+                  <tr key={adv.id} className="hover:bg-slate-50/70">
+                    <td className="py-2.5 px-3 font-mono font-bold text-slate-700">{adv.advance_id}</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">{adv.employee_name}</td>
+                    <td className="py-2.5 px-3 text-slate-500">{adv.date}</td>
+                    <td className="py-2.5 px-3 font-extrabold text-slate-900">{formatCurrency(adv.amount, adv.currency || 'EGP')}</td>
+                    <td className="py-2.5 px-3 text-slate-600">{adv.repayment_method}</td>
+                    <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">{adv.reason}</td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                        adv.status === 'Requested' ? 'bg-amber-100 text-amber-800' :
+                        adv.status === 'Rejected' ? 'bg-rose-100 text-rose-800' :
+                        adv.status === 'Fully Repaid' ? 'bg-emerald-100 text-emerald-800' :
+                        'bg-indigo-100 text-indigo-800'
+                      }`}>
+                        {adv.status === 'Outstanding' ? 'Approved / Outstanding' : adv.status}
+                      </span>
+                    </td>
+                    {canApproveAdvances && (
+                      <td className="py-2.5 px-3 text-right">
+                        {adv.status === 'Requested' ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleApproveAdvanceRequest(adv)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleRejectAdvanceRequest(adv)}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-bold cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400">Synced</span>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -285,6 +473,101 @@ export function PermissionRequestsView({
           ))
         )}
       </div>
+
+      {/* Request Salary Advance Modal */}
+      {showAdvanceRequestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl p-6 shadow-2xl border border-slate-200 w-full max-w-md space-y-4">
+            <h3 className="font-extrabold text-slate-900 text-base">Request Salary Advance</h3>
+            <p className="text-xs text-slate-500">
+              Submitted advance requests appear immediately on the Finance Dashboard for owner/accountant review and payroll synchronization.
+            </p>
+            <form onSubmit={handleSubmitAdvanceRequest} className="space-y-3 text-xs">
+              {canApproveAdvances && employees.length > 0 && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Employee</label>
+                  <select
+                    value={advanceForm.employee_id}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, employee_id: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold"
+                    required
+                  >
+                    <option value="">Select Employee...</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name} ({emp.position})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Amount *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    required
+                    value={advanceForm.amount}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })}
+                    placeholder="e.g. 2000"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Currency</label>
+                  <select
+                    value={advanceForm.currency}
+                    onChange={(e) => setAdvanceForm({ ...advanceForm, currency: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold"
+                  >
+                    <option value="EGP">EGP</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Repayment Method</label>
+                <select
+                  value={advanceForm.repayment_method}
+                  onChange={(e) => setAdvanceForm({ ...advanceForm, repayment_method: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold"
+                >
+                  <option value="Payroll Deduction">Payroll Deduction (December Salary)</option>
+                  <option value="Cash Repayment">Direct Cash Repayment</option>
+                  <option value="Monthly Installments">Monthly Installments</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Reason *</label>
+                <textarea
+                  rows={2}
+                  required
+                  value={advanceForm.reason}
+                  onChange={(e) => setAdvanceForm({ ...advanceForm, reason: e.target.value })}
+                  placeholder="State reason for advance request..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanceRequestModal(false)}
+                  className="px-4 py-2 rounded-xl font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-sm cursor-pointer"
+                >
+                  Submit Request
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Reject Modal */}
       {rejectModalId && (

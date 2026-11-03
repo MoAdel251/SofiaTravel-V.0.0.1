@@ -106,7 +106,7 @@ export function Navbar({
   };
 
   const menuItems = [
-    { id: 'dashboard', labelKey: 'nav_dashboard', defaultLabel: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
+    { id: 'dashboard', labelKey: 'nav_dashboard', defaultLabel: 'Dashboard', icon: LayoutDashboard, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'vouchers', labelKey: 'nav_vouchers', defaultLabel: 'Customer Vouchers', icon: Ticket, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_bookings' },
     { id: 'services', labelKey: 'nav_services', defaultLabel: 'Tourism Services', icon: Layers, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_trips' },
     { id: 'customers', labelKey: 'nav_customers', defaultLabel: 'Customers', icon: Users, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_customers' },
@@ -121,7 +121,7 @@ export function Navbar({
     { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },
     { id: 'reports', labelKey: 'nav_reports', defaultLabel: 'Reports', icon: BarChart3, roles: ['Administrator', 'Manager', 'Accountant'], perm: 'view_reports' },
-    { id: 'finance-payroll', labelKey: 'nav_finance_payroll', defaultLabel: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator'], perm: ['view_finance', 'view_payroll'] },
+    { id: 'finance-payroll', labelKey: 'nav_finance_payroll', defaultLabel: 'Finance & Payroll', icon: DollarSign, roles: ['Administrator', 'Accountant'], perm: ['view_finance', 'view_payroll'] },
     { id: 'notifications', labelKey: 'nav_notifications', defaultLabel: 'Notifications', icon: Bell, roles: ['Administrator', 'Manager', 'Sales', 'Accountant', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'settings', labelKey: 'nav_settings', defaultLabel: 'Settings', icon: Settings, roles: ['Administrator', 'Manager'], perm: 'view_settings' },
     { id: 'activity-log', labelKey: 'nav_audit_log', defaultLabel: 'Audit Log', icon: Activity, roles: ['Administrator', 'Manager'], perm: 'view_settings' }
@@ -299,7 +299,7 @@ export function Navbar({
               >
                 <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                 <span>
-                  {todayAttendance && (todayAttendance.clock_out || todayAttendance.check_out_time)
+                  {todayAttendance && todayInDisplay && (todayAttendance.clock_out || todayAttendance.check_out_time)
                     ? `${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`}`
                     : (language === 'ar' ? 'تسجيل حضور' : 'Clock In')}
                 </span>
@@ -351,6 +351,11 @@ export function Navbar({
           <div className="hidden md:flex items-center gap-1.5 h-9 px-2.5 bg-slate-800 rounded-xl text-xs font-semibold text-slate-200 border border-slate-700">
             <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span className="truncate max-w-[90px]">{username}</span>
+            {(isAdmin || userRole === 'Administrator') && (
+              <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-extrabold uppercase tracking-wider shrink-0">
+                Admin
+              </span>
+            )}
           </div>
 
           {/* Notification Bell */}
@@ -529,8 +534,12 @@ export function Navbar({
                 />
                 <div className="min-w-0">
                   <p className="font-bold text-sm text-white truncate">{companyName}</p>
-                  <p className="text-[11px] text-slate-400 truncate">
-                    {username} · {userRole}
+                  <p className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
+                    <span className="truncate">{username}</span>
+                    <span>·</span>
+                    <span className={(isAdmin || userRole === 'Administrator') ? 'text-cyan-300 font-extrabold' : ''}>
+                      {(isAdmin || userRole === 'Administrator') ? 'Admin' : userRole}
+                    </span>
                   </p>
                 </div>
               </div>
@@ -694,7 +703,7 @@ export function Navbar({
                     >
                       <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
                       <span>
-                        {todayAttendance && (todayAttendance.clock_out || todayAttendance.check_out_time)
+                        {todayAttendance && todayInDisplay && (todayAttendance.clock_out || todayAttendance.check_out_time)
                           ? (language === 'ar'
                               ? `بدء وردية جديدة (اليوم: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`})`
                               : `Clock In Again (Today: ${todayAttendance.working_hours_formatted || `${todayAttendance.working_hours}h`})`)

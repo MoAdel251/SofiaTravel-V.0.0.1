@@ -618,7 +618,11 @@ export interface EmployeeAdvance {
   reason: string;
   repayment_method: string;
   outstanding_amount: number;
-  status: 'Outstanding' | 'Partially Repaid' | 'Fully Repaid';
+  status: 'Requested' | 'Approved' | 'Rejected' | 'Outstanding' | 'Partially Repaid' | 'Fully Repaid';
+  requested_by?: string;
+  approved_by?: string;
+  approved_at?: string;
+  notes?: string;
 }
 
 export interface CommissionRecord {
@@ -657,7 +661,8 @@ export type EmployeePosition =
   | 'Reservation Agent' 
   | 'Accountant' 
   | 'Operations' 
-  | 'Customer Service';
+  | 'Customer Service'
+  | (string & {});
 
 export interface Employee {
   id: string;
@@ -667,7 +672,12 @@ export interface Employee {
   phone: string;
   email: string;
   position: EmployeePosition;
+  job_title?: string;
+  role?: string;
   is_admin?: boolean;
+  account_type?: 'Admin' | 'Employee';
+  designation?: 'Admin' | 'Employee' | string;
+  created_by?: string;
   department: string;
   joining_date: string;
   salary: number;
@@ -848,6 +858,8 @@ export interface AttendanceRecord {
   status: 'Clocked In' | 'Completed' | 'Present' | 'Late' | 'Absent';
   entry_source?: 'Employee' | 'IT Manual';
   recorded_by?: string;
+  reset_by_it?: boolean;
+  reset_at?: string;
   login_time?: string;
   logout_time?: string;
   notes?: string;
