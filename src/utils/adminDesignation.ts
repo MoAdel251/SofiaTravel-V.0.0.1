@@ -60,6 +60,10 @@ export function isEmployeeDesignatedAdmin(
 
   if (emp.is_admin === true) return true;
 
+  // An explicit demotion by an administrator must win over the legacy
+  // "IT-created Manager/Accountant is Admin" heuristic below.
+  if (emp.is_admin === false) return false;
+
   const accountType = String(emp.account_type || '').trim().toLowerCase();
   const designation = String(emp.designation || '').trim().toLowerCase();
   const role = String(emp.role || '').trim().toLowerCase();

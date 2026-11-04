@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+
+// UPLOAD_HELPER_SIGNATURE: SofiaTravelManager_v2026_UploadReady = true
+const UPLOAD_BUNDLE_VERSION = "2026.11.03-optimized";
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { CustomersView } from './components/CustomersView';
@@ -94,6 +97,8 @@ import {
   sortNotificationsNewestFirst,
   syncExistingEmployeePushSubscription,
 } from './services/pushNotificationService';
+
+import { isTabAllowedForUser, normalizePermissions } from './utils/permissions';
 
 export default function App() {
   const { language } = useLanguage();
@@ -214,27 +219,81 @@ export default function App() {
     itemName: ''
   });
 
-  const currentEmployee = employees.find(e =>
-    (currentEmpId && (e.id === currentEmpId || e.employee_id === currentEmpId)) ||
-    (e.username === currentUsername || e.name === currentUsername)
-  );
+  const currentEmployee = useMemo(() => {
+    if (currentEmpId) {
+      const byId = employees.find(e => e.id === currentEmpId || e.employee_id === currentEmpId);
+      if (byId) return byId;
+    }
+    const byUsername = employees.find(e => e.username === currentUsername);
+    if (byUsername) return byUsername;
+    return employees.find(e => e.name === currentUsername);
+  }, [employees, currentEmpId, currentUsername]);
 
   const isITAccount = isITDeveloperAccount(currentUsername, currentEmpId, currentEmployee);
   const isCurrentAdmin =
     isITAccount ||
-    userRole === 'Administrator' ||
     isEmployeeDesignatedAdmin(currentEmployee);
-  const effectiveUserRole: UserRole = isCurrentAdmin ? 'Administrator' : userRole;
-  const currentUserPermissions = isCurrentAdmin ? [] : (currentEmployee?.permissions || []);
+  const employeeRecordRole: UserRole =
+    currentEmployee &&
+    ['Manager', 'Accountant', 'Operations', 'Customer Service', 'Sales'].includes(
+      String(currentEmployee.position || '')
+    )
+      ? (currentEmployee.position as UserRole)
+      : 'Sales';
+  // A persisted "Administrator" role must never outlive the employee record that granted it.
+  const effectiveUserRole: UserRole = isCurrentAdmin
+    ? 'Administrator'
+    : userRole === 'Administrator'
+      ? employeeRecordRole
+      : userRole;
+  const currentUserPermissions = useMemo(
+    () => (isCurrentAdmin ? [] : normalizePermissions(currentEmployee?.permissions)),
+    [isCurrentAdmin, currentEmployee]
+  );
 
   useEffect(() => {
-    if (isAuthenticated && isCurrentAdmin && userRole !== 'Administrator') {
+    if (!isAuthenticated) return;
+    if (isCurrentAdmin && userRole !== 'Administrator') {
       setUserRole('Administrator');
       try {
         localStorage.setItem('sofia_travel_role', 'Administrator');
       } catch {}
+    } else if (currentEmployee && !isCurrentAdmin && userRole === 'Administrator') {
+      setUserRole(employeeRecordRole);
+      try {
+        localStorage.setItem('sofia_travel_role', employeeRecordRole);
+      } catch {}
     }
-  }, [isAuthenticated, isCurrentAdmin, userRole]);
+  }, [isAuthenticated, isCurrentAdmin, currentEmployee, employeeRecordRole, userRole]);
+
+  // Permission Guard Watchdog: If an administrator revokes an employee's access to the active page tab, immediately redirect them to the Dashboard
+  useEffect(() => {
+    if (isAuthenticated && !isCurrentAdmin && !isITAccount && currentTab !== 'dashboard') {
+      const allowed = isTabAllowedForUser(
+        currentTab,
+        effectiveUserRole,
+        currentUserPermissions,
+        isCurrentAdmin,
+        isITAccount
+      );
+      if (!allowed) {
+        setCurrentTab('dashboard');
+        showToast(
+          isAr
+            ? 'تم إلغاء صلاحيتك للوصول لهذه الصفحة بواسطة الإدارة.'
+            : 'Access to this page has been revoked by an administrator.'
+        );
+      }
+    }
+  }, [
+    currentTab,
+    isAuthenticated,
+    isCurrentAdmin,
+    isITAccount,
+    effectiveUserRole,
+    currentUserPermissions,
+    isAr,
+  ]);
 
   // Merge & normalize attendance records and employee login/logout logs retrieved from Firestore
   const attendanceLoginLogs = useMemo(
@@ -251,6 +310,21 @@ export default function App() {
   );
 
   const isAuthorizedToDirectlyModify = isCurrentAdmin || effectiveUserRole === 'Manager' || effectiveUserRole === 'Accountant';
+
+  // Hard gate for the rendered view: a revoked tab is blocked even before the watchdog redirect runs.
+  const isCurrentTabRevoked =
+    isAuthenticated &&
+    !isCurrentAdmin &&
+    !isITAccount &&
+    currentTab !== 'dashboard' &&
+    currentTab !== 'attendance' &&
+    !isTabAllowedForUser(
+      currentTab,
+      effectiveUserRole,
+      currentUserPermissions,
+      isCurrentAdmin,
+      isITAccount
+    );
 
   // Helper to log employee entries immediately so Management sees live website activity on the Dashboard
   const recordEmployeeActivity = async (action: string, moduleName: string, recordRef: string) => {
@@ -2242,6 +2316,7 @@ export default function App() {
       total_profit: 0,
       ...data,
       id: newId,
+      permissions: normalizePermissions(data.permissions),
       is_admin: shouldBeAdmin,
       account_type: shouldBeAdmin ? 'Admin' : 'Employee',
       designation: shouldBeAdmin ? 'Admin' : 'Employee',
@@ -2284,6 +2359,9 @@ export default function App() {
       designation: nextIsAdmin ? 'Admin' : 'Employee',
       role: nextIsAdmin ? 'Admin' : String(nextPos),
     };
+    if (Array.isArray(updated.permissions)) {
+      updated.permissions = normalizePermissions(updated.permissions);
+    }
     setEmployees(prev => prev.map(e => (e.id === docId ? updated : e)));
     await dataService.saveDocument('employees', docId, updated, `/api/employees/${docId}`, 'PUT');
     fetchAllData();
@@ -3179,7 +3257,7 @@ export default function App() {
   };
 
   const handleClearAllDatabase = async (includeEmployees: boolean = true) => {
-    const adminAllowed = userRole === 'Administrator' || currentEmployee?.is_admin === true || currentEmployee?.position === 'Administrator';
+    const adminAllowed = isCurrentAdmin || isITAccount;
     if (!adminAllowed) {
       showToast('Access Denied: Only the Administrator can delete all data.');
       return;
@@ -3607,6 +3685,28 @@ export default function App() {
 
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto overscroll-y-contain w-full max-w-full">
         <main className="flex-1 pb-24 lg:pb-6 w-full max-w-full overflow-x-hidden">
+          {isCurrentTabRevoked ? (
+            <div className="p-6 max-w-xl mx-auto mt-8">
+              <div className="bg-white border border-rose-200 rounded-2xl p-6 text-center shadow-sm">
+                <h2 className="text-lg font-extrabold text-slate-900">
+                  {isAr ? 'تم إلغاء صلاحية الوصول' : 'Access Revoked'}
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  {isAr
+                    ? 'لم يعد لديك إذن لفتح هذه الصفحة. تم تحديث صلاحياتك بواسطة الإدارة.'
+                    : 'You no longer have permission to open this page. Your access was updated by an administrator.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('dashboard')}
+                  className="mt-4 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold cursor-pointer"
+                >
+                  {isAr ? 'العودة إلى لوحة التحكم' : 'Back to Dashboard'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
           {currentTab === 'dashboard' && (
             <DashboardView
               stats={stats}
@@ -4006,6 +4106,8 @@ export default function App() {
           {currentTab === 'activity-log' && (
             <ActivityLogView logs={activityLogs} />
           )}
+            </>
+          )}
         </main>
       </div>
 
@@ -4054,6 +4156,9 @@ export default function App() {
         onOpenQuickAdd={() => setIsQuickAddOpen(true)}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         userRole={effectiveUserRole}
+        userPermissions={currentUserPermissions}
+        isAdmin={isCurrentAdmin}
+        isITAccount={isITAccount}
       />
 
       {/* Quick Add Modal from Bottom Nav */}

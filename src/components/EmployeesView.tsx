@@ -12,6 +12,7 @@ import {
 } from '../utils/attendance';
 import { useLanguage } from '../context/LanguageContext';
 import { isManagerOrAccountantRole, isEmployeeDesignatedAdmin } from '../utils/adminDesignation';
+import { normalizePermissions } from '../utils/permissions';
 
 interface EmployeesViewProps {
   employees: Employee[];
@@ -45,6 +46,14 @@ interface EmployeesViewProps {
 }
 
 const EMPLOYEE_DRAFT_KEY = 'sofia_travel_employee_draft_v2';
+
+const DEFAULT_EMPLOYEE_PERMISSIONS = [
+  'view_dashboard',
+  'view_customers',
+  'view_services',
+  'view_packages',
+  'view_vouchers',
+];
 
 export const PERMISSION_GROUPS = [
   { 
@@ -423,7 +432,9 @@ export function EmployeesView({
       account_status: emp.account_status || 'Active',
       permissions: isEmpAdmin 
         ? ALL_PERMISSIONS 
-        : (emp.permissions || ['view_dashboard', 'view_customers', 'view_trips', 'view_bookings'])
+        : (Array.isArray(emp.permissions)
+            ? normalizePermissions(emp.permissions)
+            : DEFAULT_EMPLOYEE_PERMISSIONS)
     });
     setShowAddModal(true);
   };
@@ -435,6 +446,7 @@ export function EmployeesView({
       if (draft) {
         const parsed = JSON.parse(draft);
         const merged = { ...initialFormState, ...parsed };
+        merged.permissions = normalizePermissions(merged.permissions);
         if (isITAccount && isManagerOrAccountantRole(merged.position, merged.department)) {
           merged.is_admin = true;
           merged.account_type = 'Admin';
@@ -529,7 +541,14 @@ export function EmployeesView({
         account_type: 'Employee',
         designation: 'Employee',
         position: formData.position === 'Administrator' ? 'Sales Executive' : formData.position,
-        permissions: ['view_dashboard', 'view_customers', 'view_trips', 'view_bookings', 'view_sales']
+        permissions: [
+          'view_dashboard',
+          'view_customers',
+          'view_services',
+          'view_packages',
+          'view_vouchers',
+          'view_invoices',
+        ]
       });
     }
   };
@@ -557,7 +576,7 @@ export function EmployeesView({
     if (!sourceId) return;
     const src = employees.find(e => e.id === sourceId || e.employee_id === sourceId);
     if (src && src.permissions) {
-      handleFormFieldChange({ permissions: [...src.permissions] });
+      handleFormFieldChange({ permissions: normalizePermissions(src.permissions) });
       setSavedSuccessMsg(`Successfully copied permissions from ${src.name}!`);
       setTimeout(() => setSavedSuccessMsg(null), 3500);
     }
@@ -582,7 +601,7 @@ export function EmployeesView({
       account_type: shouldBeAdmin ? 'Admin' : 'Employee',
       designation: shouldBeAdmin ? 'Admin' : 'Employee',
       role: shouldBeAdmin ? 'Admin' : formData.position,
-      permissions: shouldBeAdmin ? ALL_PERMISSIONS : formData.permissions,
+      permissions: shouldBeAdmin ? ALL_PERMISSIONS : normalizePermissions(formData.permissions),
     };
 
     if (editingEmployee) {

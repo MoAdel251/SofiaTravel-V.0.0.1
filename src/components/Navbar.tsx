@@ -10,6 +10,8 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { useLanguage } from '../context/LanguageContext';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
 
+import { isTabAllowedForUser } from '../utils/permissions';
+
 function LiveClock() {
   const [time, setTime] = useState(new Date());
 
@@ -135,13 +137,9 @@ export function Navbar({
   );
   const todayInDisplay = todayAttendance?.clock_in || todayAttendance?.check_in_time || '';
 
-  const filteredItems = menuItems.filter(item => {
-    if (userRole === 'Administrator' || isAdmin || isITAccount) return true;
-    if (item.id === 'attendance') return true;
-    if (item.roles.includes(userRole)) return true;
-    if (userPermissions && userPermissions.length > 0) return hasPerm(item.perm);
-    return false;
-  });
+  const filteredItems = menuItems.filter(item =>
+    isTabAllowedForUser(item.id, userRole, userPermissions, isAdmin, isITAccount)
+  );
 
   const activeItem = filteredItems.find(i => i.id === currentTab) || filteredItems[0];
   const unreadCount = notifications.filter(n => !n.read).length;

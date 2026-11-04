@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { isTabAllowedForUser } from '../utils/permissions';
 
 interface MobileBottomNavProps {
   currentTab: string;
@@ -16,6 +17,9 @@ interface MobileBottomNavProps {
   onOpenQuickAdd: () => void;
   onOpenMobileMenu: () => void;
   userRole?: UserRole;
+  userPermissions?: string[];
+  isAdmin?: boolean;
+  isITAccount?: boolean;
 }
 
 export function MobileBottomNav({
@@ -24,8 +28,15 @@ export function MobileBottomNav({
   pendingPermissionCount = 0,
   onOpenQuickAdd,
   onOpenMobileMenu,
+  userRole = 'Sales',
+  userPermissions = [],
+  isAdmin = false,
+  isITAccount = false,
 }: MobileBottomNavProps) {
   const { t } = useLanguage();
+
+  const canViewVouchers = isTabAllowedForUser('vouchers', userRole, userPermissions, isAdmin, isITAccount);
+  const canViewInvoices = isTabAllowedForUser('invoices', userRole, userPermissions, isAdmin, isITAccount);
 
   const isInvoicesActive =
     currentTab === 'invoices' ||
@@ -56,18 +67,25 @@ export function MobileBottomNav({
         </button>
 
         {/* Vouchers */}
-        <button
-          type="button"
-          onClick={() => setCurrentTab('vouchers')}
-          className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
-            isVouchersActive
-              ? 'text-cyan-400 font-bold'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Ticket className="w-5 h-5 mb-0.5" />
-          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
-        </button>
+        {canViewVouchers ? (
+          <button
+            type="button"
+            onClick={() => setCurrentTab('vouchers')}
+            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+              isVouchersActive
+                ? 'text-cyan-400 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Ticket className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
+          </button>
+        ) : (
+          <div className="flex flex-col items-center justify-center min-h-[48px] text-slate-700 opacity-40">
+            <Ticket className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
+          </div>
+        )}
 
         {/* Center Quick Add Button */}
         <div className="flex justify-center">
@@ -85,18 +103,25 @@ export function MobileBottomNav({
         </div>
 
         {/* Invoices */}
-        <button
-          type="button"
-          onClick={() => setCurrentTab('invoices')}
-          className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
-            isInvoicesActive
-              ? 'text-cyan-400 font-bold'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <FileText className="w-5 h-5 mb-0.5" />
-          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
-        </button>
+        {canViewInvoices ? (
+          <button
+            type="button"
+            onClick={() => setCurrentTab('invoices')}
+            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+              isInvoicesActive
+                ? 'text-cyan-400 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileText className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
+          </button>
+        ) : (
+          <div className="flex flex-col items-center justify-center min-h-[48px] text-slate-700 opacity-40">
+            <FileText className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
+          </div>
+        )}
 
         {/* All Modules App Drawer */}
         <button
