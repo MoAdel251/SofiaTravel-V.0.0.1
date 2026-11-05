@@ -60,6 +60,7 @@ interface AttendanceDepartureViewProps {
   onResetAttendanceTime?: (id: string, target: 'clock_in' | 'clock_out' | 'both') => Promise<void> | void;
   onDeleteAttendance?: (id: string) => Promise<void> | void;
   onSaveWorkSchedule?: (schedule: Partial<WorkSchedule>) => Promise<void> | void;
+  onDeleteWorkSchedule?: (id: string) => Promise<void> | void;
   onSaveAttendanceSettings?: (settings: Partial<AttendanceSettings>) => Promise<void> | void;
   onSyncFromDatabase?: () => Promise<void> | void;
 }
@@ -85,6 +86,7 @@ export function AttendanceDepartureView({
   onResetAttendanceTime,
   onDeleteAttendance,
   onSaveWorkSchedule,
+  onDeleteWorkSchedule,
   onSaveAttendanceSettings,
   onSyncFromDatabase,
 }: AttendanceDepartureViewProps) {
@@ -143,6 +145,7 @@ export function AttendanceDepartureView({
     end_time: string;
     grace_period_minutes: number;
     working_days: string[];
+    schedule_date: string;
   }>({
     employee_id: '',
     employee_name: '',
@@ -150,6 +153,7 @@ export function AttendanceDepartureView({
     end_time: '17:00',
     grace_period_minutes: 15,
     working_days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+    schedule_date: '',
   });
 
   const [showCompanySettingsModal, setShowCompanySettingsModal] = useState(false);
@@ -506,6 +510,7 @@ export function AttendanceDepartureView({
         end_time: existing.end_time || '17:00',
         grace_period_minutes: existing.grace_period_minutes ?? 15,
         working_days: existing.working_days || ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+        schedule_date: existing.schedule_date || '',
       });
     } else {
       const firstEmp = employeeOptions[0];
@@ -517,6 +522,7 @@ export function AttendanceDepartureView({
         end_time: attendanceSettings?.default_end_time || '17:00',
         grace_period_minutes: attendanceSettings?.default_grace_period_minutes ?? 15,
         working_days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+        schedule_date: '',
       });
     }
     setShowScheduleModal(true);
@@ -527,20 +533,39 @@ export function AttendanceDepartureView({
     if (!canAdjustSchedules || !onSaveWorkSchedule) return;
     const targetEmp = employeeOptions.find(o => o.id === scheduleForm.employee_id);
     const empName = targetEmp?.name || scheduleForm.employee_name || 'Employee';
+    const isEditingDated = Boolean(editingSchedule?.schedule_date);
+
+    if (isEditingDated && !scheduleForm.schedule_date) {
+      setBannerMessage(
+        isAr
+          ? 'لا يمكن تحويل جدول يوم محدد إلى جدول أسبوعي. استخدم زر الحذف لإزالته.'
+          : 'A one-day schedule cannot be converted to a weekly schedule. Use Delete to remove it.'
+      );
+      setTimeout(() => setBannerMessage(null), 4500);
+      return;
+    }
+
+    const isEditingRecurring = Boolean(editingSchedule && !editingSchedule.schedule_date);
+    const becomesOneDayOverride = isEditingRecurring && Boolean(scheduleForm.schedule_date);
 
     await onSaveWorkSchedule({
-      id: scheduleForm.id,
+      id: becomesOneDayOverride ? undefined : scheduleForm.id,
       employee_id: scheduleForm.employee_id || empName,
       employee_name: empName,
       start_time: scheduleForm.start_time,
       end_time: scheduleForm.end_time,
       grace_period_minutes: Number(scheduleForm.grace_period_minutes),
-      working_days: scheduleForm.working_days,
+      working_days: scheduleForm.schedule_date ? [] : scheduleForm.working_days,
+      schedule_date: scheduleForm.schedule_date || undefined,
     });
 
     setShowScheduleModal(false);
     setBannerMessage(
-      isAr
+      scheduleForm.schedule_date
+        ? isAr
+          ? `تم تحديد مواعيد ${empName} ليوم ${scheduleForm.schedule_date} (${scheduleForm.start_time} – ${scheduleForm.end_time})`
+          : `Set one-day schedule for ${empName} on ${scheduleForm.schedule_date} (${scheduleForm.start_time} – ${scheduleForm.end_time})`
+        : isAr
         ? `تم حفظ مواعيد العمل وفترة السماح (${scheduleForm.grace_period_minutes} دقيقة) للموظف ${empName}`
         : `Saved work schedule & grace period (${scheduleForm.grace_period_minutes} mins) for ${empName}`
     );
@@ -1473,57 +1498,143 @@ export function AttendanceDepartureView({
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {workSchedules.map(ws => (
-              <div
-                key={ws.id}
-                className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2.5 text-xs flex flex-col justify-between"
-              >
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-black text-slate-900 text-sm">{ws.employee_name}</span>
-                    <span className="font-mono text-[10px] text-slate-400">{ws.employee_id}</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-slate-700 font-mono font-bold">
-                    <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">
-                      {ws.start_time}
-                    </span>
-                    <span>→</span>
-                    <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700">{ws.end_time}</span>
-                  </div>
-                  <div className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
-                    <span>{isAr ? 'فترة السماح:' : 'Grace Period:'}</span>
-                    <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-mono">
-                      {ws.grace_period_minutes} {isAr ? 'دقيقة' : 'mins'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {(ws.working_days || []).map(day => (
-                      <span
-                        key={day}
-                        className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold"
-                      >
-                        {day}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+          {(() => {
+            const sortedSchedules = [...workSchedules].sort((a, b) => {
+              const aDate = String(a.schedule_date || '').trim();
+              const bDate = String(b.schedule_date || '').trim();
+              if (aDate && bDate) return aDate.localeCompare(bDate);
+              if (aDate) return -1;
+              if (bDate) return 1;
+              return String(a.employee_name || '').localeCompare(String(b.employee_name || ''));
+            });
+            const oneDayCount = workSchedules.filter(s => String(s.schedule_date || '').trim()).length;
 
-                {canAdjustSchedules && (
-                  <div className="pt-3 border-t border-slate-100 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenScheduleModal(ws)}
-                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                    >
-                      <Edit2 className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>{isAr ? 'تعديل الموعد وفترة السماح' : 'Edit Schedule & Grace Period'}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+            if (sortedSchedules.length === 0) {
+              return (
+                <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">
+                  {isAr
+                    ? 'لا توجد جداول مواعيد مخصصة بعد — يتم تطبيق الدوام الرسمي الافتراضي للشركة على جميع الموظفين.'
+                    : 'No custom schedules yet — the default company shift applies to every employee.'}
+                </div>
+              );
+            }
+
+            return (
+              <>
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-[11px] font-bold text-slate-500">
+                    {isAr
+                      ? `إجمالي الجداول: ${sortedSchedules.length} • تعديلات أيام محددة: ${oneDayCount}`
+                      : `Total schedules: ${sortedSchedules.length} • One-day overrides: ${oneDayCount}`}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {sortedSchedules.map(ws => {
+                    const isOneDay = Boolean(String(ws.schedule_date || '').trim());
+                    return (
+                      <div
+                        key={ws.id}
+                        className={`rounded-2xl border p-4 shadow-xs space-y-2.5 text-xs flex flex-col justify-between ${
+                          isOneDay ? 'bg-amber-50/40 border-amber-300' : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        <div className="space-y-2.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="font-black text-slate-900 text-sm block">
+                                {ws.employee_name}
+                              </span>
+                              <span className="font-mono text-[10px] text-slate-400">{ws.employee_id}</span>
+                            </div>
+                            {isOneDay ? (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-black whitespace-nowrap">
+                                {isAr ? 'تعديل يوم واحد' : 'One-Day Override'}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black whitespace-nowrap">
+                                {isAr ? 'متكرر أسبوعياً' : 'Recurring Weekly'}
+                              </span>
+                            )}
+                          </div>
+
+                          {isOneDay && (
+                            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-100 border border-amber-200 text-amber-900 font-mono font-black">
+                              <Calendar className="w-3.5 h-3.5 shrink-0" />
+                              <span>{ws.schedule_date}</span>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-3 text-slate-700 font-mono font-bold">
+                            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">
+                              {ws.start_time}
+                            </span>
+                            <span>→</span>
+                            <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700">{ws.end_time}</span>
+                          </div>
+                          <div className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                            <span>{isAr ? 'فترة السماح:' : 'Grace Period:'}</span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-mono">
+                              {ws.grace_period_minutes} {isAr ? 'دقيقة' : 'mins'}
+                            </span>
+                          </div>
+                          {isOneDay ? (
+                            <p className="text-[10px] font-semibold text-amber-800 leading-relaxed">
+                              {isAr
+                                ? 'يطبَّق على هذا التاريخ فقط مهما كان يوم الأسبوع، ثم يعود الجدول المتكرر تلقائياً.'
+                                : 'Applies only on this date regardless of weekday, then the recurring schedule resumes automatically.'}
+                            </p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {(ws.working_days || []).map(day => (
+                                <span
+                                  key={day}
+                                  className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold"
+                                >
+                                  {day}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {canAdjustSchedules && (
+                          <div className="pt-3 border-t border-slate-200/70 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenScheduleModal(ws)}
+                              className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>{isAr ? 'تعديل الموعد' : 'Edit Schedule'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const label = isOneDay
+                                  ? isAr
+                                    ? `حذف تعديل يوم ${ws.schedule_date} للموظف ${ws.employee_name}؟`
+                                    : `Delete the ${ws.schedule_date} one-day override for ${ws.employee_name}?`
+                                  : isAr
+                                  ? `حذف الجدول المتكرر للموظف ${ws.employee_name}؟`
+                                  : `Delete the recurring schedule for ${ws.employee_name}?`;
+                                if (window.confirm(label)) {
+                                  void onDeleteWorkSchedule?.(ws.id);
+                                }
+                              }}
+                              className="py-2 px-3 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                              title={isAr ? 'حذف الجدول' : 'Delete schedule'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -1847,7 +1958,11 @@ export function AttendanceDepartureView({
                   {isAr ? 'صلاحية المدير والـ IT' : 'Admin & IT Authority'}
                 </span>
                 <h3 className="text-base font-black text-slate-900 mt-1">
-                  {editingSchedule
+                  {editingSchedule?.schedule_date
+                    ? isAr
+                      ? `تعديل مواعيد ${scheduleForm.employee_name} ليوم ${editingSchedule.schedule_date} فقط`
+                      : `Edit One-Day Times for ${scheduleForm.employee_name} on ${editingSchedule.schedule_date}`
+                    : editingSchedule
                     ? isAr
                       ? `تعديل جدول وعذر السماح للموظف ${scheduleForm.employee_name}`
                       : `Edit Schedule & Grace Period for ${scheduleForm.employee_name}`
@@ -1894,6 +2009,39 @@ export function AttendanceDepartureView({
                   </select>
                 </div>
               )}
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {isAr ? 'يوم محدد (اختياري)' : 'Specific Day (Optional)'}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={scheduleForm.schedule_date}
+                    onChange={e => setScheduleForm(prev => ({ ...prev, schedule_date: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                  />
+                  {scheduleForm.schedule_date && (
+                    <button
+                      type="button"
+                      onClick={() => setScheduleForm(prev => ({ ...prev, schedule_date: '' }))}
+                      disabled={Boolean(editingSchedule?.schedule_date)}
+                      className="px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-[11px] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {isAr ? 'مسح' : 'Clear'}
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {scheduleForm.schedule_date
+                    ? isAr
+                      ? `سيتم تطبيق هذه المواعيد على يوم ${scheduleForm.schedule_date} فقط، متجاوزاً الجدول الأسبوعي.`
+                      : `These times apply only to ${scheduleForm.schedule_date}, overriding the weekly schedule.`
+                    : isAr
+                    ? 'اتركه فارغاً لجدول أسبوعي متكرر، أو اختر يوماً لتحديد مواعيد ذلك اليوم فقط.'
+                    : 'Leave empty for a recurring weekly schedule, or pick a day to set that day only.'}
+                </p>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1946,6 +2094,13 @@ export function AttendanceDepartureView({
                 <label className="block font-bold text-slate-700 mb-2">
                   {isAr ? 'أيام العمل الأسبوعية' : 'Working Days'}
                 </label>
+                {scheduleForm.schedule_date ? (
+                  <p className="px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold leading-relaxed">
+                    {isAr
+                      ? 'التعديل ليوم واحد يُطبَّق على التاريخ المحدد مهما كان يوم الأسبوع؛ لا حاجة لتحديد أيام العمل. الجدول المتكرر يبقى كما هو ويُستأنف تلقائياً في بقية الأيام.'
+                      : 'A one-day override applies on the chosen date regardless of weekday; no need to select working days. The recurring schedule stays untouched and resumes automatically on other days.'}
+                  </p>
+                ) : (
                 <div className="flex flex-wrap gap-2">
                   {[
                     { day: 'Sun', labelAr: 'الأحد', labelEn: 'Sun' },
@@ -1983,6 +2138,7 @@ export function AttendanceDepartureView({
                     );
                   })}
                 </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
