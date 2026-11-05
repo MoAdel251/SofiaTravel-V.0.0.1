@@ -1,6 +1,26 @@
 import React, { useState, useMemo } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plane, MapPin, Briefcase, CheckSquare, Clock, Filter, Plus, CalendarDays } from 'lucide-react';
-import { Reservation, Task, Flight, Hotel as HotelType, TourPackage } from '../types';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plane, MapPin, Briefcase, CheckSquare, Clock, CalendarDays, PhoneCall, Receipt, BedDouble } from 'lucide-react';
+import { CustomerInquiry, Invoice, Reservation, Task, Flight, Hotel as HotelType, TourPackage } from '../types';
+
+type CalendarEventType =
+  | 'reservation'
+  | 'flight'
+  | 'tour'
+  | 'task'
+  | 'inquiry_followup'
+  | 'inquiry_travel'
+  | 'invoice'
+  | 'hotel';
+
+interface CalendarEvent {
+  id: string;
+  title: string;
+  subtitle: string;
+  type: CalendarEventType;
+  icon: any;
+  color: string;
+  status?: string;
+}
 
 interface CalendarViewProps {
   reservations: Reservation[];
@@ -8,9 +28,25 @@ interface CalendarViewProps {
   flights?: Flight[];
   tourPackages?: TourPackage[];
   hotels?: HotelType[];
+  inquiries?: CustomerInquiry[];
+  invoices?: Invoice[];
+  canViewInquiries?: boolean;
+  canViewInvoices?: boolean;
+  canViewHotels?: boolean;
 }
 
-export function CalendarView({ reservations, tasks, flights = [], tourPackages = [], hotels = [] }: CalendarViewProps) {
+export function CalendarView({
+  reservations,
+  tasks,
+  flights = [],
+  tourPackages = [],
+  hotels = [],
+  inquiries = [],
+  invoices = [],
+  canViewInquiries = true,
+  canViewInvoices = true,
+  canViewHotels = true,
+}: CalendarViewProps) {
   // Synchronized with current actual date
   const today = useMemo(() => new Date(), []);
   const [currentMonthDate, setCurrentMonthDate] = useState<Date>(() => new Date(today.getFullYear(), today.getMonth(), 1));
@@ -41,12 +77,12 @@ export function CalendarView({ reservations, tasks, flights = [], tourPackages =
 
   // Gather all schedule events mapped by YYYY-MM-DD
   const eventsByDate = useMemo(() => {
-    const map = new Map<string, { id: string; title: string; subtitle: string; type: 'reservation' | 'flight' | 'tour' | 'task'; icon: any; color: string; status?: string }[]>();
+    const map = new Map<string, CalendarEvent[]>();
 
-    const addEvent = (dateStr: string, eventObj: any) => {
+    const addEvent = (dateStr: string | undefined, eventObj: CalendarEvent) => {
       if (!dateStr) return;
-      // standardizing date format if needed
-      const cleanDate = dateStr.trim();
+      const cleanDate = dateStr.trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) return;
       if (!map.has(cleanDate)) {
         map.set(cleanDate, []);
       }
@@ -109,8 +145,81 @@ export function CalendarView({ reservations, tasks, flights = [], tourPackages =
       }
     });
 
+    if (canViewHotels) {
+      hotels.forEach(h => {
+        const guest = h.customer_name || 'Guest';
+        if (h.check_in_date) {
+          addEvent(h.check_in_date, {
+            id: `hotel-in-${h.id}`,
+            title: `Check-in: ${h.hotel_name}`,
+            subtitle: `${guest} • ${h.city}`,
+            type: 'hotel',
+            icon: BedDouble,
+            color: 'bg-sky-100 text-sky-700 border-sky-200',
+            status: h.payment_status
+          });
+        }
+        if (h.check_out_date) {
+          addEvent(h.check_out_date, {
+            id: `hotel-out-${h.id}`,
+            title: `Check-out: ${h.hotel_name}`,
+            subtitle: `${guest} • ${h.city}`,
+            type: 'hotel',
+            icon: BedDouble,
+            color: 'bg-slate-100 text-slate-700 border-slate-200',
+            status: h.payment_status
+          });
+        }
+      });
+    }
+
+    if (canViewInquiries) {
+      inquiries.forEach(inq => {
+        if (inq.status === 'Converted to Customer') return;
+        if (inq.next_followup_date) {
+          addEvent(inq.next_followup_date, {
+            id: `inq-follow-${inq.id}`,
+            title: `Follow-up: ${inq.name}`,
+            subtitle: `${inq.inquired_service} • Rep: ${inq.assigned_representative}`,
+            type: 'inquiry_followup',
+            icon: PhoneCall,
+            color: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200',
+            status: inq.status
+          });
+        }
+        if (inq.travel_date) {
+          addEvent(inq.travel_date, {
+            id: `inq-travel-${inq.id}`,
+            title: `Client Travel: ${inq.name}`,
+            subtitle: `${inq.destination || inq.inquired_service}`,
+            type: 'inquiry_travel',
+            icon: MapPin,
+            color: 'bg-violet-100 text-violet-700 border-violet-200',
+            status: 'Inquiry'
+          });
+        }
+      });
+    }
+
+    if (canViewInvoices) {
+      invoices.forEach(inv => {
+        if (!inv.due_date) return;
+        if (inv.payment_status === 'Paid' || inv.payment_status === 'Cancelled') return;
+        const party = inv.customer_name || inv.supplier_name || 'Client';
+        addEvent(inv.due_date, {
+          id: `inv-${inv.id}`,
+          title: `Invoice Due: ${inv.invoice_number}`,
+          subtitle: `${party} • ${inv.balance_due ?? inv.total_amount} ${inv.currency || ''}`.trim(),
+          type: 'invoice',
+          icon: Receipt,
+          color: 'bg-rose-100 text-rose-700 border-rose-200',
+          status: inv.payment_status
+        });
+      });
+    }
+
     return map;
-  }, [reservations, flights, tourPackages, tasks]);
+  }, [reservations, flights, tourPackages, tasks, hotels, inquiries, invoices, canViewHotels, canViewInquiries, canViewInvoices]);
 
   // Calendar Grid Days Calculation
   const calendarDays = useMemo(() => {
@@ -188,7 +297,7 @@ export function CalendarView({ reservations, tasks, flights = [], tourPackages =
             </div>
             <div>
               <h1 className="text-2xl font-black text-slate-900">Synchronized Operations Calendar</h1>
-              <p className="text-xs text-slate-500">Real-time schedule for trips, flights, tour departures, and task deadlines.</p>
+              <p className="text-xs text-slate-500">Real-time schedule for trips, flights, hotel stays, client follow-ups, invoice dues, and task deadlines.</p>
             </div>
           </div>
         </div>
