@@ -74,13 +74,15 @@ import {
 import { dataService } from './services/dataService';
 import { convertCurrency } from './utils/currency';
 import {
+  applyAttendancePolicy,
   calculateWorkingHours,
   extractAttendanceAndLoginLogs,
   getLocalDateYYYYMMDD,
   isAttendanceShiftOpen,
   isITDeveloperAccount,
   normalizeAttendanceRecord,
-  normalizeTimeHHMM
+  normalizeTimeHHMM,
+  resolveEmployeeScheduleForAttendance,
 } from './utils/attendance';
 import { SiteMaintenanceOverlay, ITMaintenanceControlModal } from './components/SiteMaintenanceOverlay';
 import { useLanguage } from './context/LanguageContext';
@@ -303,10 +305,22 @@ export default function App() {
 
   const attendanceRecords = useMemo(
     () =>
-      rawAttendanceRecords.map(rec =>
-        normalizeAttendanceRecord(rec, employees, attendanceLoginLogs)
-      ),
-    [rawAttendanceRecords, employees, attendanceLoginLogs]
+      rawAttendanceRecords.map(rec => {
+        const normalized = normalizeAttendanceRecord(rec, employees, attendanceLoginLogs);
+        const schedule = resolveEmployeeScheduleForAttendance(
+          {
+            id: normalized.employee_id,
+            employee_id: normalized.employee_id,
+            name: normalized.employee_name,
+          },
+          workSchedules,
+          attendanceSettings
+        );
+        return applyAttendancePolicy(normalized, schedule, {
+          trackTardiness: attendanceSettings?.track_tardiness === true,
+        });
+      }),
+    [rawAttendanceRecords, employees, attendanceLoginLogs, workSchedules, attendanceSettings]
   );
 
   const isAuthorizedToDirectlyModify = isCurrentAdmin || effectiveUserRole === 'Manager' || effectiveUserRole === 'Accountant';
@@ -330,14 +344,18 @@ export default function App() {
   const recordEmployeeActivity = async (action: string, moduleName: string, recordRef: string) => {
     const now = new Date();
     const actorName = currentEmployee?.name || currentUsername || 'Employee';
+    const isITManualAction =
+      isITAccount || actorName.trim().toUpperCase() === 'IT';
     const newLog: ActivityLog = {
       id: 'LOG-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
-      user_name: actorName,
-      action,
+      user_name: isITManualAction ? 'IT' : actorName,
+      action: isITManualAction ? `[IT Manual] ${action}` : action,
       module: moduleName,
       record: recordRef,
       date: now.toISOString().split('T')[0],
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      actor_role: isITManualAction ? 'IT Developer' : effectiveUserRole,
+      entry_source: isITManualAction ? 'IT Manual' : 'Employee',
       createdAt: now.toISOString()
     };
     setActivityLogs(prev => [newLog, ...prev]);
@@ -387,7 +405,15 @@ export default function App() {
       dataService.subscribeDocument<AttendanceSettings>(
         'attendance_settings',
         'main',
-        { id: 'main', default_start_time: '10:00', default_end_time: '18:00', default_grace_period_minutes: 0 },
+        {
+          id: 'main',
+          default_start_time: '10:00',
+          default_end_time: '18:00',
+          default_grace_period_minutes: 0,
+          track_tardiness: false,
+          show_system_login_time: false,
+          calendar_reminder_time: '09:00',
+        },
         setAttendanceSettings
       ),
     ];
@@ -3237,6 +3263,9 @@ export default function App() {
       auto_record_on_login: data.auto_record_on_login ?? true,
       auto_record_on_logout: data.auto_record_on_logout ?? true,
       default_working_days: Array.isArray(data.default_working_days) ? data.default_working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+      track_tardiness: data.track_tardiness ?? attendanceSettings?.track_tardiness ?? false,
+      show_system_login_time: data.show_system_login_time ?? attendanceSettings?.show_system_login_time ?? false,
+      calendar_reminder_time: data.calendar_reminder_time || attendanceSettings?.calendar_reminder_time || '09:00',
       updatedAt: new Date().toISOString()
     };
 
@@ -4012,11 +4041,34 @@ export default function App() {
           )}
           {currentTab === 'calendar' && (
             <CalendarView 
-              reservations={reservations} 
+              reservations={
+                isTabAllowedForUser('vouchers', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount)
+                  ? reservations
+                  : []
+              } 
               tasks={tasks} 
-              flights={flights} 
-              tourPackages={packages} 
-              hotels={hotels} 
+              flights={
+                isTabAllowedForUser('services', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount)
+                  ? flights
+                  : []
+              } 
+              tourPackages={
+                isTabAllowedForUser('packages', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount)
+                  ? packages
+                  : []
+              } 
+              hotels={hotels}
+              inquiries={customerInquiries}
+              invoices={invoices}
+              canViewInquiries={
+                isTabAllowedForUser('customer-inquiries', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount)
+              }
+              canViewInvoices={
+                isTabAllowedForUser('invoices', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount)
+              }
+              canViewHotels={
+                isTabAllowedForUser('services', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount)
+              }
             />
           )}
           {currentTab === 'tasks' && (
@@ -4167,6 +4219,9 @@ export default function App() {
         onClose={() => setIsQuickAddOpen(false)}
         onSelectAction={handleSelectQuickAdd}
         userRole={effectiveUserRole}
+        userPermissions={currentUserPermissions}
+        isAdmin={isCurrentAdmin}
+        isITAccount={isITAccount}
       />
 
       {/* Administrator-Only Delete All Data Modal */}
