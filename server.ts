@@ -245,7 +245,7 @@ async function loadFromFirestore() {
   try {
     console.log("Loading persistent data from Firestore...");
     const setSnap = await getDocs(collection(firestoreDb, "settings"));
-    const reservedSettingIds = new Set(['system_status', 'web_push_vapid', 'schedule_reminder_state']);
+    const reservedSettingIds = new Set(['system_status', 'web_push_vapid', 'schedule_reminder_state', 'calendar_reminder_state']);
     if (!setSnap.empty) {
       const foundDoc =
         setSnap.docs.find(d => d.id === 'company_settings') ||
@@ -459,7 +459,63 @@ async function addNotification(
     db.notifications.unshift(notif);
   }
   await saveToFirestore('notifications', notif.id, notif);
+
+  // Deliver every new in-app notification to subscribed phones/browsers, even when
+  // the web app is closed. Callers that already push per-subscription pass skip_push.
+  if (!extraFields.skip_push) {
+    try {
+      await pushNotificationToSubscribers(notif);
+    } catch (err: any) {
+      console.warn('Web push delivery warning:', err?.message || err);
+    }
+  }
   return notif;
+}
+
+/**
+ * Resolves the relevant in-app tab for a notification and pushes it to every
+ * matching device subscription. Employee-scoped notifications never reach other
+ * employees' phones.
+ */
+async function pushNotificationToSubscribers(notif: any): Promise<void> {
+  const allSubs: any[] = db.push_subscriptions || [];
+  if (allSubs.length === 0) return;
+
+  const targets =
+    notif.target_scope === 'EMPLOYEE'
+      ? allSubs.filter(sub =>
+          doesSubscriptionMatchEmployee(sub, {
+            id: notif.target_employee_id,
+            employee_id: notif.target_employee_id,
+            name: notif.target_employee_name,
+            username: notif.target_employee_name,
+          })
+        )
+      : allSubs;
+
+  if (targets.length === 0) return;
+
+  const tabFromType =
+    notif.type === 'attendance_reminder'
+      ? 'attendance'
+      : notif.type === 'permission'
+      ? 'permission-requests'
+      : notif.type === 'calendar_reminder'
+      ? 'calendar'
+      : 'notifications';
+  const tab = String(notif.tab || tabFromType);
+
+  await dispatchWebPushToSubscriptions(targets, (sub: any) => ({
+    id: notif.id,
+    tag: notif.id,
+    title: notif.title,
+    body: notif.message,
+    lang: sub.language === 'ar' ? 'ar' : 'en',
+    dir: sub.language === 'ar' ? 'rtl' : 'ltr',
+    tab,
+    url: `/?tab=${encodeURIComponent(tab)}`,
+    timestamp: Date.now(),
+  }));
 }
 
 // REST API Endpoints
@@ -726,7 +782,7 @@ app.post("/api/permission-requests/:id/reject", async (req, res) => {
 app.get("/api/settings", async (req, res) => {
   try {
     const setSnap = await getDocs(collection(firestoreDb, 'settings'));
-    const reservedSettingIds = new Set(['system_status', 'web_push_vapid', 'schedule_reminder_state']);
+    const reservedSettingIds = new Set(['system_status', 'web_push_vapid', 'schedule_reminder_state', 'calendar_reminder_state']);
     if (!setSnap.empty) {
       const targetDoc =
         setSnap.docs.find(d => d.id === 'company_settings') ||
@@ -1001,6 +1057,9 @@ app.post("/api/attendance-settings", async (req, res) => {
     auto_record_on_login: req.body.auto_record_on_login ?? true,
     auto_record_on_logout: req.body.auto_record_on_logout ?? true,
     default_working_days: Array.isArray(req.body.default_working_days) ? req.body.default_working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+    track_tardiness: req.body.track_tardiness === true,
+    show_system_login_time: req.body.show_system_login_time === true,
+    calendar_reminder_time: normalizeHHMMServer(req.body.calendar_reminder_time, '09:00'),
     updatedAt: new Date().toISOString()
   };
 
@@ -3432,6 +3491,7 @@ app.post("/api/push/subscribe", async (req, res) => {
         category: 'Phone Push Activated',
         designated_check_in: schedule.start_time,
         designated_check_out: schedule.end_time,
+        skip_push: true,
       });
 
       const pushResult = await dispatchWebPushToSubscriptions([record], {
@@ -3575,6 +3635,7 @@ app.post("/api/push/send-custom", async (req, res) => {
         sender_name: authCheck.actorName,
         sender_role: authCheck.actorRole,
         category,
+        skip_push: true,
       });
       createdNotifications.push(savedNotif);
       targetSubs = db.push_subscriptions || [];
@@ -3611,6 +3672,7 @@ app.post("/api/push/send-custom", async (req, res) => {
           sender_name: authCheck.actorName,
           sender_role: authCheck.actorRole,
           category,
+          skip_push: true,
         });
         createdNotifications.push(savedNotif);
 
@@ -3757,6 +3819,7 @@ app.post("/api/push/send-schedule-reminders", async (req, res) => {
         category: 'Shift Schedule Reminder',
         designated_check_in: schedule.start_time,
         designated_check_out: schedule.end_time,
+        skip_push: true,
       });
       createdNotifs.push(saved);
 
@@ -3960,6 +4023,7 @@ async function runScheduledAttendanceRemindersTick() {
           category: trig.kind === 'checkout' ? 'Check-Out Reminder' : 'Check-In Reminder',
           designated_check_in: schedule.start_time,
           designated_check_out: schedule.end_time,
+          skip_push: true,
         });
 
         if (empSubs.length > 0) {
@@ -4003,6 +4067,383 @@ async function runScheduledAttendanceRemindersTick() {
     }
   } catch (err) {
     console.warn("Scheduled attendance reminder tick warning:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Calendar reminder engine: every dated record (client follow-ups, trips,
+// invoices, hotel stays, flights, tours, tasks) raises a notification on its
+// due date for the employees who are allowed to see it.
+// ---------------------------------------------------------------------------
+let calendarReminderStateLoaded = false;
+let sentCalendarReminderKeys: Record<string, string> = {};
+
+const LEGACY_CALENDAR_PERMISSION_ALIASES: Record<string, string[]> = {
+  view_sales: ['view_invoices'],
+  view_bookings: ['view_vouchers'],
+  view_trips: ['view_services', 'view_packages'],
+  view_finance: ['view_suppliers', 'view_expenses'],
+  view_payroll: ['view_expenses'],
+};
+
+const ROLE_DEFAULT_CALENDAR_PERMISSIONS: Record<string, string[]> = {
+  Manager: ['view_dashboard', 'view_customers', 'view_vouchers', 'view_invoices', 'view_services', 'view_packages', 'view_employees', 'view_reports', 'view_settings', 'view_suppliers', 'view_expenses'],
+  Sales: ['view_dashboard', 'view_customers', 'view_vouchers', 'view_services', 'view_invoices', 'view_packages'],
+  Accountant: ['view_dashboard', 'view_customers', 'view_services', 'view_invoices', 'view_packages', 'view_suppliers', 'view_expenses', 'view_reports'],
+  Operations: ['view_dashboard', 'view_customers', 'view_vouchers', 'view_services', 'view_invoices', 'view_suppliers', 'view_packages'],
+  'Customer Service': ['view_dashboard', 'view_customers', 'view_vouchers', 'view_services', 'view_invoices'],
+};
+
+function normalizeCalendarDateValue(value: any): string | null {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
+function expandCalendarPermissions(rawPermissions: any): Set<string> {
+  const set = new Set<string>();
+  if (!Array.isArray(rawPermissions)) return set;
+  for (const permission of rawPermissions) {
+    if (!permission) continue;
+    const aliases = LEGACY_CALENDAR_PERMISSION_ALIASES[permission];
+    if (aliases) aliases.forEach(a => set.add(a));
+    else set.add(permission);
+  }
+  return set;
+}
+
+function findEmployeeRecordForRoster(emp: { id?: string; employee_id?: string; name?: string; username?: string }) {
+  const keys = [emp.id, emp.employee_id, emp.name, emp.username]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (keys.length === 0) return null;
+  return (
+    (db.employees || []).find((record: any) => {
+      const recordKeys = [record.id, record.employee_id, record.username, record.name, record.full_name]
+        .map(v => String(v || '').trim().toLowerCase())
+        .filter(Boolean);
+      return recordKeys.some(k => keys.includes(k));
+    }) || null
+  );
+}
+
+function getCalendarPermissionsForRosterEmployee(emp: {
+  id?: string;
+  employee_id?: string;
+  name?: string;
+  username?: string;
+}): { isAdmin: boolean; permissions: Set<string> } {
+  const record: any = findEmployeeRecordForRoster(emp);
+  const isAdmin =
+    record?.is_admin === true ||
+    String(record?.position || '').trim().toLowerCase() === 'administrator' ||
+    String(record?.role || '').trim().toLowerCase() === 'administrator';
+  if (isAdmin) {
+    return { isAdmin: true, permissions: new Set() };
+  }
+  if (record && Array.isArray(record.permissions)) {
+    return { isAdmin: false, permissions: expandCalendarPermissions(record.permissions) };
+  }
+  const role = String(record?.position || record?.role || '').trim();
+  const defaults = ROLE_DEFAULT_CALENDAR_PERMISSIONS[role] || ROLE_DEFAULT_CALENDAR_PERMISSIONS.Sales;
+  return { isAdmin: false, permissions: new Set(defaults) };
+}
+
+function rosterEmployeeOwnsRecord(
+  emp: { id?: string; employee_id?: string; name?: string; username?: string },
+  ownerIds?: Array<string | undefined | null>,
+  ownerNames?: Array<string | undefined | null>
+): boolean {
+  const empKeys = new Set(
+    [emp.id, emp.employee_id, emp.name, emp.username]
+      .map(v => String(v || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const idMatches = (ownerIds || []).some(v => {
+    const key = String(v || '').trim().toLowerCase();
+    return key && empKeys.has(key);
+  });
+  if (idMatches) return true;
+  return (ownerNames || []).some(v => {
+    const key = String(v || '').trim().toLowerCase();
+    return key && (empKeys.has(key) || String(emp.name || '').trim().toLowerCase() === key);
+  });
+}
+
+type CalendarReminderEvent = {
+  key: string;
+  permission: string;
+  tab: string;
+  titleEn: string;
+  titleAr: string;
+  bodyEn: string;
+  bodyAr: string;
+  ownerIds?: Array<string | undefined | null>;
+  ownerNames?: Array<string | undefined | null>;
+  dueDate: string;
+  isOverdue?: boolean;
+};
+
+function buildCalendarReminderEvents(todayStr: string): CalendarReminderEvent[] {
+  const events: CalendarReminderEvent[] = [];
+
+  (db.customer_inquiries || []).forEach((inq: any) => {
+    if (String(inq.status || '') === 'Converted to Customer') return;
+    const followUpDate = normalizeCalendarDateValue(inq.next_followup_date);
+    if (followUpDate && followUpDate <= todayStr) {
+      const overdue = followUpDate < todayStr;
+      events.push({
+        key: `inquiry_followup_${inq.id}`,
+        permission: 'view_customers',
+        tab: 'customer-inquiries',
+        titleEn: overdue
+          ? `Overdue client follow-up: ${inq.name || inq.inquiry_code || 'Client'}`
+          : `Client follow-up due today: ${inq.name || inq.inquiry_code || 'Client'}`,
+        titleAr: overdue
+          ? `متابعة عميل متأخرة: ${inq.name || inq.inquiry_code || 'عميل'}`
+          : `متابعة عميل مستحقة اليوم: ${inq.name || inq.inquiry_code || 'عميل'}`,
+        bodyEn: `${inq.inquired_service || 'Travel inquiry'} • Representative: ${inq.assigned_representative || '-'}${overdue ? ` • Due since ${followUpDate}` : ''}`,
+        bodyAr: `${inq.inquired_service || 'استفسار سفر'} • المسؤول: ${inq.assigned_representative || '-'}${overdue ? ` • مستحقة منذ ${followUpDate}` : ''}`,
+        ownerIds: [inq.assigned_rep_id, inq.created_by],
+        ownerNames: [inq.assigned_representative],
+        dueDate: followUpDate,
+        isOverdue: overdue,
+      });
+    }
+    const travelDate = normalizeCalendarDateValue(inq.travel_date);
+    if (travelDate === todayStr) {
+      events.push({
+        key: `inquiry_travel_${inq.id}`,
+        permission: 'view_customers',
+        tab: 'customer-inquiries',
+        titleEn: `Client travel date today: ${inq.name || inq.inquiry_code || 'Client'}`,
+        titleAr: `موعد سفر عميل اليوم: ${inq.name || inq.inquiry_code || 'عميل'}`,
+        bodyEn: `${inq.destination || inq.inquired_service || 'Trip'} • Representative: ${inq.assigned_representative || '-'}`,
+        bodyAr: `${inq.destination || inq.inquired_service || 'رحلة'} • المسؤول: ${inq.assigned_representative || '-'}`,
+        ownerIds: [inq.assigned_rep_id, inq.created_by],
+        ownerNames: [inq.assigned_representative],
+        dueDate: travelDate,
+      });
+    }
+  });
+
+  (db.reservations || []).forEach((resv: any) => {
+    const travelDate = normalizeCalendarDateValue(resv.travel_date);
+    if (travelDate !== todayStr) return;
+    events.push({
+      key: `reservation_${resv.id}`,
+      permission: 'view_vouchers',
+      tab: 'vouchers',
+      titleEn: `Trip departure today: ${resv.destination || resv.reservation_id || 'Reservation'}`,
+      titleAr: `سفر رحلة اليوم: ${resv.destination || resv.reservation_id || 'حجز'}`,
+      bodyEn: `${resv.customer_name || 'Client'} • ${resv.service_type || resv.service_category || 'Travel service'}`,
+      bodyAr: `${resv.customer_name || 'عميل'} • ${resv.service_type || resv.service_category || 'خدمة سفر'}`,
+      ownerIds: [resv.employee_id],
+      ownerNames: [resv.employee_name],
+      dueDate: travelDate,
+    });
+  });
+
+  (db.invoices || []).forEach((inv: any) => {
+    const dueDate = normalizeCalendarDateValue(inv.due_date);
+    if (dueDate !== todayStr) return;
+    const status = String(inv.payment_status || '');
+    if (status === 'Paid' || status === 'Cancelled') return;
+    const party = inv.customer_name || inv.supplier_name || 'Client';
+    const balance = Number(inv.balance_due ?? inv.total_amount) || 0;
+    events.push({
+      key: `invoice_${inv.id}`,
+      permission: 'view_invoices',
+      tab: 'invoices',
+      titleEn: `Invoice due today: ${inv.invoice_number || inv.id}`,
+      titleAr: `فاتورة مستحقة اليوم: ${inv.invoice_number || inv.id}`,
+      bodyEn: `${party} • ${balance} ${inv.currency || ''}`.trim(),
+      bodyAr: `${party} • ${balance} ${inv.currency || ''}`.trim(),
+      ownerIds: [inv.created_by_employee],
+      dueDate,
+    });
+  });
+
+  (db.hotels || []).forEach((hotel: any) => {
+    const checkIn = normalizeCalendarDateValue(hotel.check_in_date);
+    const checkOut = normalizeCalendarDateValue(hotel.check_out_date);
+    const guest = hotel.customer_name || 'Guest';
+    if (checkIn === todayStr) {
+      events.push({
+        key: `hotel_checkin_${hotel.id}`,
+        permission: 'view_services',
+        tab: 'hotels',
+        titleEn: `Hotel check-in today: ${hotel.hotel_name}`,
+        titleAr: `تسجيل دخول فندق اليوم: ${hotel.hotel_name}`,
+        bodyEn: `${guest} • ${hotel.city || ''}`.trim(),
+        bodyAr: `${guest} • ${hotel.city || ''}`.trim(),
+        dueDate: checkIn,
+      });
+    }
+    if (checkOut === todayStr) {
+      events.push({
+        key: `hotel_checkout_${hotel.id}`,
+        permission: 'view_services',
+        tab: 'hotels',
+        titleEn: `Hotel check-out today: ${hotel.hotel_name}`,
+        titleAr: `تسجيل خروج فندق اليوم: ${hotel.hotel_name}`,
+        bodyEn: `${guest} • ${hotel.city || ''}`.trim(),
+        bodyAr: `${guest} • ${hotel.city || ''}`.trim(),
+        dueDate: checkOut,
+      });
+    }
+  });
+
+  (db.flights || []).forEach((flight: any) => {
+    const departureDate = normalizeCalendarDateValue(flight.departure_date);
+    if (departureDate !== todayStr) return;
+    events.push({
+      key: `flight_${flight.id}`,
+      permission: 'view_services',
+      tab: 'flights',
+      titleEn: `Flight today: ${flight.flight_number}`,
+      titleAr: `رحلة طيران اليوم: ${flight.flight_number}`,
+      bodyEn: `${flight.departure_airport || ''} → ${flight.arrival_airport || ''}${flight.departure_time ? ` at ${flight.departure_time}` : ''}`,
+      bodyAr: `${flight.departure_airport || ''} → ${flight.arrival_airport || ''}${flight.departure_time ? ` الساعة ${flight.departure_time}` : ''}`,
+      dueDate: departureDate,
+    });
+  });
+
+  (db.tour_packages || []).forEach((pkg: any) => {
+    const startDate = normalizeCalendarDateValue(pkg.start_date);
+    if (startDate !== todayStr) return;
+    events.push({
+      key: `tour_${pkg.id}`,
+      permission: 'view_packages',
+      tab: 'packages',
+      titleEn: `Tour package starts today: ${pkg.package_name || pkg.title || 'Tour'}`,
+      titleAr: `بدء باكدج سياحي اليوم: ${pkg.package_name || pkg.title || 'رحلة'}`,
+      bodyEn: `${pkg.destination || ''}${pkg.duration ? ` • ${pkg.duration}` : ''}`.trim(),
+      bodyAr: `${pkg.destination || ''}${pkg.duration ? ` • ${pkg.duration}` : ''}`.trim(),
+      dueDate: startDate,
+    });
+  });
+
+  (db.tasks || []).forEach((task: any) => {
+    const dueDate = normalizeCalendarDateValue(task.due_date);
+    if (dueDate !== todayStr) return;
+    if (String(task.status || '') === 'Completed') return;
+    events.push({
+      key: `task_${task.id}`,
+      permission: 'view_dashboard',
+      tab: 'tasks',
+      titleEn: `Task due today: ${task.task_name || 'Task'}`,
+      titleAr: `مهمة مستحقة اليوم: ${task.task_name || 'مهمة'}`,
+      bodyEn: `Assigned: ${task.assigned_employee_name || '-'} • Priority: ${task.priority || 'Normal'}`,
+      bodyAr: `المسؤول: ${task.assigned_employee_name || '-'} • الأولوية: ${task.priority || 'عادية'}`,
+      ownerIds: [task.assigned_employee_id],
+      ownerNames: [task.assigned_employee_name],
+      dueDate,
+    });
+  });
+
+  return events;
+}
+
+async function runScheduledCalendarRemindersTick() {
+  try {
+    if (!calendarReminderStateLoaded) {
+      calendarReminderStateLoaded = true;
+      try {
+        const snap = await getDoc(doc(firestoreDb, 'settings', 'calendar_reminder_state'));
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          if (data?.sentKeys && typeof data.sentKeys === 'object') {
+            sentCalendarReminderKeys = data.sentKeys;
+          }
+        }
+      } catch {}
+    }
+
+    const roster = buildAllActiveEmployeesRoster();
+    if (roster.length === 0) return;
+
+    const attSettingsList: any[] = db.attendance_settings || [];
+    const mainAttSetting = attSettingsList.find((s: any) => s.id === 'main') || attSettingsList[0] || {};
+    const reminderTime = normalizeHHMMServer(mainAttSetting?.calendar_reminder_time, '09:00');
+    const reminderMinutes = parseServerTimeToSeconds(reminderTime);
+    const clock = getWallClockInTimezone('Africa/Cairo');
+    if (reminderMinutes === null || clock.minutesOfDay < Math.floor(reminderMinutes / 60)) {
+      return;
+    }
+
+    const events = buildCalendarReminderEvents(clock.dateStr);
+    if (events.length === 0) return;
+
+    const employeeContexts = roster.map(emp => {
+      const empSubs = (db.push_subscriptions || []).filter((s: any) => doesSubscriptionMatchEmployee(s, emp));
+      return {
+        emp,
+        subs: empSubs,
+        prefersAr: empSubs.some((s: any) => s.language === 'ar'),
+        ...getCalendarPermissionsForRosterEmployee(emp),
+      };
+    });
+
+    let stateDirty = false;
+    const cutoffMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
+
+    for (const event of events) {
+      const permitted = employeeContexts.filter(
+        ctx => ctx.isAdmin || ctx.permissions.has(event.permission)
+      );
+      if (permitted.length === 0) continue;
+      const owners = permitted.filter(ctx => rosterEmployeeOwnsRecord(ctx.emp, event.ownerIds, event.ownerNames));
+      // Owners always receive their own reminders; otherwise everyone with access does.
+      const recipients = owners.length > 0 ? owners : permitted;
+
+      for (const ctx of recipients) {
+        const slotKey = `${clock.dateStr}_${event.key}_${ctx.emp.id}`;
+        if (sentCalendarReminderKeys[slotKey]) continue;
+        sentCalendarReminderKeys[slotKey] = new Date().toISOString();
+        stateDirty = true;
+
+        const title = ctx.prefersAr ? event.titleAr : event.titleEn;
+        const body = (ctx.prefersAr ? event.bodyAr : event.bodyEn) +
+          (event.isOverdue ? (ctx.prefersAr ? ' • يتطلب متابعة عاجلة' : ' • Requires immediate follow-up') : '');
+        const notifId = `NOTIF-CAL-${slotKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+        await addNotification(title, body, 'calendar_reminder', undefined, {
+          id: notifId,
+          target_scope: 'EMPLOYEE',
+          target_employee_id: ctx.emp.id,
+          target_employee_name: ctx.emp.name,
+          sender_name: 'Operations Calendar',
+          sender_role: 'Scheduled Reminder',
+          category: 'Calendar Reminder',
+          link_id: event.key,
+          calendar_date: event.dueDate,
+          calendar_tab: event.tab,
+          tab: 'calendar',
+        });
+      }
+    }
+
+    if (stateDirty) {
+      for (const [key, isoVal] of Object.entries(sentCalendarReminderKeys)) {
+        const ts = new Date(isoVal).getTime();
+        if (!isNaN(ts) && ts < cutoffMs) delete sentCalendarReminderKeys[key];
+      }
+      try {
+        await setDoc(
+          doc(firestoreDb, 'settings', 'calendar_reminder_state'),
+          {
+            id: 'calendar_reminder_state',
+            sentKeys: sentCalendarReminderKeys,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch {}
+    }
+  } catch (err) {
+    console.warn('Scheduled calendar reminder tick warning:', err);
   }
 }
 
@@ -4377,14 +4818,25 @@ async function startServer() {
       await ensureVapidConfigured();
       console.log("Persistent data & Web Push VAPID keys synchronized from Firestore. Starting schedule reminder engine...");
       runScheduledAttendanceRemindersTick();
+      runScheduledCalendarRemindersTick();
       setInterval(() => {
         Promise.all([
           getCollectionDocs('employees'),
           getCollectionDocs('work_schedules'),
           getCollectionDocs('attendance_settings'),
           getCollectionDocs('push_subscriptions'),
+          getCollectionDocs('customer_inquiries'),
+          getCollectionDocs('reservations'),
+          getCollectionDocs('invoices'),
+          getCollectionDocs('hotels'),
+          getCollectionDocs('flights'),
+          getCollectionDocs('tour_packages'),
+          getCollectionDocs('tasks'),
         ])
-          .then(() => runScheduledAttendanceRemindersTick())
+          .then(() => Promise.all([
+            runScheduledAttendanceRemindersTick(),
+            runScheduledCalendarRemindersTick(),
+          ]))
           .catch(() => {});
       }, 30 * 1000);
     } catch (e) {
