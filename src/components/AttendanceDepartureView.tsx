@@ -126,6 +126,12 @@ export function AttendanceDepartureView({
   // Both Developer (IT) AND Administrator have authority to adjust work schedules & grace periods
   const canAdjustSchedules = isAdmin || isITAccount || userRole === 'Administrator';
 
+  // IT-controlled visibility: tardiness only appears once explicitly enabled, and the
+  // platform/system login timestamp can be hidden so only manual clock times are used.
+  const tardinessEnabled = attendanceSettings?.track_tardiness === true;
+  const showSystemLoginTime =
+    isAdmin || isITAccount || attendanceSettings?.show_system_login_time === true;
+
   // Work Schedule & Grace Period Modal State
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<WorkSchedule | null>(null);
@@ -151,10 +157,16 @@ export function AttendanceDepartureView({
     default_start_time: string;
     default_end_time: string;
     default_grace_period_minutes: number;
+    track_tardiness: boolean;
+    show_system_login_time: boolean;
+    calendar_reminder_time: string;
   }>({
     default_start_time: attendanceSettings?.default_start_time || '09:00',
     default_end_time: attendanceSettings?.default_end_time || '17:00',
     default_grace_period_minutes: attendanceSettings?.default_grace_period_minutes ?? 15,
+    track_tardiness: attendanceSettings?.track_tardiness === true,
+    show_system_login_time: attendanceSettings?.show_system_login_time === true,
+    calendar_reminder_time: attendanceSettings?.calendar_reminder_time || '09:00',
   });
 
   // Calculate current site login time for Requirement 2
@@ -176,6 +188,14 @@ export function AttendanceDepartureView({
     todaySelfAttendance?.check_in_time ||
     currentLoginLogToday?.time ||
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // Manual times are the authoritative reference for employees when IT hides the system login time.
+  const manualClockInTime =
+    todaySelfAttendance?.clock_in || todaySelfAttendance?.check_in_time || '';
+  const sessionReferenceTime =
+    showSystemLoginTime && displaySiteLoginTime
+      ? displaySiteLoginTime
+      : manualClockInTime || displaySiteLoginTime;
 
   // Build employee roster from Firestore employees + attendance records
   const employeeOptions = useMemo(() => {
@@ -319,6 +339,15 @@ export function AttendanceDepartureView({
       ) / 100
     );
   }, [filteredAttendance]);
+
+  const totalOvertimeFiltered = useMemo(
+    () =>
+      filteredAttendance.reduce(
+        (acc, rec) => acc + (Number(rec.overtime_minutes) || 0),
+        0
+      ),
+    [filteredAttendance]
+  );
 
   const openShiftsCount = useMemo(
     () => accessibleRecords.filter(r => isAttendanceShiftOpen(r)).length,
@@ -526,6 +555,9 @@ export function AttendanceDepartureView({
       default_start_time: companySettingsForm.default_start_time,
       default_end_time: companySettingsForm.default_end_time,
       default_grace_period_minutes: Number(companySettingsForm.default_grace_period_minutes),
+      track_tardiness: companySettingsForm.track_tardiness,
+      show_system_login_time: companySettingsForm.show_system_login_time,
+      calendar_reminder_time: companySettingsForm.calendar_reminder_time,
     });
 
     setShowCompanySettingsModal(false);
@@ -654,13 +686,15 @@ export function AttendanceDepartureView({
             </h2>
 
             <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 pt-1">
-              <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700 font-mono">
-                <LogIn className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>
-                  {isAr ? 'وقت تسجيل دخول الموقع:' : 'Site Login Time:'}{' '}
-                  <strong className="text-emerald-300 font-bold">{displaySiteLoginTime}</strong>
-                </span>
-              </div>
+              {showSystemLoginTime && (
+                <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700 font-mono">
+                  <LogIn className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    {isAr ? 'وقت تسجيل دخول الموقع:' : 'Site Login Time:'}{' '}
+                    <strong className="text-emerald-300 font-bold">{displaySiteLoginTime}</strong>
+                  </span>
+                </div>
+              )}
 
               {todaySelfAttendance?.clock_in && (
                 <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700 font-mono">
@@ -695,8 +729,8 @@ export function AttendanceDepartureView({
                   <LogOut className="w-5 h-5" />
                   <span>
                     {isAr
-                      ? `تسجيل الخروج (انصراف) - وقت الدخول: ${displaySiteLoginTime}`
-                      : `Log Out (Check Out) - Login: ${displaySiteLoginTime}`}
+                      ? `تسجيل الخروج (انصراف) - وقت الدخول: ${sessionReferenceTime}`
+                      : `Log Out (Check Out) - Check-In: ${sessionReferenceTime}`}
                   </span>
                 </button>
               ) : (
@@ -708,8 +742,8 @@ export function AttendanceDepartureView({
                   <LogIn className="w-5 h-5" />
                   <span>
                     {isAr
-                      ? `تسجيل الدخول (حضور) - الوقت: ${displaySiteLoginTime}`
-                      : `Log In (Check In) - Time: ${displaySiteLoginTime}`}
+                      ? `تسجيل الدخول (حضور) - الوقت: ${sessionReferenceTime}`
+                      : `Log In (Check In) - Time: ${sessionReferenceTime}`}
                   </span>
                 </button>
               ))}
@@ -812,7 +846,11 @@ export function AttendanceDepartureView({
             {totalHoursFiltered.toFixed(2)} {isAr ? 'ساعة' : 'hrs'}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
-            {isAr
+            {totalOvertimeFiltered > 0
+              ? isAr
+                ? `منها ${totalOvertimeFiltered} دقيقة إضافي (بعد خصم التأخير)`
+                : `${totalOvertimeFiltered} overtime mins (after delay deduction)`
+              : isAr
               ? `${filteredLoginLogs.length} سجل دخول وانصراف مرتبط`
               : `${filteredLoginLogs.length} retrieved log-in / departure events`}
           </div>
@@ -987,11 +1025,22 @@ export function AttendanceDepartureView({
                 <tr>
                   <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'التاريخ' : 'Date'}</th>
                   <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'الموظف' : 'Employee'}</th>
-                  <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'تسجيل الدخول' : 'System Log-In'}</th>
+                  {showSystemLoginTime && (
+                    <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'تسجيل الدخول' : 'System Log-In'}</th>
+                  )}
                   <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'وقت الحضور' : 'Check-In Time'}</th>
                   <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'وقت الانصراف' : 'Departure Time'}</th>
                   <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'عدد ساعات العمل' : 'Working Hours'}</th>
-                  <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'الحالة / التأخير' : 'Status / Late'}</th>
+                  <th className="py-3.5 px-4 font-semibold text-start">{isAr ? 'مصدر السجل' : 'Source'}</th>
+                  <th className="py-3.5 px-4 font-semibold text-start">
+                    {tardinessEnabled
+                      ? isAr
+                        ? 'الحالة / التأخير'
+                        : 'Status / Late'
+                      : isAr
+                      ? 'الحالة'
+                      : 'Status'}
+                  </th>
                   {isITAccount && (
                     <th className="py-3.5 px-4 font-semibold text-end">{isAr ? 'إجراءات IT' : 'IT Actions'}</th>
                   )}
@@ -1000,7 +1049,10 @@ export function AttendanceDepartureView({
               <tbody className="divide-y divide-slate-100">
                 {filteredAttendance.length === 0 ? (
                   <tr>
-                    <td colSpan={isITAccount ? 8 : 7} className="py-12 text-center text-slate-400">
+                    <td
+                      colSpan={(showSystemLoginTime ? 8 : 7) + (isITAccount ? 1 : 0)}
+                      className="py-12 text-center text-slate-400"
+                    >
                       <AlertCircle className="w-7 h-7 mx-auto mb-2 text-slate-300" />
                       <p className="font-bold text-slate-600">
                         {isAr
@@ -1057,9 +1109,11 @@ export function AttendanceDepartureView({
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 font-mono text-indigo-700 font-semibold">
-                          {rec.login_time || checkIn || '-'}
-                        </td>
+                        {showSystemLoginTime && (
+                          <td className="py-3.5 px-4 font-mono text-indigo-700 font-semibold">
+                            {rec.login_time || '-'}
+                          </td>
+                        )}
 
                         <td className="py-3.5 px-4 font-mono font-bold text-emerald-700">
                           {checkIn ? (
@@ -1099,6 +1153,26 @@ export function AttendanceDepartureView({
                         </td>
 
                         <td className="py-3.5 px-4">
+                          <div className="flex flex-col gap-1">
+                            {rec.entry_source === 'IT Manual' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 text-cyan-300 text-[10px] font-extrabold w-fit">
+                                <Shield className="w-3 h-3" />
+                                {isAr ? 'إدخال يدوي — IT' : 'IT Manual Entry'}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-bold w-fit">
+                                {isAr ? 'تسجيل الموظف' : 'Employee Clock'}
+                              </span>
+                            )}
+                            {rec.reset_by_it && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold w-fit">
+                                {isAr ? 'إعادة ضبط بواسطة IT' : 'Reset by IT'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span
                               className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
@@ -1120,25 +1194,22 @@ export function AttendanceDepartureView({
                                 : 'Completed'}
                             </span>
 
-                            {(rec.attendance_status === 'Late' || lateMins > 0) ? (
-                              <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold">
-                                {isAr ? `تأخير ${lateMins} د` : `Late ${lateMins}m`}
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 text-[10px] font-bold">
-                                {isAr ? 'منتظم' : 'On Time'}
-                              </span>
-                            )}
+                            {tardinessEnabled &&
+                              ((rec.attendance_status === 'Late' || lateMins > 0) ? (
+                                <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold">
+                                  {isAr ? `تأخير ${lateMins} د` : `Late ${lateMins}m`}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 text-[10px] font-bold">
+                                  {isAr ? 'منتظم' : 'On Time'}
+                                </span>
+                              ))}
 
-                            {rec.entry_source === 'IT Manual' && (
-                              <span className="px-2 py-0.5 rounded-md bg-slate-900 text-cyan-300 text-[10px] font-bold">
-                                {isAr ? 'معدل بواسطة IT' : 'IT Manual'}
-                              </span>
-                            )}
-
-                            {rec.reset_by_it && rec.entry_source !== 'IT Manual' && (
-                              <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
-                                {isAr ? 'تمت إعادة الضبط' : 'Reset by IT'}
+                            {(Number(rec.overtime_minutes) || 0) > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-bold">
+                                {isAr
+                                  ? `إضافي ${rec.overtime_minutes} د`
+                                  : `+${rec.overtime_minutes}m OT`}
                               </span>
                             )}
                           </div>
@@ -1215,6 +1286,7 @@ export function AttendanceDepartureView({
                   <th className="py-3 px-4 font-semibold text-start">{isAr ? 'التاريخ' : 'Date'}</th>
                   <th className="py-3 px-4 font-semibold text-start">{isAr ? 'الوقت' : 'Time'}</th>
                   <th className="py-3 px-4 font-semibold text-start">{isAr ? 'الموظف' : 'Employee'}</th>
+                  <th className="py-3 px-4 font-semibold text-start">{isAr ? 'المنفذ / المصدر' : 'Actor / Source'}</th>
                   <th className="py-3 px-4 font-semibold text-start">{isAr ? 'نوع العملية' : 'Event Type'}</th>
                   <th className="py-3 px-4 font-semibold text-start">{isAr ? 'التفاصيل المسجلة' : 'Recorded Details'}</th>
                   <th className="py-3 px-4 font-semibold text-start">{isAr ? 'مرجع السجل' : 'Record ID'}</th>
@@ -1223,7 +1295,7 @@ export function AttendanceDepartureView({
               <tbody className="divide-y divide-slate-100">
                 {filteredLoginLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
                       {isAr
                         ? 'لا توجد سجلات تسجيل دخول في هذا النطاق الزمني.'
                         : 'No employee log-in or departure logs found for this filter.'}
@@ -1251,6 +1323,23 @@ export function AttendanceDepartureView({
                               {log.user_role}
                             </span>
                           )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-bold text-slate-700">
+                              {log.actor_name || log.employee_name}
+                            </span>
+                            {log.entry_source === 'IT Manual' || /^\[IT Manual\]/i.test(log.action) ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 text-cyan-300 text-[9px] font-extrabold w-fit">
+                                <Shield className="w-2.5 h-2.5" />
+                                {isAr ? 'تعديل يدوي IT' : 'IT Manual'}
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-semibold text-slate-400">
+                                {isAr ? 'تسجيل الموظف' : 'Employee'}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4">
                           <span
@@ -1316,6 +1405,9 @@ export function AttendanceDepartureView({
                       default_start_time: attendanceSettings?.default_start_time || '09:00',
                       default_end_time: attendanceSettings?.default_end_time || '17:00',
                       default_grace_period_minutes: attendanceSettings?.default_grace_period_minutes ?? 15,
+                      track_tardiness: attendanceSettings?.track_tardiness === true,
+                      show_system_login_time: attendanceSettings?.show_system_login_time === true,
+                      calendar_reminder_time: attendanceSettings?.calendar_reminder_time || '09:00',
                     });
                     setShowCompanySettingsModal(true);
                   }}
@@ -1345,15 +1437,39 @@ export function AttendanceDepartureView({
                 </h3>
                 <p className="text-slate-500 mt-0.5">
                   {isAr
-                    ? `بداية الدوام: ${attendanceSettings.default_start_time} • نهاية الدوام: ${attendanceSettings.default_end_time} • فترة السماح الافتراضية: ${attendanceSettings.default_grace_period_minutes} دقيقة`
-                    : `Official Shift: ${attendanceSettings.default_start_time} – ${attendanceSettings.default_end_time} • Default Grace Period: ${attendanceSettings.default_grace_period_minutes} mins`}
+                    ? `بداية الدوام: ${attendanceSettings.default_start_time} • نهاية الدوام: ${attendanceSettings.default_end_time} • فترة السماح الافتراضية: ${attendanceSettings.default_grace_period_minutes} دقيقة • تذكير التقويم: ${attendanceSettings.calendar_reminder_time || '09:00'}`
+                    : `Official Shift: ${attendanceSettings.default_start_time} – ${attendanceSettings.default_end_time} • Grace: ${attendanceSettings.default_grace_period_minutes} mins • Calendar Reminder: ${attendanceSettings.calendar_reminder_time || '09:00'}`}
                 </p>
               </div>
-              {attendanceSettings.auto_record_on_login && (
-                <span className="px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl font-bold">
-                  {isAr ? 'التسجيل التلقائي مع الدخول مفعل' : 'Auto-Record on Employee Login Enabled'}
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`px-3 py-1 rounded-xl font-bold border ${
+                    attendanceSettings.track_tardiness
+                      ? 'bg-rose-50 border-rose-200 text-rose-700'
+                      : 'bg-slate-100 border-slate-200 text-slate-500'
+                  }`}
+                >
+                  {attendanceSettings.track_tardiness
+                    ? isAr ? 'احتساب التأخير مفعل' : 'Tardiness Tracking ON'
+                    : isAr ? 'احتساب التأخير متوقف' : 'Tardiness Tracking OFF'}
                 </span>
-              )}
+                <span
+                  className={`px-3 py-1 rounded-xl font-bold border ${
+                    attendanceSettings.show_system_login_time
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                      : 'bg-slate-100 border-slate-200 text-slate-500'
+                  }`}
+                >
+                  {attendanceSettings.show_system_login_time
+                    ? isAr ? 'وقت دخول النظام ظاهر' : 'System Login Visible'
+                    : isAr ? 'وقت دخول النظام مخفي' : 'System Login Hidden'}
+                </span>
+                {attendanceSettings.auto_record_on_login && (
+                  <span className="px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl font-bold">
+                    {isAr ? 'التسجيل التلقائي مع الدخول مفعل' : 'Auto-Record on Employee Login Enabled'}
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
@@ -1966,6 +2082,69 @@ export function AttendanceDepartureView({
                   {isAr
                     ? 'يطبق هذا العذر الافتراضي على جميع الموظفين الذين ليس لديهم جدول مخصص'
                     : 'Applies as default grace period for employees without individual custom schedules.'}
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={companySettingsForm.track_tardiness}
+                    onChange={e =>
+                      setCompanySettingsForm(prev => ({ ...prev, track_tardiness: e.target.checked }))
+                    }
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-indigo-600 cursor-pointer"
+                  />
+                  <span>
+                    <span className="block font-bold text-slate-800">
+                      {isAr ? 'تفعيل احتساب التأخير للموظفين' : 'Enable Employee Tardiness Tracking'}
+                    </span>
+                    <span className="block text-[11px] text-slate-500">
+                      {isAr
+                        ? 'عند الإيقاف لا تظهر أي سجلات تأخير. يتم الحساب من وقت الحضور اليدوي للموظف بعد فترة السماح.'
+                        : 'When off, no tardiness records appear. Late minutes are calculated from the employee’s manual clock-in after the grace period.'}
+                    </span>
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={companySettingsForm.show_system_login_time}
+                    onChange={e =>
+                      setCompanySettingsForm(prev => ({ ...prev, show_system_login_time: e.target.checked }))
+                    }
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-indigo-600 cursor-pointer"
+                  />
+                  <span>
+                    <span className="block font-bold text-slate-800">
+                      {isAr ? 'إظهار وقت تسجيل دخول النظام للموظفين' : 'Show System Log-In Time to Employees'}
+                    </span>
+                    <span className="block text-[11px] text-slate-500">
+                      {isAr
+                        ? 'عند الإيقاف يعتمد الموظف على أوقات الحضور والانصراف اليدوية فقط (المدير و IT يرون سجل التدقيق دائماً).'
+                        : 'When off, employees rely only on manual clock-in/out times (Admin & IT still see the audit trail).'}
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {isAr ? 'وقت تذكير التقويم اليومي' : 'Daily Calendar Reminder Time'}
+                </label>
+                <input
+                  type="time"
+                  value={companySettingsForm.calendar_reminder_time}
+                  onChange={e =>
+                    setCompanySettingsForm(prev => ({ ...prev, calendar_reminder_time: e.target.value }))
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-slate-800"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {isAr
+                    ? 'الوقت الذي تُرسل فيه تنبيهات متابعات العملاء والرحلات والمستحقات المستحقة اليوم.'
+                    : 'Time of day when due follow-ups, trips, and invoice reminders are pushed.'}
                 </p>
               </div>
 
