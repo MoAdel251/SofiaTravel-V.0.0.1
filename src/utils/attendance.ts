@@ -201,16 +201,21 @@ export interface ResolvedAttendanceSchedule {
   end_time: string;
   grace_period_minutes: number;
   working_days: string[];
+  /** Set when the resolution came from a one-day IT override. */
+  schedule_date?: string;
+  is_date_override?: boolean;
 }
 
 /**
- * Resolves the effective shift for an employee, falling back to the company
- * defaults when no individual work schedule has been configured.
+ * Resolves the effective shift for an employee. A one-day IT override for the
+ * requested date wins over the recurring weekly schedule, which in turn wins
+ * over the company defaults.
  */
 export function resolveEmployeeScheduleForAttendance(
   empQuery: { id?: string; employee_id?: string; name?: string; username?: string },
   workSchedules: WorkSchedule[] = [],
-  attendanceSettings?: AttendanceSettings | null
+  attendanceSettings?: AttendanceSettings | null,
+  scheduleDate?: string
 ): ResolvedAttendanceSchedule {
   const defaultStart = normalizeTimeHHMM(attendanceSettings?.default_start_time) || '10:00';
   const defaultEnd = normalizeTimeHHMM(attendanceSettings?.default_end_time) || '18:00';
@@ -226,13 +231,21 @@ export function resolveEmployeeScheduleForAttendance(
     .map(v => String(v || '').trim().toLowerCase())
     .filter(Boolean);
 
-  const matched = workSchedules.find(ws => {
+  const matchesEmployee = (ws: WorkSchedule) => {
     const wsId = String(ws.employee_id || ws.id || '').trim().toLowerCase();
     const wsName = String(ws.employee_name || '').trim().toLowerCase();
     if (wsId && qIds.includes(wsId)) return true;
     if (wsName && (qNames.includes(wsName) || qIds.includes(wsName))) return true;
     return false;
-  });
+  };
+
+  const targetDate = String(scheduleDate || '').trim();
+  const dayOverride = targetDate
+    ? workSchedules.find(ws => matchesEmployee(ws) && String(ws.schedule_date || '').trim() === targetDate)
+    : undefined;
+  const recurring = workSchedules.find(ws => matchesEmployee(ws) && !String(ws.schedule_date || '').trim());
+
+  const matched = dayOverride || recurring;
 
   if (matched) {
     return {
@@ -240,6 +253,8 @@ export function resolveEmployeeScheduleForAttendance(
       end_time: normalizeTimeHHMM(matched.end_time) || defaultEnd,
       grace_period_minutes: Math.max(0, Number(matched.grace_period_minutes) || 0),
       working_days: Array.isArray(matched.working_days) ? matched.working_days : defaultDays,
+      schedule_date: matched.schedule_date,
+      is_date_override: Boolean(dayOverride),
     };
   }
 
@@ -248,6 +263,7 @@ export function resolveEmployeeScheduleForAttendance(
     end_time: defaultEnd,
     grace_period_minutes: Math.max(0, defaultGrace),
     working_days: defaultDays,
+    is_date_override: false,
   };
 }
 
