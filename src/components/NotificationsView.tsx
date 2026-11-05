@@ -30,6 +30,12 @@ import {
   sendSelfTestPhoneNotification,
 } from '../services/pushNotificationService';
 import { dataService } from '../services/dataService';
+import {
+  WEBSITE_UPDATE_CATEGORY,
+  getWebsiteUpdateNotice,
+  isWebsiteUpdateCategory,
+  withWebsiteUpdateNotice,
+} from '../utils/websiteUpdateNotice';
 
 interface NotificationsViewProps {
   notifications: NotificationItem[];
@@ -284,6 +290,8 @@ export function NotificationsView({
     }
 
     setIsSendingCustom(true);
+    const isWebsiteUpdate = isWebsiteUpdateCategory(customCategory);
+    const finalMessage = isWebsiteUpdate ? withWebsiteUpdateNotice(msgClean, language) : msgClean;
     try {
       const targetPayload =
         targetScope === 'SELECTED'
@@ -309,6 +317,8 @@ export function NotificationsView({
           sender_name: actingHeaderUser,
           sender_role: isITAccount ? 'IT Developer' : userRole,
           is_it: isITAccount,
+          is_website_update: isWebsiteUpdate,
+          fixed_message: isWebsiteUpdate ? getWebsiteUpdateNotice(language) : '',
           language,
           tab: customCategory === 'Attendance' ? 'attendance' : 'notifications',
         }),
@@ -334,9 +344,11 @@ export function NotificationsView({
           await dataService.saveDocument('notifications', notifId, {
             id: notifId,
             title: titleClean,
-            message: msgClean,
+            message: finalMessage,
             type: 'custom',
             category: customCategory,
+            is_website_update: isWebsiteUpdate,
+            fixed_message: isWebsiteUpdate ? getWebsiteUpdateNotice(language) : '',
             target_scope: 'ALL',
             sender_name: actingHeaderUser,
             sender_role: isITAccount ? 'IT Developer' : userRole,
@@ -351,9 +363,11 @@ export function NotificationsView({
             await dataService.saveDocument('notifications', notifId, {
               id: notifId,
               title: titleClean,
-              message: msgClean,
+              message: finalMessage,
               type: 'custom',
               category: customCategory,
+              is_website_update: isWebsiteUpdate,
+              fixed_message: isWebsiteUpdate ? getWebsiteUpdateNotice(language) : '',
               target_scope: 'EMPLOYEE',
               target_employee_id: emp.id,
               target_employee_name: emp.name,
@@ -713,7 +727,27 @@ export function NotificationsView({
                   <option value="Operations">
                     {isAr ? 'مهام وعمليات التشغيل' : 'Tasks & Operations'}
                   </option>
+                  <option value={WEBSITE_UPDATE_CATEGORY}>
+                    {isAr ? 'تحديث الموقع (رسالة ثابتة)' : 'Website Update (Fixed Notice)'}
+                  </option>
                 </select>
+
+                {isWebsiteUpdateCategory(customCategory) && (
+                  <div className="mt-2 p-3 rounded-xl bg-indigo-50 border border-indigo-200 space-y-1">
+                    <div className="flex items-center gap-1.5 text-indigo-900 font-black text-[11px]">
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                      <span>{isAr ? 'رسالة ثابتة تُرفق تلقائياً' : 'Fixed notice appended automatically'}</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-indigo-900/90 whitespace-pre-line">
+                      {getWebsiteUpdateNotice(language)}
+                    </p>
+                    <p className="text-[10px] text-indigo-700 font-semibold">
+                      {isAr
+                        ? 'تُضاف هذه الرسالة تلقائياً إلى كل إشعار تحديث موقع، ويستلمها الموظف بلغته.'
+                        : 'This notice is added to every website-update notification and delivered in each employee’s own language.'}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
