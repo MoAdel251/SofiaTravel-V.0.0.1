@@ -9,6 +9,12 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
+import {
+  WEBSITE_UPDATE_CATEGORY,
+  getWebsiteUpdateNotice,
+  isWebsiteUpdateCategory,
+  withWebsiteUpdateNotice,
+} from './src/utils/websiteUpdateNotice';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -984,25 +990,42 @@ app.post("/api/work-schedules", async (req, res) => {
     return res.status(403).json({ error: 'Forbidden: Only Developer (IT) and Administrator can adjust work schedules.' });
   }
 
-  const schId = req.body.id || `SCHED-${req.body.employee_id || Date.now()}`;
+  const employeeId = String(req.body.employee_id || '').trim();
+  const rawScheduleDate = String(req.body.schedule_date || '').trim();
+  const scheduleDate = /^\d{4}-\d{2}-\d{2}$/.test(rawScheduleDate) ? rawScheduleDate : '';
+  const schId =
+    req.body.id ||
+    (scheduleDate ? `SCHED-${employeeId || 'EMP'}-${scheduleDate}` : `SCHED-${employeeId || Date.now()}`);
   const schedule = {
     id: schId,
-    employee_id: req.body.employee_id || '',
+    employee_id: employeeId,
     employee_name: req.body.employee_name || 'Employee',
     start_time: req.body.start_time || '09:00',
     end_time: req.body.end_time || '17:00',
     grace_period_minutes: Number(req.body.grace_period_minutes !== undefined ? req.body.grace_period_minutes : 15),
     working_days: Array.isArray(req.body.working_days) ? req.body.working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+    schedule_date: scheduleDate || undefined,
     updatedAt: new Date().toISOString()
   };
 
   if (!db.work_schedules) db.work_schedules = [];
-  const idx = db.work_schedules.findIndex((s: any) => s.id === schId || (req.body.employee_id && s.employee_id === req.body.employee_id));
+  const idx = db.work_schedules.findIndex((s: any) => {
+    if (s.id === schId) return true;
+    if (scheduleDate) {
+      return s.employee_id === employeeId && String(s.schedule_date || '').trim() === scheduleDate;
+    }
+    return Boolean(employeeId) && s.employee_id === employeeId && !String(s.schedule_date || '').trim();
+  });
   if (idx >= 0) db.work_schedules[idx] = { ...db.work_schedules[idx], ...schedule };
   else db.work_schedules.push(schedule);
 
   await saveToFirestore('work_schedules', schId, schedule);
-  await logActivity(actingUser || 'Administrator', `Adjusted work schedule for ${schedule.employee_name} (Grace: ${schedule.grace_period_minutes}m)`, 'Work Schedules', schId);
+  await logActivity(
+    actingUser || 'Administrator',
+    `Adjusted ${scheduleDate ? `one-day (${scheduleDate}) ` : ''}work schedule for ${schedule.employee_name} (Grace: ${schedule.grace_period_minutes}m)`,
+    'Work Schedules',
+    schId
+  );
   res.json(schedule);
 });
 
@@ -1032,6 +1055,27 @@ app.put("/api/work-schedules/:id", async (req, res) => {
   await saveToFirestore('work_schedules', id, updated);
   await logActivity(actingUser || 'Administrator', `Updated work schedule for ${updated.employee_name || id} (Grace: ${updated.grace_period_minutes}m)`, 'Work Schedules', id);
   res.json(updated);
+});
+
+app.delete("/api/work-schedules/:id", async (req, res) => {
+  const { id } = req.params;
+  const actingUser = String((req.headers['x-acting-user'] as string) || '').trim();
+  const actingRole = String((req.headers['x-acting-role'] as string) || '').trim();
+  const isAllowed = actingUser === 'IT' || actingRole === 'Administrator';
+  if (!isAllowed) {
+    return res.status(403).json({ error: 'Forbidden: Only Developer (IT) and Administrator can delete work schedules.' });
+  }
+
+  const existing = (db.work_schedules || []).find((s: any) => s.id === id);
+  db.work_schedules = (db.work_schedules || []).filter((s: any) => s.id !== id);
+  await deleteFromFirestore('work_schedules', id);
+  await logActivity(
+    actingUser || 'Administrator',
+    `Deleted ${existing?.schedule_date ? `one-day (${existing.schedule_date}) ` : ''}work schedule for ${existing?.employee_name || id}`,
+    'Work Schedules',
+    id
+  );
+  res.json({ success: true, id });
 });
 
 app.get("/api/attendance-settings", async (req, res) => {
@@ -3251,12 +3295,19 @@ function normalizeHHMMServer(raw?: string | null, fallback = '10:00'): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-function resolveEmployeeScheduleFromDb(empQuery: {
-  id?: string;
-  employee_id?: string;
-  name?: string;
-  username?: string;
-}) {
+function getCurrentScheduleDate(): string {
+  return getWallClockInTimezone('Africa/Cairo').dateStr;
+}
+
+function resolveEmployeeScheduleFromDb(
+  empQuery: {
+    id?: string;
+    employee_id?: string;
+    name?: string;
+    username?: string;
+  },
+  scheduleDate?: string
+) {
   const schedules: any[] = db.work_schedules || [];
   const attSettingsList: any[] = db.attendance_settings || [];
   const mainAttSetting = attSettingsList.find((d: any) => d.id === 'main') || attSettingsList[0] || null;
@@ -3274,13 +3325,20 @@ function resolveEmployeeScheduleFromDb(empQuery: {
     .map(v => String(v || '').trim().toLowerCase())
     .filter(Boolean);
 
-  const matched = schedules.find((ws: any) => {
+  const matchesEmployee = (ws: any) => {
     const wsId = String(ws.employee_id || ws.id || '').trim().toLowerCase();
     const wsName = String(ws.employee_name || '').trim().toLowerCase();
     if (wsId && qIds.includes(wsId)) return true;
     if (wsName && (qNames.includes(wsName) || qIds.includes(wsName))) return true;
     return false;
-  });
+  };
+
+  const targetDate = String(scheduleDate || '').trim();
+  const dayOverride = targetDate
+    ? schedules.find((ws: any) => matchesEmployee(ws) && String(ws.schedule_date || '').trim() === targetDate)
+    : undefined;
+  const recurring = schedules.find((ws: any) => matchesEmployee(ws) && !String(ws.schedule_date || '').trim());
+  const matched = dayOverride || recurring;
 
   if (matched) {
     return {
@@ -3288,6 +3346,8 @@ function resolveEmployeeScheduleFromDb(empQuery: {
       end_time: normalizeHHMMServer(matched.end_time, defaultEnd),
       grace_period_minutes: Number(matched.grace_period_minutes) || 0,
       working_days: Array.isArray(matched.working_days) ? matched.working_days : defaultWorkingDays,
+      schedule_date: matched.schedule_date,
+      is_date_override: Boolean(dayOverride),
     };
   }
 
@@ -3296,6 +3356,7 @@ function resolveEmployeeScheduleFromDb(empQuery: {
     end_time: defaultEnd,
     grace_period_minutes: Number(mainAttSetting?.default_grace_period_minutes) || 0,
     working_days: defaultWorkingDays,
+    is_date_override: false,
   };
 }
 
@@ -3433,12 +3494,15 @@ app.post("/api/push/subscribe", async (req, res) => {
 
     const cleanName = String(employee_name || username || 'Employee').trim();
     const cleanId = String(employee_id || username || cleanName).trim();
-    const schedule = resolveEmployeeScheduleFromDb({
-      id: cleanId,
-      employee_id: cleanId,
-      name: cleanName,
-      username: String(username || '').trim(),
-    });
+    const schedule = resolveEmployeeScheduleFromDb(
+      {
+        id: cleanId,
+        employee_id: cleanId,
+        name: cleanName,
+        username: String(username || '').trim(),
+      },
+      getCurrentScheduleDate()
+    );
 
     const subId = makeSubscriptionDocId(subscription.endpoint);
     const nowIso = new Date().toISOString();
@@ -3544,12 +3608,15 @@ app.post("/api/push/test-self", async (req, res) => {
     const { employee_id, employee_name, username, language = 'en', endpoint } = req.body || {};
     const cleanName = String(employee_name || username || 'Employee').trim();
     const cleanId = String(employee_id || username || cleanName).trim();
-    const schedule = resolveEmployeeScheduleFromDb({
-      id: cleanId,
-      employee_id: cleanId,
-      name: cleanName,
-      username: String(username || '').trim(),
-    });
+    const schedule = resolveEmployeeScheduleFromDb(
+      {
+        id: cleanId,
+        employee_id: cleanId,
+        name: cleanName,
+        username: String(username || '').trim(),
+      },
+      getCurrentScheduleDate()
+    );
 
     let matchingSubs = (db.push_subscriptions || []).filter((s: any) =>
       endpoint
@@ -3616,13 +3683,22 @@ app.post("/api/push/send-custom", async (req, res) => {
       category = 'Announcement',
       tab = 'notifications',
       language = 'en',
+      is_website_update,
     } = req.body || {};
 
+    const isWebsiteUpdate = Boolean(is_website_update) || isWebsiteUpdateCategory(category);
+    const effectiveCategory = isWebsiteUpdate ? WEBSITE_UPDATE_CATEGORY : category;
     const cleanTitle = String(title || '').trim();
-    const cleanMessage = String(message || '').trim();
+    let cleanMessage = String(message || '').trim();
     if (!cleanTitle || !cleanMessage) {
       return res.status(400).json({ error: "Both notification title and message are required." });
     }
+    if (isWebsiteUpdate) {
+      cleanMessage = withWebsiteUpdateNotice(cleanMessage, language);
+    }
+    const fixedNotice = isWebsiteUpdate ? getWebsiteUpdateNotice(language) : '';
+    const pushBodyFor = (subLanguage?: string) =>
+      isWebsiteUpdate ? withWebsiteUpdateNotice(cleanMessage, subLanguage || language) : cleanMessage;
 
     const createdNotifications: any[] = [];
     let targetSubs: any[] = [];
@@ -3634,7 +3710,9 @@ app.post("/api/push/send-custom", async (req, res) => {
         target_scope: 'ALL',
         sender_name: authCheck.actorName,
         sender_role: authCheck.actorRole,
-        category,
+        category: effectiveCategory,
+        is_website_update: isWebsiteUpdate,
+        fixed_message: fixedNotice,
         skip_push: true,
       });
       createdNotifications.push(savedNotif);
@@ -3644,7 +3722,7 @@ app.post("/api/push/send-custom", async (req, res) => {
         id: notifId,
         tag: notifId,
         title: cleanTitle,
-        body: cleanMessage,
+        body: pushBodyFor(sub.language),
         lang: sub.language || language || 'en',
         dir: (sub.language || language) === 'ar' ? 'rtl' : 'ltr',
         tab,
@@ -3671,7 +3749,9 @@ app.post("/api/push/send-custom", async (req, res) => {
           target_employee_name: empName,
           sender_name: authCheck.actorName,
           sender_role: authCheck.actorRole,
-          category,
+          category: effectiveCategory,
+          is_website_update: isWebsiteUpdate,
+          fixed_message: fixedNotice,
           skip_push: true,
         });
         createdNotifications.push(savedNotif);
@@ -3696,7 +3776,7 @@ app.post("/api/push/send-custom", async (req, res) => {
         id: sub._notifId || `NOTIF-CUSTOM-${Date.now()}`,
         tag: sub._notifId || `NOTIF-CUSTOM-${Date.now()}`,
         title: cleanTitle,
-        body: cleanMessage,
+        body: pushBodyFor(sub.language),
         lang: sub.language || language || 'en',
         dir: (sub.language || language) === 'ar' ? 'rtl' : 'ltr',
         tab,
@@ -3797,8 +3877,9 @@ app.post("/api/push/send-schedule-reminders", async (req, res) => {
     const createdNotifs: any[] = [];
 
     for (const emp of roster) {
-      const schedule = resolveEmployeeScheduleFromDb(emp);
       const empSubs = (db.push_subscriptions || []).filter((s: any) => doesSubscriptionMatchEmployee(s, emp));
+      const empTimezone = empSubs[0]?.timezone || 'Africa/Cairo';
+      const schedule = resolveEmployeeScheduleFromDb(emp, getWallClockInTimezone(empTimezone).dateStr);
       const prefersAr = empSubs.some((s: any) => s.language === 'ar') || req.body?.language === 'ar';
 
       const title = prefersAr
@@ -3937,13 +4018,13 @@ async function runScheduledAttendanceRemindersTick() {
     const cutoffMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
 
     for (const emp of roster) {
-      const schedule = resolveEmployeeScheduleFromDb(emp);
       const empSubs = (db.push_subscriptions || []).filter((s: any) => doesSubscriptionMatchEmployee(s, emp));
       const empTimezone = empSubs[0]?.timezone || 'Africa/Cairo';
       const clock = getWallClockInTimezone(empTimezone);
+      const schedule = resolveEmployeeScheduleFromDb(emp, clock.dateStr);
 
-      // Respect employee's configured working days if specified
-      if (Array.isArray(schedule.working_days) && schedule.working_days.length > 0) {
+      // A one-day IT override applies even on days outside the recurring working week.
+      if (!schedule.is_date_override && Array.isArray(schedule.working_days) && schedule.working_days.length > 0) {
         const matchesDay = schedule.working_days.some(
           d => String(d).trim().toLowerCase() === clock.weekdayEn.toLowerCase() ||
                String(d).trim().toLowerCase().startsWith(clock.weekdayEn.substring(0, 3).toLowerCase())
