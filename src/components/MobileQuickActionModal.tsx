@@ -11,18 +11,26 @@ import {
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { isTabAllowedForUser } from '../utils/permissions';
 
 interface MobileQuickActionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectAction: (actionKey: string) => void;
   userRole?: UserRole;
+  userPermissions?: string[];
+  isAdmin?: boolean;
+  isITAccount?: boolean;
 }
 
 export function MobileQuickActionModal({
   isOpen,
   onClose,
   onSelectAction,
+  userRole = 'Sales',
+  userPermissions = [],
+  isAdmin = false,
+  isITAccount = false,
 }: MobileQuickActionModalProps) {
   const { language, t } = useLanguage();
   if (!isOpen) return null;
@@ -30,6 +38,7 @@ export function MobileQuickActionModal({
   const actions = [
     {
       id: 'new-voucher',
+      tab: 'vouchers',
       title: language === 'ar' ? 'إصدار سند حجز عميل' : 'New Customer Voucher',
       desc: language === 'ar' ? 'إنشاء سند رسمي لخدمة أو برنامج سياحي' : 'Issue official booking voucher for customer',
       icon: Ticket,
@@ -37,6 +46,7 @@ export function MobileQuickActionModal({
     },
     {
       id: 'new-invoice',
+      tab: 'invoices',
       title: language === 'ar' ? 'إنشاء فاتورة عميل / مورد' : 'Create Invoice / Bill',
       desc: language === 'ar' ? 'إصدار فاتورة مرتبطة بالسند والملف' : 'Generate customer or supplier invoice from voucher',
       icon: FileText,
@@ -44,6 +54,7 @@ export function MobileQuickActionModal({
     },
     {
       id: 'new-customer',
+      tab: 'customers',
       title: language === 'ar' ? 'إضافة ملف عميل جديد' : 'Add Customer Dossier',
       desc: language === 'ar' ? 'تسجيل بيانات الجواز والهاتف ورقم الملف' : 'Register client profile, passport & sequential file #',
       icon: Users,
@@ -51,6 +62,7 @@ export function MobileQuickActionModal({
     },
     {
       id: 'new-inquiry',
+      tab: 'customer-inquiries',
       title: language === 'ar' ? 'تسجيل استفسار عميل' : 'New Customer Inquiry',
       desc: language === 'ar' ? 'تسجيل تواصل واتساب أو إنستغرام للمتابعة' : 'Log WhatsApp or Instagram lead for follow-up',
       icon: MessageCircle,
@@ -58,6 +70,7 @@ export function MobileQuickActionModal({
     },
     {
       id: 'new-service',
+      tab: 'services',
       title: language === 'ar' ? 'إضافة خدمة سياحية' : 'New Tourism Service',
       desc: language === 'ar' ? 'تأشيرة، طيران، فندق، توصيل أو رحلة بحرية' : 'Add Visa, Flight, Hotel, Cruise or Transfer',
       icon: Layers,
@@ -65,6 +78,7 @@ export function MobileQuickActionModal({
     },
     {
       id: 'new-package',
+      tab: 'packages',
       title: language === 'ar' ? 'إنشاء برنامج سياحي' : 'Create Tour Package',
       desc: language === 'ar' ? 'بناء برنامج متكامل متعدد الأيام' : 'Build multi-day travel itinerary package',
       icon: Compass,
@@ -110,7 +124,9 @@ export function MobileQuickActionModal({
         </div>
 
         <div className="p-4 grid grid-cols-1 gap-2.5 overflow-y-auto">
-          {actions.map((act) => {
+          {actions
+            .filter((act) => isTabAllowedForUser(act.tab, userRole, userPermissions, isAdmin, isITAccount))
+            .map((act) => {
             const Icon = act.icon;
             return (
               <button
