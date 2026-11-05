@@ -1,4 +1,12 @@
-import { Employee, AttendanceRecord, ActivityLog, FinanceAuditLog, AttendanceLoginLog } from '../types';
+import {
+  Employee,
+  AttendanceRecord,
+  ActivityLog,
+  FinanceAuditLog,
+  AttendanceLoginLog,
+  WorkSchedule,
+  AttendanceSettings,
+} from '../types';
 
 /**
  * Checks strictly if the logged-in account is the "IT" developer account.
@@ -188,6 +196,141 @@ export function formatWorkingHoursLabel(hours: number, formatted?: string, isAr:
     : `${h}h ${String(m).padStart(2, '0')}m (${safeHours.toFixed(2)} hrs)`;
 }
 
+export interface ResolvedAttendanceSchedule {
+  start_time: string;
+  end_time: string;
+  grace_period_minutes: number;
+  working_days: string[];
+}
+
+/**
+ * Resolves the effective shift for an employee, falling back to the company
+ * defaults when no individual work schedule has been configured.
+ */
+export function resolveEmployeeScheduleForAttendance(
+  empQuery: { id?: string; employee_id?: string; name?: string; username?: string },
+  workSchedules: WorkSchedule[] = [],
+  attendanceSettings?: AttendanceSettings | null
+): ResolvedAttendanceSchedule {
+  const defaultStart = normalizeTimeHHMM(attendanceSettings?.default_start_time) || '10:00';
+  const defaultEnd = normalizeTimeHHMM(attendanceSettings?.default_end_time) || '18:00';
+  const defaultGrace = Number(attendanceSettings?.default_grace_period_minutes) || 0;
+  const defaultDays = Array.isArray(attendanceSettings?.default_working_days)
+    ? attendanceSettings!.default_working_days!
+    : [];
+
+  const qIds = [empQuery.id, empQuery.employee_id]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  const qNames = [empQuery.name, empQuery.username]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  const matched = workSchedules.find(ws => {
+    const wsId = String(ws.employee_id || ws.id || '').trim().toLowerCase();
+    const wsName = String(ws.employee_name || '').trim().toLowerCase();
+    if (wsId && qIds.includes(wsId)) return true;
+    if (wsName && (qNames.includes(wsName) || qIds.includes(wsName))) return true;
+    return false;
+  });
+
+  if (matched) {
+    return {
+      start_time: normalizeTimeHHMM(matched.start_time) || defaultStart,
+      end_time: normalizeTimeHHMM(matched.end_time) || defaultEnd,
+      grace_period_minutes: Math.max(0, Number(matched.grace_period_minutes) || 0),
+      working_days: Array.isArray(matched.working_days) ? matched.working_days : defaultDays,
+    };
+  }
+
+  return {
+    start_time: defaultStart,
+    end_time: defaultEnd,
+    grace_period_minutes: Math.max(0, defaultGrace),
+    working_days: defaultDays,
+  };
+}
+
+function timeToMinutes(timeStr?: string | null): number | null {
+  const seconds = parseTimeToSeconds(timeStr);
+  return seconds === null ? null : Math.floor(seconds / 60);
+}
+
+/**
+ * Computes tardiness, early departure, and overtime for a record.
+ *
+ * Tardiness is derived exclusively from the employee's own manual clock-in
+ * (never from the platform/system login timestamp). The grace period is
+ * applied first; any delay beyond the grace window is then deducted from the
+ * computed overtime so extra hours are only credited after the shift is made up.
+ */
+export function applyAttendancePolicy(
+  record: AttendanceRecord,
+  schedule: ResolvedAttendanceSchedule,
+  options: { trackTardiness: boolean }
+): AttendanceRecord {
+  const startMin = timeToMinutes(schedule.start_time);
+  const endMin = timeToMinutes(schedule.end_time);
+  const inMinRaw = timeToMinutes(record.clock_in || record.check_in_time);
+  const outMinRaw = timeToMinutes(record.clock_out || record.check_out_time);
+
+  const isOvernight = startMin !== null && endMin !== null && endMin <= startMin;
+
+  let inMin = inMinRaw;
+  if (isOvernight && startMin !== null && inMin !== null && inMin < startMin) {
+    inMin += 24 * 60;
+  }
+  let outMin = outMinRaw;
+  if (inMin !== null && outMin !== null && outMin < inMin) {
+    outMin += 24 * 60;
+  }
+
+  const scheduledMinutes =
+    startMin !== null && endMin !== null
+      ? endMin >= startMin
+        ? endMin - startMin
+        : endMin + 24 * 60 - startMin
+      : 0;
+
+  const workedMinutes = inMin !== null && outMin !== null ? Math.max(0, outMin - inMin) : 0;
+
+  let lateMinutes = 0;
+  if (options.trackTardiness && startMin !== null && inMin !== null) {
+    const grace = Math.max(0, Number(schedule.grace_period_minutes) || 0);
+    lateMinutes = Math.max(0, Math.round(inMin - (startMin + grace)));
+  }
+
+  let overtimeMinutes = 0;
+  if (scheduledMinutes > 0 && workedMinutes > 0) {
+    const rawOvertime = Math.max(0, workedMinutes - scheduledMinutes);
+    overtimeMinutes = Math.max(0, rawOvertime - lateMinutes);
+  }
+
+  const earlyDepartureMinutes =
+    scheduledMinutes > 0 && workedMinutes > 0 && overtimeMinutes === 0
+      ? Math.max(0, scheduledMinutes - workedMinutes)
+      : 0;
+
+  const nextStatus = options.trackTardiness
+    ? lateMinutes > 0
+      ? 'Late'
+      : 'Present'
+    : record.attendance_status === 'Absent'
+    ? 'Absent'
+    : 'Present';
+
+  return {
+    ...record,
+    scheduled_start_time: schedule.start_time,
+    scheduled_end_time: schedule.end_time,
+    grace_period_minutes: schedule.grace_period_minutes,
+    late_minutes: options.trackTardiness ? lateMinutes : 0,
+    overtime_minutes: overtimeMinutes,
+    early_departure_minutes: earlyDepartureMinutes,
+    attendance_status: nextStatus,
+  };
+}
+
 /**
  * Resolves an employee display name from employees list when a record stores an employee code (e.g. "EMP-MVXJQYGS").
  */
@@ -327,6 +470,8 @@ export function extractAttendanceAndLoginLogs(
       id: baseKey || act.id,
       employee_id: matchedEmp?.id || (String(act.record || '').startsWith('EMP-') ? act.record : undefined),
       employee_name: resolvedName,
+      actor_name: act.user_name,
+      entry_source: act.entry_source || (/^\[IT Manual\]/i.test(act.action || '') ? 'IT Manual' : 'Employee'),
       action: act.action || 'Attendance Activity',
       details: act.action || '',
       date,
@@ -371,6 +516,8 @@ export function extractAttendanceAndLoginLogs(
       employee_id: matchedEmp?.id || existing?.employee_id || (String(fin.record_id || '').startsWith('EMP-') ? fin.record_id : undefined),
       employee_name: resolvedName,
       user_role: fin.user_role || existing?.user_role,
+      actor_name: fin.user_name || existing?.actor_name,
+      entry_source: existing?.entry_source || (/^\[IT Manual\]/i.test(fin.new_value || '') ? 'IT Manual' : 'Employee'),
       action: existing?.action && existing.action !== 'Updated' ? existing.action : (fin.new_value || fin.action),
       details: fin.new_value || existing?.details || fin.action,
       date: existing?.date || date,
