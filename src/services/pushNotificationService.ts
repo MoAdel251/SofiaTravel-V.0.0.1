@@ -4,7 +4,7 @@ import {
   NotificationItem,
   WorkSchedule,
 } from '../types';
-import { normalizeTimeHHMM } from '../utils/attendance';
+import { getLocalDateYYYYMMDD, normalizeTimeHHMM } from '../utils/attendance';
 
 export type PhoneNotificationSupportStatus =
   | 'granted'
@@ -229,7 +229,8 @@ export function resolveEmployeeDesignatedSchedule(
     username?: string;
   },
   workSchedules: WorkSchedule[] = [],
-  attendanceSettings?: AttendanceSettings | null
+  attendanceSettings?: AttendanceSettings | null,
+  scheduleDate: string = getLocalDateYYYYMMDD()
 ): {
   checkIn: string;
   checkOut: string;
@@ -250,13 +251,18 @@ export function resolveEmployeeDesignatedSchedule(
     .map(v => String(v || '').trim().toLowerCase())
     .filter(Boolean);
 
-  const matched = workSchedules.find(ws => {
+  const matchesEmployee = (ws: WorkSchedule) => {
     const wsId = String(ws.employee_id || ws.id || '').trim().toLowerCase();
     const wsName = String(ws.employee_name || '').trim().toLowerCase();
     if (wsId && qIds.includes(wsId)) return true;
     if (wsName && (qNames.includes(wsName) || qIds.includes(wsName))) return true;
     return false;
-  });
+  };
+
+  const dayOverride = scheduleDate
+    ? workSchedules.find(ws => matchesEmployee(ws) && String(ws.schedule_date || '').trim() === scheduleDate)
+    : undefined;
+  const matched = dayOverride || workSchedules.find(ws => matchesEmployee(ws) && !String(ws.schedule_date || '').trim());
 
   if (matched) {
     return {
