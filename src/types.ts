@@ -837,6 +837,12 @@ export interface CompanySettings {
   site_disabled_message?: string;
   site_disabled_at?: string;
   site_disabled_by?: string;
+  update_notice_enabled?: boolean;
+  update_notice_title?: string;
+  update_notice_message?: string;
+  update_notice_version?: string;
+  update_notice_updated_at?: string;
+  update_notice_updated_by?: string;
 }
 
 export interface AttendanceRecord {

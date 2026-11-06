@@ -56,12 +56,15 @@ export function MobileBottomNav({
         <button
           type="button"
           onClick={() => setCurrentTab('dashboard')}
-          className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+          className={`relative flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-all cursor-pointer ${
             currentTab === 'dashboard'
-              ? 'text-cyan-400 font-bold'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'text-cyan-400 font-bold bg-slate-800/70'
+              : 'text-slate-400 hover:text-slate-200 active:bg-slate-800/50'
           }`}
         >
+          {currentTab === 'dashboard' && (
+            <span className="absolute top-0 inset-x-3 h-0.5 rounded-full bg-cyan-400" />
+          )}
           <LayoutDashboard className="w-5 h-5 mb-0.5" />
           <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_dashboard')}</span>
         </button>
@@ -71,12 +74,15 @@ export function MobileBottomNav({
           <button
             type="button"
             onClick={() => setCurrentTab('vouchers')}
-            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+            className={`relative flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-all cursor-pointer ${
               isVouchersActive
-                ? 'text-cyan-400 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'text-cyan-400 font-bold bg-slate-800/70'
+                : 'text-slate-400 hover:text-slate-200 active:bg-slate-800/50'
             }`}
           >
+            {isVouchersActive && (
+              <span className="absolute top-0 inset-x-3 h-0.5 rounded-full bg-cyan-400" />
+            )}
             <Ticket className="w-5 h-5 mb-0.5" />
             <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
           </button>
@@ -107,12 +113,15 @@ export function MobileBottomNav({
           <button
             type="button"
             onClick={() => setCurrentTab('invoices')}
-            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+            className={`relative flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-all cursor-pointer ${
               isInvoicesActive
-                ? 'text-cyan-400 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'text-cyan-400 font-bold bg-slate-800/70'
+                : 'text-slate-400 hover:text-slate-200 active:bg-slate-800/50'
             }`}
           >
+            {isInvoicesActive && (
+              <span className="absolute top-0 inset-x-3 h-0.5 rounded-full bg-cyan-400" />
+            )}
             <FileText className="w-5 h-5 mb-0.5" />
             <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
           </button>

@@ -3479,7 +3479,7 @@ app.post("/api/push/subscribe", async (req, res) => {
       timezone = 'Africa/Cairo',
       is_standalone = false,
       user_agent = '',
-      sendImmediateAlert = true,
+      sendImmediateAlert = false,
     } = req.body || {};
 
     if (!subscription || !subscription.endpoint || !subscription.keys) {

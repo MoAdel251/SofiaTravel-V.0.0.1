@@ -18,7 +18,6 @@ import {
   Eye, 
   AlertCircle,
   ExternalLink,
-  Instagram,
   ChevronDown,
   X,
   Sparkles,
@@ -312,20 +311,6 @@ export function CustomerInquiriesView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto w-full sm:w-auto">
-          <a
-            href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 hover:from-purple-700 hover:to-rose-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
-            title="Visit Company Instagram Page (https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)"
-          >
-            <Instagram className="w-4 h-4 shrink-0" />
-            <span>Sofia Travel Instagram</span>
-            <span className="text-[10px] text-pink-100/90 font-normal hidden lg:inline">
-              (https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)
-            </span>
-          </a>
-
           <button
             onClick={handleOpenCreateModal}
             className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer flex-1 sm:flex-initial"

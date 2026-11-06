@@ -3,12 +3,13 @@ import {
   Search, Bell, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, Compass, Truck, FileText,
   Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
-  Ticket, Layers, MessageCircle, Instagram, Trash2, RefreshCw, Power
+  Ticket, Layers, MessageCircle, Trash2, RefreshCw, Power
 } from 'lucide-react';
 import { UserRole, NotificationItem, AttendanceRecord } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useLanguage } from '../context/LanguageContext';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
+import { APP_VERSION_LABEL } from '../lib/appVersion';
 
 import { isTabAllowedForUser } from '../utils/permissions';
 
@@ -141,7 +142,10 @@ export function Navbar({
     isTabAllowedForUser(item.id, userRole, userPermissions, isAdmin, isITAccount)
   );
 
-  const activeItem = filteredItems.find(i => i.id === currentTab) || filteredItems[0];
+  // The header title always reflects the active screen, even if that tab is not
+  // present in the navigation for the current employee's permission set.
+  const activeItem =
+    menuItems.find(i => i.id === currentTab) || filteredItems[0] || menuItems[0];
   const unreadCount = notifications.filter(n => !n.read).length;
 
   useEffect(() => {
@@ -157,19 +161,20 @@ export function Navbar({
   return (
     <div className="sticky top-0 z-40 w-full flex flex-col shrink-0">
       {/* Top App Bar (Mobile-App Optimized + Desktop Clean Header) */}
-      <header className="h-14 sm:h-16 bg-slate-900 border-b border-slate-800 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 text-white">
+      <header className="h-14 sm:h-16 bg-slate-900 border-b border-slate-800 px-2.5 sm:px-5 lg:px-6 flex items-center justify-between gap-2 text-white" role="banner">
         {/* Left: Attached Logo As-Is & Active Section Title on Mobile */}
-        <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0">
           <button
             type="button"
             onClick={() => setCurrentTab('dashboard')}
-            className="flex items-center gap-2.5 focus:outline-none cursor-pointer shrink-0"
+            className="flex items-center gap-2.5 focus:outline-none cursor-pointer shrink-0 rounded-xl"
             title={companyName}
+            aria-label={`${companyName} — Dashboard`}
           >
             <img
               src={SOFIA_LOGO_URL}
               alt={companyName}
-              className="h-10 sm:h-11 w-auto object-contain rounded-lg bg-white px-1.5 py-0.5 shadow-sm border border-slate-700/60 select-none shrink-0"
+              className="h-9 sm:h-11 w-auto object-contain rounded-lg bg-white px-1.5 py-0.5 shadow-sm border border-slate-700/60 select-none shrink-0"
               onError={(e) => {
                 const img = e.currentTarget;
                 if (!img.src.endsWith('/sofia-logo.png')) {
@@ -181,11 +186,11 @@ export function Navbar({
 
           {/* Current Screen Title on Mobile (Native App Bar Style) */}
           <div className="flex flex-col min-w-0 lg:hidden">
-            <span className="text-xs sm:text-sm font-bold text-white truncate max-w-[130px] sm:max-w-[200px]">
+            <span className="text-xs sm:text-sm font-bold text-white truncate max-w-[100px] sm:max-w-[200px]">
               {activeItem ? (t(activeItem.labelKey) || activeItem.defaultLabel) : companyName}
             </span>
-            <span className="text-[10px] text-slate-400 truncate">
-              {dbConnected ? t('cloud_live') : t('cloud_offline')}
+            <span className="text-[10px] text-slate-400 truncate max-w-[120px] sm:max-w-[220px]">
+              <span className="font-mono text-cyan-400">{APP_VERSION_LABEL}</span> · {dbConnected ? t('cloud_live') : t('cloud_offline')}
             </span>
           </div>
 
@@ -235,6 +240,7 @@ export function Navbar({
             onClick={toggleLanguage}
             className="h-9 sm:h-9 px-2.5 sm:px-3 flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-cyan-300 transition-colors cursor-pointer shrink-0"
             title={language === 'en' ? 'تغيير اللغة إلى العربية' : 'Switch language to English'}
+            aria-label={language === 'en' ? 'Switch language to Arabic' : 'Switch language to English'}
           >
             <Globe2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
             <span>{language === 'en' ? 'AR' : 'EN'}</span>
@@ -245,17 +251,17 @@ export function Navbar({
             <PWAInstallButton variant="header" companyName={companyName} />
           </div>
 
-          {/* Instagram Compact Button */}
-          <a
-            href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden xl:flex items-center gap-1.5 h-9 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold text-pink-300 transition-colors shrink-0"
-            title="Sofia Travel Instagram"
+          {/* Website Update Version Badge & One-Click Refresh (Desktop) */}
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="hidden lg:flex items-center gap-1.5 h-9 px-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-[11px] font-mono font-bold text-cyan-300 transition-colors shrink-0 cursor-pointer"
+            title={language === 'ar' ? `إصدار الموقع الحالي ${APP_VERSION_LABEL} — اضغط لتحديث الصفحة` : `Current website version ${APP_VERSION_LABEL} — click to reload`}
+            aria-label={language === 'ar' ? 'إصدار الموقع وتحديث الصفحة' : 'Website version and reload page'}
           >
-            <Instagram className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-            <span>Instagram</span>
-          </a>
+            <RefreshCw className="w-3 h-3 shrink-0" />
+            <span>{APP_VERSION_LABEL}</span>
+          </button>
 
           {/* Live Database Connection Status Button */}
           <button
@@ -386,7 +392,7 @@ export function Navbar({
                   </span>
                 </div>
 
-                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                <div className="max-h-[60dvh] sm:max-h-72 overflow-y-auto divide-y divide-slate-100">
                   {notifications.length === 0 ? (
                     <div className="p-6 text-center text-xs text-slate-400">
                       {language === 'ar' ? 'لا توجد إشعارات حالياً.' : 'No active notifications.'}
@@ -655,22 +661,24 @@ export function Navbar({
                 </div>
               </div>
 
-              {/* PWA Install + Instagram */}
+              {/* PWA Install & Website Update Controls */}
               <div className="space-y-2.5 pt-2 border-t border-slate-800">
                 <PWAInstallButton variant="drawer" companyName={companyName} />
 
-                <a
-                  href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700 text-pink-300 text-xs font-semibold min-h-[44px]"
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700 text-cyan-300 text-xs font-semibold min-h-[44px] cursor-pointer hover:bg-slate-700 transition-colors"
+                  title={language === 'ar' ? 'تحديث الصفحة لتحميل أحدث إصدار' : 'Reload the page to load the latest version'}
                 >
                   <div className="flex items-center gap-2">
-                    <Instagram className="w-4 h-4 text-pink-400 shrink-0" />
-                    <span>Sofia Travel Instagram</span>
+                    <RefreshCw className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>{language === 'ar' ? 'تحديث الموقع الآن' : 'Refresh Website Now'}</span>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
-                </a>
+                  <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700 text-cyan-300">
+                    {APP_VERSION_LABEL}
+                  </span>
+                </button>
 
                 {/* Employee Self Clock-In / Clock-Out Action (Mobile Drawer) */}
                 {(onClockIn || onClockOut) && (

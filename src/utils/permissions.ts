@@ -121,7 +121,7 @@ export function isTabAllowedForUser(
   isAdmin: boolean = false,
   isITAccount: boolean = false
 ): boolean {
-  if (isAdmin || isITAccount) {
+  if (isAdmin || isITAccount || userRole === 'Administrator') {
     return true;
   }
 

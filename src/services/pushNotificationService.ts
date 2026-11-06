@@ -441,10 +441,6 @@ export async function syncExistingEmployeePushSubscription(
   if (!subscription) return false;
 
   const cacheKey = `${SUBSCRIBED_CACHE_KEY}_${identity.employee_id || identity.username}`;
-  let alreadyWelcomed = false;
-  try {
-    alreadyWelcomed = localStorage.getItem(cacheKey) === subscription.endpoint;
-  } catch {}
 
   try {
     const timezone =
@@ -462,7 +458,8 @@ export async function syncExistingEmployeePushSubscription(
         timezone,
         is_standalone: isRunningStandalonePWA(),
         user_agent: navigator.userAgent,
-        sendImmediateAlert: !alreadyWelcomed,
+        // Never fire an automatic "test" alert when the website is opened.
+        sendImmediateAlert: false,
       }),
     });
     if (res.ok) {

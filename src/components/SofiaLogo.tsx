@@ -6,7 +6,7 @@ export const SOFIA_LOGO_URL = sofiaAttachedLogo;
 interface SofiaLogoProps {
   className?: string;
   variant?: 'full' | 'icon-only' | 'horizontal';
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'md-lg' | 'lg' | 'xl';
   theme?: 'light' | 'dark' | 'auto';
 }
 
@@ -15,6 +15,7 @@ export function SofiaLogo({ className = '', variant = 'full', size = 'md' }: Sof
     xs: 'h-8',
     sm: 'h-10',
     md: 'h-14',
+    'md-lg': 'h-[3.75rem]',
     lg: 'h-20',
     xl: 'h-28'
   };
@@ -24,6 +25,7 @@ export function SofiaLogo({ className = '', variant = 'full', size = 'md' }: Sof
       xs: 'h-8 w-8',
       sm: 'h-10 w-10',
       md: 'h-12 w-12',
+      'md-lg': 'h-14 w-14',
       lg: 'h-16 w-16',
       xl: 'h-24 w-24'
     };

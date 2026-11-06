@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 // UPLOAD_HELPER_SIGNATURE: SofiaTravelManager_v2026_UploadReady = true
-const UPLOAD_BUNDLE_VERSION = "2026.11.03-optimized";
+import { APP_VERSION } from './lib/appVersion';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { CustomersView } from './components/CustomersView';
@@ -85,6 +85,8 @@ import {
   resolveEmployeeScheduleForAttendance,
 } from './utils/attendance';
 import { SiteMaintenanceOverlay, ITMaintenanceControlModal } from './components/SiteMaintenanceOverlay';
+import { BrandedLoader } from './components/BrandedLoader';
+import { StickyUpdateNotice } from './components/StickyUpdateNotice';
 import { useLanguage } from './context/LanguageContext';
 import { Wrench, Power, BellRing, X } from 'lucide-react';
 import {
@@ -150,6 +152,10 @@ export default function App() {
   const [dbStatus, setDbStatus] = useState<DatabaseConnectionStatus | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Branded loading indicator for the initial boot and page-to-page navigation
+  const [isPageLoading, setIsPageLoading] = useState(true);
+  const isFirstTabRenderRef = useRef(true);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -191,8 +197,8 @@ export default function App() {
     phone: "+20 2 25750000",
     whatsapp: "+20 100 123 4567",
     email: "operations@sofiatravel.com",
-    website: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
-    instagram_url: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
+    website: "",
+    instagram_url: "",
     tax_number: "TR-98765",
     manager_title: "Authorized Manager & Finance Director",
     default_currency: "EGP",
@@ -2705,14 +2711,17 @@ export default function App() {
   );
 
   const visibleNotifications = useMemo(() => {
-    const filtered = notifications.filter(n =>
-      isNotificationVisibleToUser(n, {
+    const filtered = notifications.filter(n => {
+      // Automatic test / activation alerts are no longer shown when the website opens
+      const notifId = String(n.id || '');
+      if (notifId.startsWith('NOTIF-TEST-') || notifId.startsWith('NOTIF-WELCOME-')) return false;
+      return isNotificationVisibleToUser(n, {
         isAdminOrIT: Boolean(isCurrentAdmin || isITAccount),
         employee: currentEmployee,
         empId: currentEmpId,
         username: currentUsername,
-      })
-    );
+      });
+    });
     const sorted = sortNotificationsNewestFirst(filtered);
     return sorted.map(n => ({
       ...n,
@@ -3522,6 +3531,24 @@ export default function App() {
 
   const unreadNotifsCount = visibleNotifications.filter(n => !n.read).length;
 
+  // Branded loading indicator: hide the initial boot splash once the app shell is ready
+  useEffect(() => {
+    const timer = setTimeout(() => setIsPageLoading(false), 900);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Show the branded loader briefly whenever the user navigates between pages
+  useEffect(() => {
+    if (isFirstTabRenderRef.current) {
+      isFirstTabRenderRef.current = false;
+      return;
+    }
+    setIsPageLoading(true);
+    const timer = setTimeout(() => setIsPageLoading(false), 420);
+    return () => clearTimeout(timer);
+  }, [currentTab]);
+
+
   const handleLogin = (name: string, role: UserRole, empId?: string) => {
     setCurrentUsername(name);
     setUserRole(role);
@@ -3678,6 +3705,9 @@ export default function App() {
         onClockOut={handleSelfClockOut}
       />
 
+      {/* IT sticky update message (refresh page + reinstall shortcut) */}
+      {isAuthenticated && <StickyUpdateNotice settings={settings} isAr={isAr} />}
+
       {/* One-Tap Phone Push Notification Permission Strip for Employees */}
       {isAuthenticated && phonePermStatus === 'default' && !pushBannerDismissed && currentTab !== 'notifications' && (
         <div className="bg-slate-900 border-b border-slate-800 text-white px-3 sm:px-6 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-30">
@@ -3735,7 +3765,7 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <>
+            <div className="animate-page-enter w-full min-w-0">
           {currentTab === 'dashboard' && (
             <DashboardView
               stats={stats}
@@ -4158,7 +4188,7 @@ export default function App() {
           {currentTab === 'activity-log' && (
             <ActivityLogView logs={activityLogs} />
           )}
-            </>
+            </div>
           )}
         </main>
       </div>
@@ -4242,6 +4272,14 @@ export default function App() {
           isSiteDisabled={isSiteTemporarilyDisabled}
           currentMessage={settings.site_disabled_message || ''}
           onConfirmToggle={handleToggleSiteDisabledByIT}
+        />
+      )}
+
+      {/* Branded page-transition loading indicator (desktop & mobile) */}
+      {isPageLoading && (
+        <BrandedLoader
+          label={isAr ? 'جارٍ تحميل الصفحة...' : 'Loading page...'}
+          sublabel={`Sofia Travel · v${APP_VERSION}`}
         />
       )}
 

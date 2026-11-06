@@ -1926,11 +1926,10 @@ export function InvoicesView({
               {/* Header with Sofia Logo & Company Info */}
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6 pb-6 border-b-2 border-slate-900">
                 <div>
-                  <SofiaLogo variant="horizontal" />
+                  <SofiaLogo variant="horizontal" size="md-lg" />
                   <p className="text-xs text-slate-500 mt-2 max-w-xs">{settings.address}</p>
                   <p className="text-xs text-slate-500">Tel: {settings.phone} • WhatsApp: {settings.whatsapp}</p>
                   <p className="text-xs text-slate-500">Email: {settings.email} • TRN: {settings.tax_number}</p>
-                  <p className="text-xs text-slate-600 font-medium">Instagram: <a href={settings.instagram_url || "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="} target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:text-pink-800 underline font-semibold">(https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)</a></p>
                 </div>
 
                 <div className="text-left sm:text-right">
