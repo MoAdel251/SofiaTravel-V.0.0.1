@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
-// UPLOAD_HELPER_SIGNATURE: SofiaTravelManager_v2026_UploadReady = true
-const UPLOAD_BUNDLE_VERSION = "2026.11.03-optimized";
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { CustomersView } from './components/CustomersView';
@@ -33,6 +31,9 @@ import { PermissionModal } from './components/PermissionModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { MobileQuickActionModal } from './components/MobileQuickActionModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { NavigationLoader } from './components/NavigationLoader';
+import { UpdateNoticeBanner } from './components/UpdateNoticeBanner';
+import { APP_VERSION } from './utils/appVersion';
 import { AdminResetDataModal } from './components/AdminResetDataModal';
 import { DatabaseConnectionStatus } from './lib/firebase';
 import { isManagerOrAccountantRole, isEmployeeDesignatedAdmin } from './utils/adminDesignation';
@@ -86,7 +87,7 @@ import {
 } from './utils/attendance';
 import { SiteMaintenanceOverlay, ITMaintenanceControlModal } from './components/SiteMaintenanceOverlay';
 import { useLanguage } from './context/LanguageContext';
-import { Wrench, Power, BellRing, X } from 'lucide-react';
+import { Wrench, Power, BellRing, X, ArrowUp } from 'lucide-react';
 import {
   PhoneNotificationSupportStatus,
   enableEmployeePhoneNotifications,
@@ -191,8 +192,7 @@ export default function App() {
     phone: "+20 2 25750000",
     whatsapp: "+20 100 123 4567",
     email: "operations@sofiatravel.com",
-    website: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
-    instagram_url: "https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==",
+    website: "",
     tax_number: "TR-98765",
     manager_title: "Authorized Manager & Finance Director",
     default_currency: "EGP",
@@ -314,7 +314,8 @@ export default function App() {
             name: normalized.employee_name,
           },
           workSchedules,
-          attendanceSettings
+          attendanceSettings,
+          normalized.date
         );
         return applyAttendancePolicy(normalized, schedule, {
           trackTardiness: attendanceSettings?.track_tardiness === true,
@@ -371,7 +372,14 @@ export default function App() {
 
     const unsubscribers = [
       dataService.subscribeDocument<CompanySettings>('settings', 'company_settings', settings, (docData) => {
-        if (docData) setSettings(prev => ({ ...prev, ...docData }));
+        if (docData) {
+          setSettings(prev => {
+            const merged = { ...prev, ...docData };
+            if (/instagram\.com/i.test(String(merged.website || ''))) merged.website = '';
+            merged.instagram_url = undefined;
+            return merged;
+          });
+        }
       }),
       dataService.subscribeCollection<Customer>('customers', setCustomers),
       dataService.subscribeCollection<CustomerInquiry>('customer_inquiries', setCustomerInquiries),
@@ -936,7 +944,12 @@ export default function App() {
       setTasks(taskRes || []);
       setDocuments(docRes || []);
       setNotifications(notifRes || []);
-      if (settRes) setSettings(settRes);
+      if (settRes) {
+        const sanitized: CompanySettings = { ...settRes };
+        if (/instagram\.com/i.test(String(sanitized.website || ''))) sanitized.website = '';
+        sanitized.instagram_url = undefined;
+        setSettings(sanitized);
+      }
       setActivityLogs(logRes || []);
       setPermissionRequests(pReqRes || []);
       setPayrollRecords(payrollRes || []);
@@ -3210,20 +3223,29 @@ export default function App() {
       return;
     }
 
-    const schId = data.id || `SCHED-${data.employee_id || Date.now()}`;
+    const employeeId = data.employee_id || '';
+    const scheduleDate = data.schedule_date || '';
+    const schId =
+      data.id ||
+      (scheduleDate ? `SCHED-${employeeId || 'EMP'}-${scheduleDate}` : `SCHED-${employeeId || Date.now()}`);
     const schedule: WorkSchedule = {
       id: schId,
-      employee_id: data.employee_id || '',
+      employee_id: employeeId,
       employee_name: data.employee_name || 'Employee',
       start_time: data.start_time || '09:00',
       end_time: data.end_time || '17:00',
       grace_period_minutes: Number(data.grace_period_minutes !== undefined ? data.grace_period_minutes : 15),
       working_days: Array.isArray(data.working_days) ? data.working_days : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+      schedule_date: scheduleDate || undefined,
       updatedAt: new Date().toISOString()
     };
 
     setWorkSchedules(prev => {
-      const idx = prev.findIndex(s => s.id === schId || (data.employee_id && s.employee_id === data.employee_id));
+      const idx = prev.findIndex(s => {
+        if (s.id === schId) return true;
+        if (scheduleDate) return s.employee_id === employeeId && s.schedule_date === scheduleDate;
+        return Boolean(employeeId) && s.employee_id === employeeId && !s.schedule_date;
+      });
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = schedule;
@@ -3244,7 +3266,37 @@ export default function App() {
       });
     } catch {}
     await dataService.saveDocument('work_schedules', schId, schedule);
-    showToast(isAr ? `تم تحديث جدول عمل ${schedule.employee_name} (فترة السماح: ${schedule.grace_period_minutes} دقيقة)` : `Updated work schedule for ${schedule.employee_name} (Grace Period: ${schedule.grace_period_minutes} mins)`);
+    showToast(
+      scheduleDate
+        ? isAr
+          ? `تم تحديد مواعيد ${schedule.employee_name} ليوم ${scheduleDate}`
+          : `Set one-day schedule for ${schedule.employee_name} on ${scheduleDate}`
+        : isAr
+        ? `تم تحديث جدول عمل ${schedule.employee_name} (فترة السماح: ${schedule.grace_period_minutes} دقيقة)`
+        : `Updated work schedule for ${schedule.employee_name} (Grace Period: ${schedule.grace_period_minutes} mins)`
+    );
+  };
+
+  const handleDeleteWorkSchedule = async (id: string) => {
+    const isAllowed = isITAccount || isCurrentAdmin || effectiveUserRole === 'Administrator';
+    if (!isAllowed) {
+      showToast(isAr ? 'غير مصرح: حذف الجداول متاح للمطور والمدير فقط.' : 'Access Denied: Only Developer (IT) and Administrator can delete schedules.');
+      return;
+    }
+    setWorkSchedules(prev => prev.filter(s => s.id !== id));
+    try {
+      await fetch(`/api/work-schedules/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          'x-acting-user': isITAccount ? 'IT' : currentUsername,
+          'x-acting-role': effectiveUserRole
+        }
+      });
+    } catch {}
+    try {
+      await dataService.deleteDocument('work_schedules', id);
+    } catch {}
+    showToast(isAr ? 'تم حذف جدول المواعيد.' : 'Work schedule deleted.');
   };
 
   const handleSaveAttendanceSettings = async (data: Partial<AttendanceSettings>) => {
@@ -3550,6 +3602,32 @@ export default function App() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const previousTabRef = useRef(currentTab);
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (previousTabRef.current === currentTab) return;
+    previousTabRef.current = currentTab;
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+    setIsNavigating(true);
+    if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+    navigationTimerRef.current = setTimeout(() => setIsNavigating(false), 420);
+    return () => {
+      if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+    };
+  }, [currentTab]);
+
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    const handleScroll = () => setShowBackToTop(el.scrollTop > 480);
+    handleScroll();
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [isAuthenticated, settings.site_disabled]);
 
   const handleSelectQuickAdd = (actionKey: string) => {
     switch (actionKey) {
@@ -3625,6 +3703,8 @@ export default function App() {
         </div>
       )}
 
+      <NavigationLoader visible={isNavigating} />
+
       {/* Top banner shown exclusively to "IT" while the site is temporarily disabled for other users */}
       {isSiteTemporarilyDisabled && isAuthenticated && isITAccount && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold flex flex-wrap items-center justify-between gap-2 shrink-0 z-30 shadow-xs">
@@ -3678,6 +3758,14 @@ export default function App() {
         onClockOut={handleSelfClockOut}
       />
 
+      {isAuthenticated && settings.update_notice_enabled && (
+        <UpdateNoticeBanner
+          messageEn={settings.update_notice_en}
+          messageAr={settings.update_notice_ar}
+          version={settings.update_notice_version || APP_VERSION}
+        />
+      )}
+
       {/* One-Tap Phone Push Notification Permission Strip for Employees */}
       {isAuthenticated && phonePermStatus === 'default' && !pushBannerDismissed && currentTab !== 'notifications' && (
         <div className="bg-slate-900 border-b border-slate-800 text-white px-3 sm:px-6 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-30">
@@ -3712,8 +3800,8 @@ export default function App() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto overscroll-y-contain w-full max-w-full">
-        <main className="flex-1 pb-24 lg:pb-6 w-full max-w-full overflow-x-hidden">
+      <div ref={mainScrollRef} className="flex-1 flex flex-col min-w-0 overflow-y-auto overscroll-y-contain w-full max-w-full">
+        <main key={currentTab} className="page-transition flex-1 pb-24 lg:pb-6 w-full max-w-full overflow-x-hidden">
           {isCurrentTabRevoked ? (
             <div className="p-6 max-w-xl mx-auto mt-8">
               <div className="bg-white border border-rose-200 rounded-2xl p-6 text-center shadow-sm">
@@ -4035,6 +4123,7 @@ export default function App() {
               onResetAttendanceTime={handleResetAttendanceTimeByIT}
               onDeleteAttendance={handleDeleteAttendanceByIT}
               onSaveWorkSchedule={handleSaveWorkSchedule}
+              onDeleteWorkSchedule={handleDeleteWorkSchedule}
               onSaveAttendanceSettings={handleSaveAttendanceSettings}
               onSyncFromDatabase={fetchAllData}
             />
@@ -4212,6 +4301,18 @@ export default function App() {
         isAdmin={isCurrentAdmin}
         isITAccount={isITAccount}
       />
+
+      {showBackToTop && (
+        <button
+          type="button"
+          onClick={() => mainScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-20 end-4 lg:bottom-6 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-slate-900/90 text-cyan-300 shadow-lg border border-slate-700 backdrop-blur-sm transition-colors hover:bg-slate-800 cursor-pointer"
+          aria-label={isAr ? 'العودة لأعلى الصفحة' : 'Back to top'}
+          title={isAr ? 'العودة لأعلى الصفحة' : 'Back to top'}
+        >
+          <ArrowUp className="h-4 w-4" />
+        </button>
+      )}
 
       {/* Quick Add Modal from Bottom Nav */}
       <MobileQuickActionModal
