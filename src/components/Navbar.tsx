@@ -3,12 +3,13 @@ import {
   Search, Bell, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, Compass, Truck, FileText,
   Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
-  Ticket, Layers, MessageCircle, Instagram, Trash2, RefreshCw, Power
+  Ticket, Layers, MessageCircle, Trash2, RefreshCw, Power
 } from 'lucide-react';
 import { UserRole, NotificationItem, AttendanceRecord } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useLanguage } from '../context/LanguageContext';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
+import { APP_VERSION } from '../utils/appVersion';
 
 import { isTabAllowedForUser } from '../utils/permissions';
 
@@ -186,6 +187,7 @@ export function Navbar({
             </span>
             <span className="text-[10px] text-slate-400 truncate">
               {dbConnected ? t('cloud_live') : t('cloud_offline')}
+              <span className="text-cyan-500 font-black"> • {APP_VERSION}</span>
             </span>
           </div>
 
@@ -194,8 +196,14 @@ export function Navbar({
             <span className="font-bold text-sm tracking-tight text-white truncate">
               {companyName}
             </span>
-            <span className="text-[10px] text-cyan-400 font-medium truncate">
-              {t('app_subtitle')}
+            <span className="text-[10px] text-cyan-400 font-medium truncate flex items-center gap-1.5">
+              <span className="truncate">{t('app_subtitle')}</span>
+              <span
+                className="px-1.5 py-px rounded-md bg-slate-800 border border-slate-700 text-cyan-300 font-mono font-bold text-[9px] tracking-wide shrink-0"
+                title={language === 'ar' ? `إصدار الموقع: ${APP_VERSION}` : `Website version: ${APP_VERSION}`}
+              >
+                {APP_VERSION}
+              </span>
             </span>
           </div>
         </div>
@@ -244,18 +252,6 @@ export function Navbar({
           <div className="hidden sm:block">
             <PWAInstallButton variant="header" companyName={companyName} />
           </div>
-
-          {/* Instagram Compact Button */}
-          <a
-            href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden xl:flex items-center gap-1.5 h-9 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold text-pink-300 transition-colors shrink-0"
-            title="Sofia Travel Instagram"
-          >
-            <Instagram className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-            <span>Instagram</span>
-          </a>
 
           {/* Live Database Connection Status Button */}
           <button
@@ -655,22 +651,9 @@ export function Navbar({
                 </div>
               </div>
 
-              {/* PWA Install + Instagram */}
+              {/* PWA Install */}
               <div className="space-y-2.5 pt-2 border-t border-slate-800">
                 <PWAInstallButton variant="drawer" companyName={companyName} />
-
-                <a
-                  href="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700 text-pink-300 text-xs font-semibold min-h-[44px]"
-                >
-                  <div className="flex items-center gap-2">
-                    <Instagram className="w-4 h-4 text-pink-400 shrink-0" />
-                    <span>Sofia Travel Instagram</span>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
-                </a>
 
                 {/* Employee Self Clock-In / Clock-Out Action (Mobile Drawer) */}
                 {(onClockIn || onClockOut) && (
