@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Instagram, ExternalLink, Smartphone, Download, Database, Power } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Shield, Save, Building2, CreditCard, DollarSign, CheckCircle2, AlertTriangle, RefreshCw, Zap, Check, Trash2, Percent, Ticket, Plus, X, Smartphone, Download, Database, Power, Megaphone } from 'lucide-react';
 import { CompanySettings, UserRole, InstallmentPartnerConfig, InstallmentPlanRule } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SOFIA_LOGO_URL } from './SofiaLogo';
 import { useLanguage } from '../context/LanguageContext';
 import { DatabaseConnectionStatus } from '../lib/firebase';
+import { APP_VERSION } from '../utils/appVersion';
+import { getStickyUpdateMessage } from '../utils/websiteUpdateNotice';
 
 interface SettingsViewProps {
   settings: CompanySettings;
@@ -49,6 +51,13 @@ export function SettingsView({
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
     return localStorage.getItem(AUTO_SAVE_PREF_KEY) !== 'false';
   });
+  const [noticeEn, setNoticeEn] = useState(() => settings.update_notice_en || getStickyUpdateMessage('en'));
+  const [noticeAr, setNoticeAr] = useState(() => settings.update_notice_ar || getStickyUpdateMessage('ar'));
+
+  useEffect(() => {
+    setNoticeEn(settings.update_notice_en || getStickyUpdateMessage('en'));
+    setNoticeAr(settings.update_notice_ar || getStickyUpdateMessage('ar'));
+  }, [settings.update_notice_en, settings.update_notice_ar]);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef(true);
@@ -151,6 +160,25 @@ export function SettingsView({
     const next = !autoSaveEnabled;
     setAutoSaveEnabled(next);
     localStorage.setItem(AUTO_SAVE_PREF_KEY, String(next));
+  };
+
+  const publishStickyUpdateNotice = () => {
+    const next: CompanySettings = {
+      ...formData,
+      update_notice_enabled: true,
+      update_notice_en: noticeEn.trim() || getStickyUpdateMessage('en'),
+      update_notice_ar: noticeAr.trim() || getStickyUpdateMessage('ar'),
+      update_notice_version: APP_VERSION,
+      update_notice_at: new Date().toISOString(),
+    };
+    setFormData(next);
+    onUpdateSettings(next);
+  };
+
+  const stopStickyUpdateNotice = () => {
+    const next: CompanySettings = { ...formData, update_notice_enabled: false };
+    setFormData(next);
+    onUpdateSettings(next);
   };
 
   return (
@@ -345,35 +373,6 @@ export function SettingsView({
               />
             </div>
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">Official Instagram Page</label>
-                {formData.instagram_url && (
-                  <a
-                    href={formData.instagram_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[10px] text-pink-600 hover:text-pink-800 font-bold flex items-center gap-1"
-                  >
-                    <span>Test Link</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-              </div>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={formData.instagram_url || 'https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=='}
-                  onChange={(e) => handleFieldChange({ instagram_url: e.target.value })}
-                  placeholder="https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg=="
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-sm focus:outline-none focus:border-pink-500 focus:bg-white font-mono text-xs text-pink-900"
-                />
-                <Instagram className="w-4 h-4 text-pink-600 absolute left-3 top-3 pointer-events-none" />
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Link in parentheses: <span className="font-semibold text-slate-700">(https://www.instagram.com/sofiatravel?stkn=MWt1ZGk1NGllams1cg==)</span>
-              </p>
-            </div>
-            <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Customer Service Phone</label>
               <input
                 type="text"
@@ -419,6 +418,101 @@ export function SettingsView({
             </div>
           </div>
         </div>
+
+        {/* IT Department: Sticky Update Message for all employees */}
+        {isITAccount && (
+          <div className="bg-white rounded-2xl border border-indigo-200 p-6 space-y-4 shadow-xs">
+            <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <Megaphone className="w-5 h-5 text-indigo-600 shrink-0" />
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    {isAr ? 'رسالة تحديث ثابتة للموظفين (قسم IT)' : 'Sticky Update Message to Employees (IT)'}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    {isAr
+                      ? 'تظهر كشريط ثابت أعلى الموقع لكل الموظفين تطلب منهم تحديث الصفحة وحذف الاختصار وإعادة تثبيته.'
+                      : 'Pins a banner at the top of the site for all employees, asking them to refresh, uninstall the shortcut, and reinstall it.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-md bg-slate-900 text-cyan-300 font-mono text-[10px] font-bold">
+                  {APP_VERSION}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${
+                    formData.update_notice_enabled
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-slate-100 border-slate-200 text-slate-500'
+                  }`}
+                >
+                  {formData.update_notice_enabled
+                    ? isAr ? 'منشورة الآن' : 'Live now'
+                    : isAr ? 'غير منشورة' : 'Not published'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">English message</label>
+                <textarea
+                  rows={3}
+                  value={noticeEn}
+                  onChange={e => setNoticeEn(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:bg-white resize-none"
+                />
+              </div>
+              <div dir="rtl">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">الرسالة بالعربية</label>
+                <textarea
+                  rows={3}
+                  value={noticeAr}
+                  onChange={e => setNoticeAr(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:bg-white resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNoticeEn(getStickyUpdateMessage('en'));
+                  setNoticeAr(getStickyUpdateMessage('ar'));
+                }}
+                className="text-[11px] font-bold text-indigo-700 hover:underline cursor-pointer"
+              >
+                {isAr ? 'استعادة النص الافتراضي' : 'Restore default instructions'}
+              </button>
+              <div className="flex items-center gap-2">
+                {formData.update_notice_enabled && (
+                  <button
+                    type="button"
+                    onClick={stopStickyUpdateNotice}
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                  >
+                    {isAr ? 'إيقاف عرض الرسالة' : 'Stop showing message'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={publishStickyUpdateNotice}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer shadow-xs"
+                >
+                  {isAr ? 'نشر الرسالة الثابتة الآن' : 'Publish sticky message now'}
+                </button>
+              </div>
+            </div>
+
+            {formData.update_notice_at && (
+              <p className="text-[10px] text-slate-400 font-mono">
+                {isAr ? 'آخر نشر:' : 'Last published:'} {formData.update_notice_at} • {formData.update_notice_version || APP_VERSION}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Banking & Settlement Details (Appears Consistently on Invoices) */}
         <div className="bg-white rounded-2xl border border-cyan-200/80 p-6 space-y-5 shadow-xs bg-linear-to-b from-cyan-50/20 to-white">
