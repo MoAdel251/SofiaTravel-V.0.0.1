@@ -810,6 +810,13 @@ app.put("/api/settings", async (req, res) => {
   const prevMsg = (db.settings as any).site_disabled_message;
   const prevAt = (db.settings as any).site_disabled_at;
   const prevBy = (db.settings as any).site_disabled_by;
+  const prevNotice = {
+    update_notice_enabled: (db.settings as any).update_notice_enabled,
+    update_notice_en: (db.settings as any).update_notice_en,
+    update_notice_ar: (db.settings as any).update_notice_ar,
+    update_notice_version: (db.settings as any).update_notice_version,
+    update_notice_at: (db.settings as any).update_notice_at,
+  };
 
   db.settings = { ...db.settings, ...req.body };
   if (actingUser !== 'IT') {
@@ -817,6 +824,7 @@ app.put("/api/settings", async (req, res) => {
     (db.settings as any).site_disabled_message = prevMsg;
     (db.settings as any).site_disabled_at = prevAt;
     (db.settings as any).site_disabled_by = prevBy;
+    Object.assign(db.settings as any, prevNotice);
   }
   await logActivity(actingUser || "Administrator", "Updated company settings", "Settings", "Settings");
   await saveToFirestore('settings', 'company_settings', db.settings);
@@ -3479,7 +3487,6 @@ app.post("/api/push/subscribe", async (req, res) => {
       timezone = 'Africa/Cairo',
       is_standalone = false,
       user_agent = '',
-      sendImmediateAlert = true,
     } = req.body || {};
 
     if (!subscription || !subscription.endpoint || !subscription.keys) {
@@ -3533,49 +3540,10 @@ app.post("/api/push/subscribe", async (req, res) => {
 
     await saveToFirestore('push_subscriptions', subId, record);
 
-    let immediatePushSent = false;
-    if (sendImmediateAlert) {
-      const isAr = language === 'ar';
-      const companyTitle = db.settings?.company_name || 'Sofia Travel';
-      const welcomeTitle = isAr
-        ? `تم تفعيل إشعارات الهاتف بنجاح — ${companyTitle}`
-        : `Phone Alerts Activated — ${companyTitle}`;
-      const welcomeBody = isAr
-        ? `مرحباً ${cleanName}! ستصلك التنبيهات فوراً على هاتفك. مواعيد دوامك المحددة: الحضور ${schedule.start_time} • الانصراف ${schedule.end_time}.`
-        : `Welcome ${cleanName}! Browser alerts are now active on your phone. Your designated times: Check-In ${schedule.start_time} • Check-Out ${schedule.end_time}.`;
-
-      const welcomeNotifId = `NOTIF-WELCOME-${subId}-${Date.now()}`;
-      await addNotification(welcomeTitle, welcomeBody, 'attendance_reminder', undefined, {
-        id: welcomeNotifId,
-        target_scope: 'EMPLOYEE',
-        target_employee_id: cleanId,
-        target_employee_name: cleanName,
-        sender_name: 'System',
-        sender_role: 'Automated Push Service',
-        category: 'Phone Push Activated',
-        designated_check_in: schedule.start_time,
-        designated_check_out: schedule.end_time,
-        skip_push: true,
-      });
-
-      const pushResult = await dispatchWebPushToSubscriptions([record], {
-        id: welcomeNotifId,
-        tag: welcomeNotifId,
-        title: welcomeTitle,
-        body: welcomeBody,
-        lang: isAr ? 'ar' : 'en',
-        dir: isAr ? 'rtl' : 'ltr',
-        tab: 'attendance',
-        url: '/?tab=attendance',
-        timestamp: Date.now(),
-      });
-      immediatePushSent = pushResult.sent > 0;
-    }
-
     res.json({
       success: true,
       subscriptionId: subId,
-      immediatePushSent,
+      immediatePushSent: false,
       designatedSchedule: {
         checkIn: schedule.start_time,
         checkOut: schedule.end_time,
