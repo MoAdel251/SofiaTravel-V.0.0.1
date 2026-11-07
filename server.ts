@@ -4894,4 +4894,9 @@ async function startServer() {
   })();
 }
 
-startServer();
+// On Vercel the Express app is mounted through api/index.ts; no listener needed.
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
