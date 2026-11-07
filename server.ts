@@ -14,7 +14,7 @@ import {
   getWebsiteUpdateNotice,
   isWebsiteUpdateCategory,
   withWebsiteUpdateNotice,
-} from './src/utils/websiteUpdateNotice';
+} from './src/utils/updateNotices';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
