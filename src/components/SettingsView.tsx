@@ -6,7 +6,7 @@ import { SOFIA_LOGO_URL } from './SofiaLogo';
 import { useLanguage } from '../context/LanguageContext';
 import { DatabaseConnectionStatus } from '../lib/firebase';
 import { APP_VERSION } from '../utils/appVersion';
-import { getStickyUpdateMessage } from '../utils/websiteUpdateNotice';
+import { getStickyUpdateMessage } from '../utils/updateNotices';
 
 interface SettingsViewProps {
   settings: CompanySettings;
