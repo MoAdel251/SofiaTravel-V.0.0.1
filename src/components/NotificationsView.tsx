@@ -35,7 +35,7 @@ import {
   getWebsiteUpdateNotice,
   isWebsiteUpdateCategory,
   withWebsiteUpdateNotice,
-} from '../utils/websiteUpdateNotice';
+} from '../utils/updateNotices';
 
 interface NotificationsViewProps {
   notifications: NotificationItem[];
