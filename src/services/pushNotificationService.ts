@@ -354,7 +354,6 @@ export async function enableEmployeePhoneNotifications(
 
   const registration = await ensurePushServiceWorkerReady();
   let pushSubscribed = false;
-  let serverSentImmediate = false;
   let resolvedSchedule = { ...defaultSchedule };
 
   if (registration) {
@@ -376,13 +375,12 @@ export async function enableEmployeePhoneNotifications(
             timezone,
             is_standalone: isRunningStandalonePWA(),
             user_agent: navigator.userAgent,
-            sendImmediateAlert: true,
+            sendImmediateAlert: false,
           }),
         });
         if (res.ok) {
           const data = await res.json();
           pushSubscribed = true;
-          serverSentImmediate = Boolean(data.immediatePushSent);
           if (data.designatedSchedule?.checkIn && data.designatedSchedule?.checkOut) {
             resolvedSchedule = {
               checkIn: data.designatedSchedule.checkIn,
@@ -400,25 +398,6 @@ export async function enableEmployeePhoneNotifications(
         console.warn('Server push subscription sync warning:', err);
       }
     }
-  }
-
-  // Guarantee immediate phone alert right after allowing notifications even if PushManager fell back locally
-  if (!serverSentImmediate) {
-    const isAr = identity.language === 'ar';
-    const welcomeTitle = isAr
-      ? 'تم تفعيل إشعارات الهاتف بنجاح — صوفيا للسياحة'
-      : 'Phone Alerts Activated — Sofia Travel';
-    const welcomeBody = isAr
-      ? `مرحباً ${identity.employee_name}! ستصلك التنبيهات فوراً على هاتفك. مواعيد دوامك المحددة: الحضور ${resolvedSchedule.checkIn} • الانصراف ${resolvedSchedule.checkOut}.`
-      : `Welcome ${identity.employee_name}! Alerts will arrive directly on your phone. Your designated times: Check-In ${resolvedSchedule.checkIn} • Check-Out ${resolvedSchedule.checkOut}.`;
-
-    await showPhoneNotificationViaSW({
-      id: `NOTIF-WELCOME-LOCAL-${Date.now()}`,
-      title: welcomeTitle,
-      body: welcomeBody,
-      lang: identity.language,
-      tab: 'attendance',
-    });
   }
 
   return {
@@ -441,10 +420,6 @@ export async function syncExistingEmployeePushSubscription(
   if (!subscription) return false;
 
   const cacheKey = `${SUBSCRIBED_CACHE_KEY}_${identity.employee_id || identity.username}`;
-  let alreadyWelcomed = false;
-  try {
-    alreadyWelcomed = localStorage.getItem(cacheKey) === subscription.endpoint;
-  } catch {}
 
   try {
     const timezone =
@@ -462,7 +437,7 @@ export async function syncExistingEmployeePushSubscription(
         timezone,
         is_standalone: isRunningStandalonePWA(),
         user_agent: navigator.userAgent,
-        sendImmediateAlert: !alreadyWelcomed,
+        sendImmediateAlert: false,
       }),
     });
     if (res.ok) {
