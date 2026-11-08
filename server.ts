@@ -5,8 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import webpush from 'web-push';
-import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import type { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
 import {
@@ -4786,19 +4785,33 @@ app.get("/api/dashboard-stats", async (req, res) => {
   }
 });
 
-// Gemini AI Assistant Integration with lazy initialization
+// Gemini AI Assistant Integration with lazy initialization.
+// The SDK is ESM-only and heavy, so it is loaded on first use instead of at
+// module scope, which keeps serverless cold starts light and predictable.
 let aiClient: GoogleGenAI | null = null;
-function getGenAI(): GoogleGenAI | null {
-  if (!aiClient && process.env.GEMINI_API_KEY) {
-    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClientPromise: Promise<GoogleGenAI | null> | null = null;
+async function getGenAI(): Promise<GoogleGenAI | null> {
+  if (aiClient) return aiClient;
+  if (!process.env.GEMINI_API_KEY) return null;
+  if (!aiClientPromise) {
+    aiClientPromise = import('@google/genai')
+      .then(({ GoogleGenAI }) => {
+        aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        return aiClient;
+      })
+      .catch(err => {
+        console.error('Failed to load Gemini SDK:', err);
+        aiClientPromise = null;
+        return null;
+      });
   }
-  return aiClient;
+  return aiClientPromise;
 }
 
 app.post("/api/ai-assistant", async (req, res) => {
   try {
     const { prompt } = req.body;
-    const ai = getGenAI();
+    const ai = await getGenAI();
     if (!ai) {
       return res.status(503).json({ error: "Gemini AI is currently not configured with an API key." });
     }
@@ -4819,7 +4832,11 @@ app.post("/api/ai-assistant", async (req, res) => {
 
 async function startServer() {
   // Vite middleware for development or static serving for production
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+    // Resolved through a variable so serverless bundlers never trace Vite
+    // (and its native/esbuild dependencies) into the deployed function.
+    const vitePackage = 'vite';
+    const { createServer: createViteServer } = await import(vitePackage);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
