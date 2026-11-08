@@ -1013,9 +1013,7 @@ export function EmployeesView({
                                 </span>
                               )}
                               <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold">
-                                {rec.entry_source === 'IT Manual'
-                                  ? (isAr ? 'إدخال يدوي (IT)' : 'Manual (IT)')
-                                  : (isAr ? 'تسجيل ذاتي' : 'Self Clock')}
+                                {isAr ? 'تسجيل ذاتي' : 'Self Clock'}
                               </span>
                               {rec.reset_by_it && rec.entry_source !== 'IT Manual' && (
                                 <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
