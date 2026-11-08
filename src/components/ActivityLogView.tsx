@@ -26,18 +26,23 @@ export function ActivityLogView({ logs }: ActivityLogViewProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {logs.map(log => (
-              <tr key={log.id} className="hover:bg-slate-50/80">
-                <td className="py-3.5 px-4 font-bold text-slate-900">{log.user_name}</td>
-                <td className="py-3.5 px-4 text-slate-800 font-medium">{log.action}</td>
-                <td className="py-3.5 px-4"><span className="px-2.5 py-1 bg-cyan-50 text-cyan-700 rounded-full text-xs font-bold">{log.module}</span></td>
-                <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{log.record}</td>
-                <td className="py-3.5 px-4 text-slate-500 text-xs flex items-center space-x-1">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>{log.date} at {log.time}</span>
-                </td>
-              </tr>
-            ))}
+            {logs.map(log => {
+              const displayAction = (log.action || '').replace(/^\[IT Manual\]\s*/i, '');
+              return (
+                <tr key={log.id} className="hover:bg-slate-50/80">
+                  <td className="py-3.5 px-4">
+                    <span className="font-bold text-slate-900">{log.user_name}</span>
+                  </td>
+                  <td className="py-3.5 px-4 text-slate-800 font-medium">{displayAction}</td>
+                  <td className="py-3.5 px-4"><span className="px-2.5 py-1 bg-cyan-50 text-cyan-700 rounded-full text-xs font-bold">{log.module}</span></td>
+                  <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{log.record}</td>
+                  <td className="py-3.5 px-4 text-slate-500 text-xs flex items-center space-x-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>{log.date} at {log.time}</span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
