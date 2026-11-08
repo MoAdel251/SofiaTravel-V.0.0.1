@@ -7,6 +7,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { DatabaseConnectionStatus } from '../lib/firebase';
 import { APP_VERSION } from '../utils/appVersion';
 import { getStickyUpdateMessage } from '../utils/updateNotices';
+import { GeofencingSettingsSection } from './GeofencingSettingsSection';
 
 interface SettingsViewProps {
   settings: CompanySettings;
@@ -19,6 +20,7 @@ interface SettingsViewProps {
   onOpenAdminReset?: () => void;
   isITAccount?: boolean;
   onOpenITSiteControl?: () => void;
+  currentUsername?: string;
 }
 
 const SETTINGS_DRAFT_KEY = 'sofia_travel_settings_draft';
@@ -35,6 +37,7 @@ export function SettingsView({
   onOpenAdminReset,
   isITAccount = false,
   onOpenITSiteControl,
+  currentUsername = '',
 }: SettingsViewProps) {
   const { language } = useLanguage();
   const isAr = language === 'ar';
@@ -917,6 +920,14 @@ export function SettingsView({
               </button>
             </div>
           </div>
+        )}
+
+        {/* IT Administrator Only: Geofencing Attendance Verification */}
+        {(isStrictAdmin || isITAccount) && (
+          <GeofencingSettingsSection
+            actingUser={isITAccount ? 'IT' : (currentUsername || 'Administrator')}
+            actingRole="Administrator"
+          />
         )}
 
         {/* Strictly Administrator-Only: Delete All Existing Data (Republish Clean) */}

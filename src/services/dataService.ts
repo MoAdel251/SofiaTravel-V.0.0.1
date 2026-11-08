@@ -49,7 +49,8 @@ export const OPERATIONAL_COLLECTIONS = [
   'commission_records',
   'finance_audit_logs',
   'attendance',
-  'employee_attendance'
+  'employee_attendance',
+  'attendance_verification_logs'
 ] as const;
 
 export const dataService = {

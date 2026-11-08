@@ -14,6 +14,21 @@ import {
   isWebsiteUpdateCategory,
   withWebsiteUpdateNotice,
 } from './src/utils/updateNotices';
+import {
+  GEOFENCE_COLLECTION,
+  GEOFENCE_CONFIG_DOC_ID,
+  GEOFENCE_VERIFICATION_LOG_COLLECTION,
+  ATTENDANCE_TIMEZONE,
+  clampRadiusMeters,
+  evaluateGeofence,
+  getServerAttendanceTime,
+  isCompanyLocationConfigured,
+  isValidLatitude,
+  isValidLongitude,
+  normalizeGeofencingConfig,
+  GEOFENCE_MESSAGES,
+  type CompanyGeofencingConfig,
+} from './src/server/geofencing';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -187,6 +202,8 @@ let db = {
   work_schedules: [],
   attendance_settings: [],
   employee_attendance: [],
+  company_geofencing: [],
+  attendance_verification_logs: [],
   push_subscriptions: []
 };
 
@@ -245,6 +262,7 @@ async function loadFromFirestore() {
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "attendance_settings", "employee_attendance",
+    "company_geofencing", "attendance_verification_logs",
     "push_subscriptions"
   ];
   try {
@@ -280,7 +298,7 @@ async function wipeAllFirestoreTestData(includeNonAdminEmployees = true, actingA
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries", "attendance", "employee_attendance"
+    "finance_audit_logs", "customer_inquiries", "attendance", "employee_attendance", "attendance_verification_logs"
   ];
   console.log(`Admin action by ${actingAdmin}: Wiping all operational data from Firestore...`);
   for (const col of collections) {
@@ -978,10 +996,417 @@ async function loadMergedAttendanceFromFirestore() {
   return merged;
 }
 
+// ---------------------------------------------------------------------------
+// Geofencing attendance verification (server-authoritative)
+// ---------------------------------------------------------------------------
+let lastMissingGeofenceNoticeAt = 0;
+let lastGeocodeRequestAt = 0;
+
+type ActingActor = { username: string; role: string; isIT: boolean; isAdmin: boolean };
+
+function readActingActor(req: any, body: any = {}): ActingActor {
+  const username = String(
+    req.headers['x-acting-user'] || body?._actingUser || body?.actingUser || ''
+  ).trim();
+  const role = String(req.headers['x-acting-role'] || body?._actingRole || '').trim();
+  const isIT = username.toUpperCase() === 'IT';
+  return { username, role, isIT, isAdmin: isIT || role === 'Administrator' };
+}
+
+function isGeofenceAdminActor(actor: ActingActor): boolean {
+  return actor.isIT || actor.role === 'Administrator';
+}
+
+let geofenceConfigCache: { config: CompanyGeofencingConfig; loadedAt: number } | null = null;
+const GEOFENCE_CONFIG_CACHE_TTL_MS = 10 * 1000;
+
+async function readGeofencingConfig(forceRefresh = false): Promise<CompanyGeofencingConfig> {
+  if (
+    !forceRefresh &&
+    geofenceConfigCache &&
+    Date.now() - geofenceConfigCache.loadedAt < GEOFENCE_CONFIG_CACHE_TTL_MS
+  ) {
+    return geofenceConfigCache.config;
+  }
+
+  try {
+    const docs = await Promise.race([
+      getCollectionDocs(GEOFENCE_COLLECTION),
+      new Promise<any[]>((_, reject) =>
+        setTimeout(() => reject(new Error('Geofencing config read timeout')), 2500)
+      ),
+    ]);
+    const found = docs.find((d: any) => d.id === GEOFENCE_CONFIG_DOC_ID) || docs[0];
+    const config = normalizeGeofencingConfig(found || {});
+    geofenceConfigCache = { config, loadedAt: Date.now() };
+    return config;
+  } catch (err) {
+    console.warn('Geofencing config read fallback:', (err as any)?.message || err);
+    const found = (db.company_geofencing || []).find((d: any) => d.id === GEOFENCE_CONFIG_DOC_ID);
+    if (found) return normalizeGeofencingConfig(found);
+    if (geofenceConfigCache) return geofenceConfigCache.config;
+    return normalizeGeofencingConfig({});
+  }
+}
+
+async function persistGeofencingConfig(config: CompanyGeofencingConfig): Promise<void> {
+  if (!db.company_geofencing) db.company_geofencing = [];
+  const idx = (db.company_geofencing as any[]).findIndex((c: any) => c.id === config.id);
+  if (idx >= 0) db.company_geofencing[idx] = config;
+  else db.company_geofencing.push(config);
+  geofenceConfigCache = { config, loadedAt: Date.now() };
+  await saveToFirestore(GEOFENCE_COLLECTION, config.id, config);
+}
+
+function isAttendanceRecordOpen(record: any): boolean {
+  const clockIn = String(record?.clock_in || record?.check_in_time || '').trim();
+  const rawOut = String(record?.clock_out || record?.check_out_time || '').trim();
+  const clockOut = rawOut === '--' || rawOut === '-' ? '' : rawOut;
+  return Boolean(clockIn) && !clockOut;
+}
+
+function normalizeEmployeeToken(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function employeeMatchesToken(employee: any, token: unknown): boolean {
+  const normalized = normalizeEmployeeToken(token);
+  if (!normalized) return false;
+  return [employee?.id, employee?.employee_id, employee?.username, employee?.name, employee?.full_name]
+    .some(value => normalizeEmployeeToken(value) === normalized);
+}
+
+function resolveAttendanceEmployee(
+  employees: any[],
+  actor: ActingActor,
+  requestedId: unknown,
+  requestedName: unknown
+): { employee?: any; error?: string } {
+  const byId = employees.find(emp => employeeMatchesToken(emp, requestedId));
+  const byName = employees.find(emp => employeeMatchesToken(emp, requestedName));
+  const actorEmployee = employees.find(emp => employeeMatchesToken(emp, actor.username));
+  const requested = byId || byName;
+
+  if (!actor.isAdmin) {
+    if (!actorEmployee) return { error: 'AUTH_REQUIRED' };
+    if (requested && requested !== actorEmployee) return { error: 'IDENTITY_MISMATCH' };
+    return { employee: actorEmployee };
+  }
+
+  if (requested) return { employee: requested };
+  if (actorEmployee) return { employee: actorEmployee };
+
+  // Administrators/IT may have no linked employee row; allow only their own identity.
+  if (actor.username) {
+    return {
+      employee: {
+        id: String(requestedId || actor.username),
+        employee_id: String(requestedId || actor.username),
+        name: String(requestedName || actor.username),
+        status: 'Active',
+      },
+    };
+  }
+  return { error: 'AUTH_REQUIRED' };
+}
+
+function sendGeofenceFailure(
+  res: any,
+  code: string,
+  status: number,
+  extra: Record<string, any> = {}
+): void {
+  const fallback = { en: 'Unable to register attendance. Please try again.', ar: 'تعذر تسجيل الحضور. يرجى المحاولة مرة أخرى.' };
+  const message = (GEOFENCE_MESSAGES as any)[code] || fallback;
+  res.status(status).json({
+    success: false,
+    code,
+    error: message.en,
+    message: message.en,
+    message_ar: message.ar,
+    ...extra,
+  });
+}
+
+async function recordGeofenceVerificationLog(params: {
+  req: any;
+  actor: ActingActor;
+  employeeId: string;
+  employeeName: string;
+  action: string;
+  config: CompanyGeofencingConfig;
+  decision: ReturnType<typeof evaluateGeofence>;
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  serverIso: string;
+  outcome: 'allowed' | 'blocked';
+}): Promise<void> {
+  const {
+    req, actor, employeeId, employeeName, action, config, decision,
+    latitude, longitude, accuracy, serverIso, outcome,
+  } = params;
+
+  const entry: Record<string, any> = {
+    id: `GEO-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+    employee_id: employeeId,
+    employee_name: employeeName,
+    action,
+    outcome,
+    result: decision.reasonCode,
+    distance_meters: decision.distanceMeters !== null
+      ? Math.round(decision.distanceMeters * 100) / 100
+      : null,
+    accuracy_meters: decision.accuracyMeters,
+    radius_meters: decision.radiusMeters,
+    geofencing_enabled: config.is_enabled,
+    verified_at: serverIso,
+    acting_user: actor.username || '',
+    user_agent: String(req.headers['user-agent'] || '').substring(0, 300),
+    ip_address: String(req.ip || ''),
+  };
+
+  // Coordinates are sensitive: persist them only when the company policy allows it.
+  if (config.store_coordinates && isValidLatitude(latitude) && isValidLongitude(longitude)) {
+    entry.submitted_latitude = latitude;
+    entry.submitted_longitude = longitude;
+  }
+
+  try {
+    if (!db[GEOFENCE_VERIFICATION_LOG_COLLECTION]) db[GEOFENCE_VERIFICATION_LOG_COLLECTION] = [];
+    db[GEOFENCE_VERIFICATION_LOG_COLLECTION].unshift(entry);
+    // Logging must never delay or block an attendance decision.
+    void saveToFirestore(GEOFENCE_VERIFICATION_LOG_COLLECTION, entry.id, entry);
+  } catch (err) {
+    console.warn('Geofence verification log warning:', err);
+  }
+}
+
+async function notifyAdminGeofenceNotConfigured(actor: ActingActor): Promise<void> {
+  if (Date.now() - lastMissingGeofenceNoticeAt < 60 * 60 * 1000) return;
+  lastMissingGeofenceNoticeAt = Date.now();
+  try {
+    await addNotification(
+      'Geofencing configuration missing',
+      `An attendance attempt by ${actor.username || 'an employee'} was blocked because geofencing is enabled without company coordinates. Please configure the company location and radius in Company Settings.`,
+      'attendance',
+      undefined,
+      {
+        target_scope: 'EMPLOYEE',
+        target_employee_id: 'IT',
+        target_employee_name: 'IT',
+        tab: 'settings',
+        category: 'geofencing',
+      }
+    );
+  } catch (err) {
+    console.warn('Could not notify IT administrator about missing geofencing config:', err);
+  }
+}
+
 // Employee Attendance, Departure & Working Hours API (Connected to Firestore 'attendance')
 app.get("/api/attendance", async (req, res) => {
   const records = await loadMergedAttendanceFromFirestore();
   res.json(records);
+});
+
+// Employee self check-in / check-out with mandatory server-side geofence verification.
+// The browser supplies raw GPS coordinates only; the server decides whether the
+// employee is inside the company's authorized radius and generates the timestamp.
+app.post("/api/attendance/self", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) {
+    return sendGeofenceFailure(res, 'AUTH_REQUIRED', 401);
+  }
+
+  const action = req.body?.action === 'clock_out'
+    ? 'clock_out'
+    : req.body?.action === 'clock_in'
+      ? 'clock_in'
+      : null;
+  if (!action) {
+    return sendGeofenceFailure(res, 'INVALID_ACTION', 400);
+  }
+
+  const employees = await getCollectionDocs('employees');
+  const resolved = resolveAttendanceEmployee(
+    employees,
+    actor,
+    req.body?.employee_id,
+    req.body?.employee_name
+  );
+  if (!resolved.employee) {
+    return sendGeofenceFailure(res, resolved.error || 'AUTH_REQUIRED', resolved.error === 'IDENTITY_MISMATCH' ? 403 : 401);
+  }
+
+  const employee = resolved.employee;
+  if (
+    employee.status === 'Inactive' ||
+    employee.account_status === 'Inactive' ||
+    employee.account_status === 'Suspended' ||
+    employee.login_access_enabled === false
+  ) {
+    return sendGeofenceFailure(res, 'EMPLOYEE_INACTIVE', 403);
+  }
+
+  const employeeId = String(employee.id || employee.employee_id || req.body?.employee_id || actor.username);
+  const employeeName = String(employee.name || employee.full_name || req.body?.employee_name || actor.username);
+
+  const latitude = Number(req.body?.latitude);
+  const longitude = Number(req.body?.longitude);
+  const accuracy = Number(req.body?.accuracy);
+
+  const config = await readGeofencingConfig();
+  const serverTime = getServerAttendanceTime();
+  const decision = evaluateGeofence(config, latitude, longitude, accuracy);
+
+  if (!decision.allowed) {
+    await recordGeofenceVerificationLog({
+      req, actor, employeeId, employeeName, action, config, decision,
+      latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'blocked',
+    });
+    if (decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED') {
+      void notifyAdminGeofenceNotConfigured(actor);
+    }
+    const status =
+      decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED'
+        ? 409
+        : decision.reasonCode === 'LOCATION_ACCURACY_LOW'
+          ? 422
+          : 403;
+    return sendGeofenceFailure(res, decision.reasonCode, status);
+  }
+
+  const attendance = await loadMergedAttendanceFromFirestore();
+  const matchesEmployee = (record: any) =>
+    String(record.employee_id || '') === employeeId ||
+    String(record.employee_id || '') === String(employee.employee_id || '') ||
+    normalizeEmployeeToken(record.employee_name) === normalizeEmployeeToken(employeeName) ||
+    normalizeEmployeeToken(record.employee_name) === normalizeEmployeeToken(employee.name);
+
+  const today = serverTime.date;
+  const openRecord = attendance.find(record => matchesEmployee(record) && isAttendanceRecordOpen(record));
+  const awaitingClockInRecord = attendance.find(record =>
+    matchesEmployee(record) &&
+    String(record.date || '') === today &&
+    !String(record.clock_in || record.check_in_time || '').trim()
+  );
+
+  if (action === 'clock_in' && openRecord) {
+    await recordGeofenceVerificationLog({
+      req, actor, employeeId, employeeName, action, config, decision,
+      latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'allowed',
+    });
+    return sendGeofenceFailure(res, 'ALREADY_CLOCKED_IN', 409);
+  }
+
+  if (action === 'clock_out' && !openRecord) {
+    await recordGeofenceVerificationLog({
+      req, actor, employeeId, employeeName, action, config, decision,
+      latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'allowed',
+    });
+    return sendGeofenceFailure(res, 'NO_OPEN_SHIFT', 409);
+  }
+
+  const existing: any = action === 'clock_in' ? awaitingClockInRecord : openRecord;
+  const base: any = existing || {};
+  const rawOut = String(base.clock_out || base.check_out_time || '').trim();
+  const existingOut = rawOut === '--' || rawOut === '-' ? '' : rawOut;
+
+  const clockIn = action === 'clock_in'
+    ? serverTime.time
+    : String(base.clock_in || base.check_in_time || '').trim();
+  const clockOut = action === 'clock_out' ? serverTime.time : existingOut;
+
+  const calc = calculateServerWorkingHours(clockIn, clockOut || null);
+  const shiftCompleted = Boolean(clockIn && clockOut);
+  const attId = base.id || `ATT-${Date.now()}-${employeeId || 'EMP'}`;
+  const nowIso = serverTime.iso;
+
+  const geofenceVerification = {
+    verified: decision.reasonCode === 'WITHIN_GEOFENCE',
+    verification_result: decision.reasonCode,
+    distance_meters: decision.distanceMeters !== null
+      ? Math.round(decision.distanceMeters * 100) / 100
+      : null,
+    accuracy_meters: decision.accuracyMeters,
+    ...(config.store_coordinates
+      ? { latitude: isValidLatitude(latitude) ? latitude : undefined, longitude: isValidLongitude(longitude) ? longitude : undefined }
+      : {}),
+    verified_at: nowIso,
+    method: 'haversine',
+  };
+
+  const record = {
+    ...base,
+    id: attId,
+    attendance_id: base.attendance_id || `ATT-${Date.now()}`,
+    employee_id: employeeId,
+    employee_name: employeeName,
+    date: serverTime.date,
+    clock_in: clockIn,
+    clock_out: clockOut,
+    check_in_time: clockIn,
+    check_out_time: clockOut,
+    working_hours: shiftCompleted ? calc.working_hours : 0,
+    working_hours_formatted: shiftCompleted ? calc.working_hours_formatted : '0h 00m',
+    total_working_hours: shiftCompleted ? calc.working_hours_formatted : '--',
+    late_minutes: Number(base.late_minutes) || 0,
+    early_departure_minutes: Number(base.early_departure_minutes) || 0,
+    attendance_status: base.attendance_status || 'Present',
+    status: shiftCompleted ? 'Completed' : 'Clocked In',
+    entry_source: 'Employee',
+    recorded_by: employeeName,
+    reset_by_it: false,
+    login_time: base.login_time || clockIn,
+    logout_time: clockOut || base.logout_time || '',
+    geofence_verification: geofenceVerification,
+    location_verified_at: nowIso,
+    location_verification_result: decision.reasonCode,
+    server_recorded_at: nowIso,
+    attendance_timezone: ATTENDANCE_TIMEZONE,
+    created_at: base.created_at || base.createdAt || nowIso,
+    updated_at: nowIso,
+    createdAt: base.createdAt || base.created_at || nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (!db.attendance) db.attendance = [];
+  const idx = (db.attendance as any[]).findIndex((a: any) => a.id === attId);
+  if (idx >= 0) db.attendance[idx] = record;
+  else db.attendance.unshift(record);
+  db.employee_attendance = (db.employee_attendance || []).filter((a: any) => a.id !== attId);
+
+  await saveToFirestore('attendance', attId, record);
+  await deleteFromFirestore('employee_attendance', attId);
+  await recordGeofenceVerificationLog({
+    req, actor, employeeId, employeeName, action, config, decision,
+    latitude, longitude, accuracy, serverIso: nowIso, outcome: 'allowed',
+  });
+
+  const verifiedSuffix = decision.reasonCode === 'WITHIN_GEOFENCE' ? ' (geofence verified)' : '';
+  await logActivity(
+    employeeName,
+    action === 'clock_in' ? `Self Log In${verifiedSuffix}` : `Self Log Out${verifiedSuffix}`,
+    'Attendance',
+    employeeId || attId
+  );
+
+  const message = action === 'clock_in'
+    ? GEOFENCE_MESSAGES.ATTENDANCE_REGISTERED
+    : GEOFENCE_MESSAGES.DEPARTURE_REGISTERED;
+
+  res.json({
+    success: true,
+    record,
+    message: message.en,
+    message_ar: message.ar,
+    verification: {
+      result: decision.reasonCode,
+      distance_meters: decision.distanceMeters,
+      accuracy_meters: decision.accuracyMeters,
+    },
+  });
 });
 
 app.get("/api/work-schedules", async (req, res) => {
@@ -1124,6 +1549,128 @@ app.post("/api/attendance-settings", async (req, res) => {
   res.json(updated);
 });
 
+// ---------------------------------------------------------------------------
+// Geofencing configuration API (IT Administrator only)
+// ---------------------------------------------------------------------------
+
+// Public, privacy-safe status: employees only learn whether verification is on.
+app.get("/api/geofencing/status", async (_req, res) => {
+  const config = await readGeofencingConfig();
+  res.json({
+    is_enabled: config.is_enabled,
+    configured: isCompanyLocationConfigured(config),
+    // A fixed acquisition target only; the true accuracy rule and radius stay server-side.
+    max_accuracy_meters: 50,
+  });
+});
+
+app.get("/api/geofencing/settings", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: Only authorized IT Administrators can view geofencing settings.' });
+  }
+  const config = await readGeofencingConfig();
+  res.json(config);
+});
+
+app.put("/api/geofencing/settings", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: Only authorized IT Administrators can modify geofencing settings.' });
+  }
+
+  const existing = await readGeofencingConfig();
+  const rawLatitude = req.body?.company_latitude;
+  const rawLongitude = req.body?.company_longitude;
+  const latitude = rawLatitude === null || rawLatitude === undefined || rawLatitude === ''
+    ? null
+    : Number(rawLatitude);
+  const longitude = rawLongitude === null || rawLongitude === undefined || rawLongitude === ''
+    ? null
+    : Number(rawLongitude);
+
+  if (latitude !== null && !isValidLatitude(latitude)) {
+    return res.status(400).json({ error: 'Invalid company latitude. Expected a number between -90 and 90.' });
+  }
+  if (longitude !== null && !isValidLongitude(longitude)) {
+    return res.status(400).json({ error: 'Invalid company longitude. Expected a number between -180 and 180.' });
+  }
+
+  const radius = clampRadiusMeters(req.body?.allowed_radius_meters);
+  const isEnabled = req.body?.is_enabled === true || req.body?.is_enabled === 'true';
+  const storeCoordinates = req.body?.store_coordinates !== false;
+  const nowIso = new Date().toISOString();
+
+  const updated: CompanyGeofencingConfig = {
+    id: GEOFENCE_CONFIG_DOC_ID,
+    company_latitude: latitude,
+    company_longitude: longitude,
+    allowed_radius_meters: radius,
+    is_enabled: isEnabled,
+    store_coordinates: storeCoordinates,
+    updated_by: actor.username || 'Administrator',
+    updated_at: nowIso,
+    created_at: existing.created_at || nowIso,
+  };
+
+  await persistGeofencingConfig(updated);
+  await logActivity(
+    actor.username || 'Administrator',
+    `Updated company geofencing (${isEnabled ? 'enabled' : 'disabled'}, radius ${radius}m)`,
+    'Geofencing Settings',
+    GEOFENCE_CONFIG_DOC_ID
+  );
+  res.json(updated);
+});
+
+// Address search proxy for the administrator map (OpenStreetMap Nominatim).
+app.get("/api/geofencing/geocode", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: Only authorized IT Administrators can search company addresses.' });
+  }
+
+  const query = String(req.query?.q || '').trim();
+  if (query.length < 3) {
+    return res.status(400).json({ error: 'Please enter at least 3 characters to search for an address.' });
+  }
+
+  const waitMs = Math.max(0, 1100 - (Date.now() - lastGeocodeRequestAt));
+  if (waitMs > 0) {
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+  lastGeocodeRequestAt = Date.now();
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(query)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'SofiaTravelAttendanceGeofencing/1.0 (operations@sofiatravel.com)',
+        'Accept': 'application/json',
+      },
+    });
+    clearTimeout(timer);
+    if (!response.ok) {
+      return res.status(502).json({ error: 'Address search service is currently unavailable.' });
+    }
+    const data = await response.json();
+    const results = (Array.isArray(data) ? data : []).slice(0, 5).map((item: any) => ({
+      display_name: String(item.display_name || ''),
+      latitude: Number(item.lat),
+      longitude: Number(item.lon),
+      type: String(item.type || ''),
+      importance: Number(item.importance) || 0,
+    })).filter((item: any) => isValidLatitude(item.latitude) && isValidLongitude(item.longitude));
+    res.json({ results });
+  } catch (err) {
+    console.warn('Geocoding lookup failed:', err);
+    res.status(502).json({ error: 'Address search service is currently unavailable.' });
+  }
+});
+
 // Retrieve Attendance & Log-In Data for the Previous Two Days from Cloud Firestore
 app.get("/api/attendance/previous-two-days", async (req, res) => {
   const now = new Date();
@@ -1207,6 +1754,12 @@ app.post("/api/attendance", async (req, res) => {
   if (isManualRequest && actingUser !== 'IT') {
     return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can manually add employee clock-in/clock-out times.' });
   }
+  if (!isManualRequest) {
+    return res.status(403).json({
+      error: 'Employee attendance must be registered through the verified location endpoint (/api/attendance/self).',
+      code: 'GEOFENCE_ENDPOINT_REQUIRED',
+    });
+  }
 
   const attId = req.body.id || ("ATT-" + Date.now() + "-" + (req.body.employee_id || Math.random().toString(36).substring(2, 6).toUpperCase()));
   const rawIn = req.body.clock_in || req.body.check_in_time || '';
@@ -1259,6 +1812,12 @@ app.put("/api/attendance/:id", async (req, res) => {
   const isManualRequest = req.body?.entry_source === 'IT Manual';
   if (isManualRequest && actingUser !== 'IT') {
     return res.status(403).json({ error: 'Forbidden: Only the "IT" developer account can manually modify employee clock-in/clock-out times.' });
+  }
+  if (!isManualRequest) {
+    return res.status(403).json({
+      error: 'Employee attendance must be registered through the verified location endpoint (/api/attendance/self).',
+      code: 'GEOFENCE_ENDPOINT_REQUIRED',
+    });
   }
 
   await loadMergedAttendanceFromFirestore();

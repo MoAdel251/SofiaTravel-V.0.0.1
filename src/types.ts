@@ -863,6 +863,9 @@ export interface AttendanceRecord {
   login_time?: string;
   logout_time?: string;
   notes?: string;
+  geofence_verification?: AttendanceGeofenceVerification | null;
+  location_verified_at?: string;
+  location_verification_result?: string;
   created_at?: string;
   updated_at?: string;
   createdAt?: string;
@@ -889,6 +892,37 @@ export interface AttendanceSettings {
   auto_record_on_logout?: boolean;
   default_working_days?: string[];
   updatedAt?: string;
+}
+
+export interface AttendanceGeofenceVerification {
+  verified: boolean;
+  verification_result:
+    | 'WITHIN_GEOFENCE'
+    | 'GEOFENCING_DISABLED'
+    | 'GEOFENCE_NOT_CONFIGURED'
+    | 'LOCATION_REQUIRED'
+    | 'LOCATION_ACCURACY_UNAVAILABLE'
+    | 'LOCATION_ACCURACY_LOW'
+    | 'OUTSIDE_GEOFENCE'
+    | string;
+  distance_meters?: number | null;
+  accuracy_meters?: number | null;
+  latitude?: number;
+  longitude?: number;
+  verified_at?: string;
+  method?: 'haversine' | string;
+}
+
+export interface CompanyGeofencing {
+  id: string;
+  company_latitude: number | null;
+  company_longitude: number | null;
+  allowed_radius_meters: number;
+  is_enabled: boolean;
+  store_coordinates?: boolean;
+  updated_by?: string;
+  updated_at?: string;
+  created_at?: string;
 }
 
 export interface AttendanceLoginLog {
