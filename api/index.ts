@@ -16,15 +16,25 @@ type ExpressApp = (request: IncomingMessage, response: ServerResponse) => void;
  */
 let appPromise: Promise<ExpressApp> | null = null;
 
+function unwrapServerModule(mod: unknown): ExpressApp {
+  let candidate = (mod as { default?: unknown })?.default ?? mod;
+  // Dynamic import of a CommonJS bundle exposes module.exports as `default`.
+  if (
+    candidate &&
+    typeof candidate !== 'function' &&
+    typeof (candidate as { default?: unknown }).default === 'function'
+  ) {
+    candidate = (candidate as { default: unknown }).default;
+  }
+  if (typeof candidate !== 'function') {
+    throw new Error('Server module did not export a callable Express app');
+  }
+  return candidate as ExpressApp;
+}
+
 function loadApp(): Promise<ExpressApp> {
   if (!appPromise) {
-    appPromise = import('../server').then(mod => {
-      const candidate = (mod as { default?: unknown }).default ?? mod;
-      if (typeof candidate !== 'function') {
-        throw new Error('Server module did not export a callable Express app');
-      }
-      return candidate as ExpressApp;
-    });
+    appPromise = import('../api-dist/app.cjs').then(unwrapServerModule);
   }
   return appPromise;
 }
