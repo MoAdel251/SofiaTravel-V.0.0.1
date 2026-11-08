@@ -73,6 +73,13 @@ import {
   AttendanceSettings
 } from './types';
 import { dataService } from './services/dataService';
+import {
+  getBrowserPosition,
+  getGeofenceMessage,
+  getGeofenceStatus,
+  submitSelfAttendance,
+  type GeofenceReasonCode,
+} from './services/geofencing';
 import { convertCurrency } from './utils/currency';
 import {
   applyAttendancePolicy,
@@ -2881,84 +2888,48 @@ export default function App() {
     null;
 
   const handleSelfClockIn = async () => {
-    const now = new Date();
-    const clockInHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const status = await getGeofenceStatus();
+    let position = null;
+    if (!status || status.is_enabled) {
+      try {
+        position = await getBrowserPosition(status?.max_accuracy_meters ?? 100);
+      } catch (err: any) {
+        const code = String(err?.message || 'LOCATION_UNAVAILABLE') as GeofenceReasonCode;
+        showToast(getGeofenceMessage(code, isAr));
+        return;
+      }
+    }
 
-    // If IT reset this employee's clock-in time on an existing record for today, populate clock_in on that record normally
-    const awaitingClockInRec = attendanceRecords.find(
-      a =>
-        a.date === todayDateStr &&
-        !a.clock_in &&
-        !a.check_in_time &&
-        (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
-    );
+    const result = await submitSelfAttendance({
+      employeeId: activeSelfId,
+      employeeName: activeSelfName,
+      action: 'clock_in',
+      actingUser: isITAccount ? 'IT' : (currentUsername || activeSelfName),
+      actingRole: isCurrentAdmin ? 'Administrator' : effectiveUserRole,
+      position,
+    });
 
-    if (awaitingClockInRec) {
-      const existingOutRaw = awaitingClockInRec.clock_out || awaitingClockInRec.check_out_time || '';
-      const existingOut = existingOutRaw === '--' || existingOutRaw === '-' ? '' : existingOutRaw;
-      const calc = calculateWorkingHours(clockInHHMM, existingOut || undefined);
-      const updatedRec: AttendanceRecord = {
-        ...awaitingClockInRec,
-        clock_in: clockInHHMM,
-        check_in_time: clockInHHMM,
-        clock_out: existingOut,
-        check_out_time: existingOut,
-        login_time: clockInHHMM,
-        working_hours: existingOut ? calc.working_hours : 0,
-        working_hours_formatted: existingOut ? calc.working_hours_formatted : '0h 00m',
-        total_working_hours: existingOut ? calc.working_hours_formatted : '--',
-        status: existingOut ? 'Completed' : 'Clocked In',
-        entry_source: 'Employee',
-        recorded_by: activeSelfName,
-        reset_by_it: false,
-        updated_at: now.toISOString(),
-        updatedAt: now.toISOString(),
-      };
-
-      setRawAttendanceRecords(prev => prev.map(a => (a.id === awaitingClockInRec.id ? updatedRec : a)));
-      await dataService.saveDocument('attendance', awaitingClockInRec.id, updatedRec, `/api/attendance/${awaitingClockInRec.id}`, 'PUT');
-      await dataService.deleteDocument('employee_attendance', awaitingClockInRec.id);
-      await recordEmployeeActivity(`Self Log In (${clockInHHMM})`, 'Attendance', activeSelfId);
-      showToast(
-        existingOut
-          ? (isAr
-              ? `تم تسجيل الحضور في ${clockInHHMM} — ساعات العمل: ${calc.working_hours_formatted}`
-              : `Clocked in at ${clockInHHMM} — Working hours: ${calc.working_hours_formatted}`)
-          : (isAr ? `تم تسجيل الحضور في ${clockInHHMM}` : `Clocked in at ${clockInHHMM}`)
-      );
+    if (!result.ok) {
+      showToast(isAr ? result.messageAr : result.messageEn);
       return;
     }
 
-    const calc = calculateWorkingHours(clockInHHMM, '');
-    const ts = Date.now();
-    const newAttId = `ATT-${ts}-${activeSelfId}`;
+    const savedRecord = result.record;
+    setRawAttendanceRecords(prev => {
+      const exists = prev.some(a => a.id === savedRecord.id);
+      return exists ? prev.map(a => (a.id === savedRecord.id ? savedRecord : a)) : [savedRecord, ...prev];
+    });
 
-    const newRec: AttendanceRecord = {
-      id: newAttId,
-      attendance_id: `ATT-${ts}`,
-      employee_id: activeSelfId,
-      employee_name: activeSelfName,
-      date: todayDateStr,
-      clock_in: clockInHHMM,
-      clock_out: '',
-      check_in_time: clockInHHMM,
-      check_out_time: '',
-      working_hours: calc.working_hours,
-      working_hours_formatted: calc.working_hours_formatted,
-      total_working_hours: '--',
-      status: calc.status,
-      entry_source: 'Employee',
-      recorded_by: activeSelfName,
-      created_at: now.toISOString(),
-      updated_at: now.toISOString(),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
-
-    setRawAttendanceRecords(prev => [newRec, ...prev]);
-    await dataService.saveDocument('attendance', newAttId, newRec, '/api/attendance', 'POST');
-    await recordEmployeeActivity(`Self Log In`, 'Attendance', activeSelfId);
-    showToast(isAr ? `تم تسجيل الحضور في ${clockInHHMM}` : `Clocked in at ${clockInHHMM}`);
+    const workingHoursNote = savedRecord.clock_out
+      ? (isAr
+          ? ` — ساعات العمل: ${savedRecord.working_hours_formatted || ''}`
+          : ` — Working hours: ${savedRecord.working_hours_formatted || ''}`)
+      : '';
+    showToast(
+      isAr
+        ? `تم تسجيل الحضور بنجاح. وقت الدخول: ${savedRecord.clock_in}${workingHoursNote}`
+        : `Attendance registered successfully. Check-in: ${savedRecord.clock_in}${workingHoursNote}`
+    );
   };
 
   const handleSelfClockOut = async () => {
@@ -2972,42 +2943,42 @@ export default function App() {
       return;
     }
 
-    const now = new Date();
-    const clockOutHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const checkInRef = openRec.clock_in || openRec.check_in_time || '';
-    // Calculate working hours using the unified calculator
-    const calc = calculateWorkingHours(checkInRef, clockOutHHMM);
+    const status = await getGeofenceStatus();
+    let position = null;
+    if (!status || status.is_enabled) {
+      try {
+        position = await getBrowserPosition(status?.max_accuracy_meters ?? 100);
+      } catch (err: any) {
+        const code = String(err?.message || 'LOCATION_UNAVAILABLE') as GeofenceReasonCode;
+        showToast(getGeofenceMessage(code, isAr));
+        return;
+      }
+    }
 
-    const updatedRec: AttendanceRecord = {
-      ...openRec,
-      clock_in: checkInRef,
-      clock_out: clockOutHHMM,
-      check_in_time: checkInRef,
-      check_out_time: clockOutHHMM,
-      logout_time: clockOutHHMM,
-      working_hours: calc.working_hours,
-      working_hours_formatted: calc.working_hours_formatted,
-      total_working_hours: calc.working_hours_formatted,
-      status: calc.status,
-      entry_source: 'Employee',
-      recorded_by: activeSelfName,
-      reset_by_it: false,
-      updated_at: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
+    const result = await submitSelfAttendance({
+      employeeId: activeSelfId,
+      employeeName: activeSelfName,
+      action: 'clock_out',
+      actingUser: isITAccount ? 'IT' : (currentUsername || activeSelfName),
+      actingRole: isCurrentAdmin ? 'Administrator' : effectiveUserRole,
+      position,
+    });
 
-    setRawAttendanceRecords(prev => prev.map(a => (a.id === openRec.id ? updatedRec : a)));
-    await dataService.saveDocument('attendance', openRec.id, updatedRec, `/api/attendance/${openRec.id}`, 'PUT');
-    await dataService.deleteDocument('employee_attendance', openRec.id);
-    await recordEmployeeActivity(
-      `Self Log Out (${clockOutHHMM} — ${calc.working_hours_formatted})`,
-      'Attendance',
-      activeSelfId
-    );
+    if (!result.ok) {
+      showToast(isAr ? result.messageAr : result.messageEn);
+      return;
+    }
+
+    const savedRecord = result.record;
+    setRawAttendanceRecords(prev => {
+      const exists = prev.some(a => a.id === savedRecord.id);
+      return exists ? prev.map(a => (a.id === savedRecord.id ? savedRecord : a)) : [savedRecord, ...prev];
+    });
+
     showToast(
       isAr
-        ? `تم تسجيل الانصراف (${clockOutHHMM}) — ساعات العمل: ${calc.working_hours_formatted}`
-        : `Clocked out (${clockOutHHMM}) — Working hours: ${calc.working_hours_formatted}`
+        ? `تم تسجيل الانصراف بنجاح. وقت الخروج: ${savedRecord.clock_out} — ساعات العمل: ${savedRecord.working_hours_formatted || ''}`
+        : `Departure registered successfully. Check-out: ${savedRecord.clock_out} — Working hours: ${savedRecord.working_hours_formatted || ''}`
     );
   };
 
@@ -4242,6 +4213,7 @@ export default function App() {
               onOpenAdminReset={() => setIsAdminResetModalOpen(true)}
               isITAccount={isITAccount}
               onOpenITSiteControl={() => setIsITSiteModalOpen(true)}
+              currentUsername={currentUsername}
             />
           )}
           {currentTab === 'activity-log' && (
