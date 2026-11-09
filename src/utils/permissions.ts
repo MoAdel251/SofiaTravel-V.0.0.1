@@ -102,6 +102,9 @@ const tabPermissionMap: Record<string, string | string[]> = {
   notifications: 'view_dashboard',
   settings: 'view_settings',
   'activity-log': 'view_settings',
+  'attendance-security': 'view_attendance_security',
+  'leave-management': 'view_dashboard',
+  announcements: 'view_dashboard',
 };
 
 /**
@@ -125,7 +128,7 @@ export function isTabAllowedForUser(
     return true;
   }
 
-  if (tabId === 'attendance') {
+  if (tabId === 'attendance' || tabId === 'leave-management' || tabId === 'announcements') {
     return true;
   }
 

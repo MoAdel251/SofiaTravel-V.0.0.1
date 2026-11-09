@@ -3,7 +3,7 @@ import {
   Search, Bell, User, Clock, ArrowRight, X, Menu,
   LayoutDashboard, Users, Compass, Truck, FileText,
   Briefcase, Calendar, CheckSquare, BarChart3, Settings, Activity, Globe2, LogOut, ShieldCheck, Database, DollarSign,
-  Ticket, Layers, MessageCircle, Trash2, RefreshCw, Power
+  Ticket, Layers, MessageCircle, Trash2, RefreshCw, Power, CalendarDays, Megaphone, MapPin
 } from 'lucide-react';
 import { UserRole, NotificationItem, AttendanceRecord } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -120,6 +120,9 @@ export function Navbar({
     { id: 'permission-requests', labelKey: 'nav_approval_requests', defaultLabel: 'Approval Requests', icon: ShieldCheck, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], badge: pendingPermissionCount, perm: 'view_dashboard' },
     { id: 'employees', labelKey: 'nav_employees', defaultLabel: 'Employees', icon: Briefcase, roles: ['Administrator', 'Manager'], perm: 'view_employees' },
     { id: 'attendance', labelKey: 'nav_attendance', defaultLabel: 'Attendance & Departure', icon: Clock, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'leave-management', labelKey: 'nav_leave_management', defaultLabel: 'Leave & Permissions', icon: CalendarDays, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'announcements', labelKey: 'nav_announcements', defaultLabel: 'Announcements', icon: Megaphone, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
+    { id: 'attendance-security', labelKey: 'nav_attendance_security', defaultLabel: 'Attendance Security', icon: MapPin, roles: ['Administrator'], perm: 'view_attendance_security' },
     { id: 'calendar', labelKey: 'nav_calendar', defaultLabel: 'Calendar', icon: Calendar, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service'], perm: 'view_dashboard' },
     { id: 'tasks', labelKey: 'nav_tasks', defaultLabel: 'Tasks', icon: CheckSquare, roles: ['Administrator', 'Manager', 'Sales', 'Operations', 'Customer Service', 'Accountant'], perm: 'view_dashboard' },
     { id: 'documents', labelKey: 'nav_documents', defaultLabel: 'Documents', icon: FileText, roles: ['Administrator', 'Manager', 'Operations', 'Customer Service', 'Sales', 'Accountant'], perm: 'view_dashboard' },

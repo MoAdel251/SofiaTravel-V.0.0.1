@@ -29,6 +29,7 @@ import {
   GEOFENCE_MESSAGES,
   type CompanyGeofencingConfig,
 } from './src/server/geofencing';
+import { buildDeviceInfo } from './src/server/deviceInfo';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -204,7 +205,12 @@ let db = {
   employee_attendance: [],
   company_geofencing: [],
   attendance_verification_logs: [],
-  push_subscriptions: []
+  push_subscriptions: [],
+  leave_requests: [],
+  leave_balances: [],
+  leave_policies: [],
+  announcements: [],
+  announcement_reads: []
 };
 
 async function getCollectionDocs(collectionName: string): Promise<any[]> {
@@ -263,7 +269,8 @@ async function loadFromFirestore() {
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "attendance_settings", "employee_attendance",
     "company_geofencing", "attendance_verification_logs",
-    "push_subscriptions"
+    "push_subscriptions", "leave_requests", "leave_balances", "leave_policies",
+    "announcements", "announcement_reads"
   ];
   try {
     console.log("Loading persistent data from Firestore...");
@@ -298,7 +305,8 @@ async function wipeAllFirestoreTestData(includeNonAdminEmployees = true, actingA
     "customer_payments", "supplier_payments", "expenses",
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
-    "finance_audit_logs", "customer_inquiries", "attendance", "employee_attendance", "attendance_verification_logs"
+    "finance_audit_logs", "customer_inquiries", "attendance", "employee_attendance", "attendance_verification_logs",
+    "leave_requests", "leave_balances", "announcements", "announcement_reads"
   ];
   console.log(`Admin action by ${actingAdmin}: Wiping all operational data from Firestore...`);
   for (const col of collections) {
@@ -1147,6 +1155,12 @@ async function recordGeofenceVerificationLog(params: {
     latitude, longitude, accuracy, serverIso, outcome,
   } = params;
 
+  const deviceInfo = buildDeviceInfo({
+    userAgent: req.headers['user-agent'],
+    platform: req.body?.platform,
+    language: req.body?.language,
+  });
+
   const entry: Record<string, any> = {
     id: `GEO-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
     employee_id: employeeId,
@@ -1164,6 +1178,7 @@ async function recordGeofenceVerificationLog(params: {
     acting_user: actor.username || '',
     user_agent: String(req.headers['user-agent'] || '').substring(0, 300),
     ip_address: String(req.ip || ''),
+    device_info: deviceInfo,
   };
 
   // Coordinates are sensitive: persist them only when the company policy allows it.
@@ -1201,6 +1216,52 @@ async function notifyAdminGeofenceNotConfigured(actor: ActingActor): Promise<voi
     );
   } catch (err) {
     console.warn('Could not notify IT administrator about missing geofencing config:', err);
+  }
+}
+
+const repeatedGeofenceAlerts = new Map<string, number>();
+const REPEATED_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const REPEATED_ATTEMPT_THRESHOLD = 3;
+const REPEATED_ATTEMPT_COOLDOWN_MS = 60 * 60 * 1000;
+
+async function notifyRepeatedGeofenceAttempts(
+  employeeId: string,
+  employeeName: string,
+  reasonCode: string
+): Promise<void> {
+  try {
+    const logs: any[] = db[GEOFENCE_VERIFICATION_LOG_COLLECTION] || [];
+    const since = Date.now() - REPEATED_ATTEMPT_WINDOW_MS;
+    const recentBlocked = logs.filter((entry: any) => {
+      if (entry.outcome !== 'blocked') return false;
+      if (String(entry.employee_id || '') !== String(employeeId)) return false;
+      const ts = Date.parse(String(entry.verified_at || ''));
+      return Number.isFinite(ts) && ts >= since;
+    });
+    if (recentBlocked.length < REPEATED_ATTEMPT_THRESHOLD) return;
+
+    const lastAlert = repeatedGeofenceAlerts.get(employeeId) || 0;
+    if (Date.now() - lastAlert < REPEATED_ATTEMPT_COOLDOWN_MS) return;
+    repeatedGeofenceAlerts.set(employeeId, Date.now());
+
+    const reasons = Array.from(new Set(recentBlocked.map((entry: any) => entry.result))).join(', ');
+    await addNotification(
+      'Repeated outside-geofence attendance attempts',
+      `${employeeName || employeeId} attempted to register attendance outside the authorized company area ${recentBlocked.length} times in the last 15 minutes (latest reason: ${reasonCode}). Review the attendance security log.`,
+      'attendance',
+      undefined,
+      {
+        target_scope: 'EMPLOYEE',
+        target_employee_id: 'IT',
+        target_employee_name: 'IT',
+        tab: 'attendance-security',
+        category: 'attendance_security',
+        priority: 'Urgent',
+        reasons,
+      }
+    );
+  } catch (err) {
+    console.warn('Could not notify IT about repeated geofence attempts:', err);
   }
 }
 
@@ -1268,6 +1329,7 @@ app.post("/api/attendance/self", async (req, res) => {
     if (decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED') {
       void notifyAdminGeofenceNotConfigured(actor);
     }
+    void notifyRepeatedGeofenceAttempts(employeeId, employeeName, decision.reasonCode);
     const status =
       decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED'
         ? 409
@@ -1337,6 +1399,18 @@ app.post("/api/attendance/self", async (req, res) => {
     method: 'haversine',
   };
 
+  const deviceInfo = buildDeviceInfo({
+    userAgent: req.headers['user-agent'],
+    platform: req.body?.platform,
+    language: req.body?.language,
+  });
+
+  const attendanceLocation = config.store_coordinates &&
+    isValidLatitude(latitude) &&
+    isValidLongitude(longitude)
+    ? { latitude, longitude, accuracy, recorded_at: nowIso }
+    : null;
+
   const record = {
     ...base,
     id: attId,
@@ -1361,6 +1435,14 @@ app.post("/api/attendance/self", async (req, res) => {
     login_time: base.login_time || clockIn,
     logout_time: clockOut || base.logout_time || '',
     geofence_verification: geofenceVerification,
+    attendance_location: attendanceLocation || base.attendance_location || null,
+    check_in_location: action === 'clock_in'
+      ? (attendanceLocation || base.check_in_location || null)
+      : (base.check_in_location || null),
+    check_out_location: action === 'clock_out'
+      ? (attendanceLocation || base.check_out_location || null)
+      : (base.check_out_location || null),
+    device_info: deviceInfo,
     location_verified_at: nowIso,
     location_verification_result: decision.reasonCode,
     server_recorded_at: nowIso,
@@ -1669,6 +1751,82 @@ app.get("/api/geofencing/geocode", async (req, res) => {
     console.warn('Geocoding lookup failed:', err);
     res.status(502).json({ error: 'Address search service is currently unavailable.' });
   }
+});
+
+// Attendance security review (Administrators & IT only): geofence decisions,
+// device fingerprints and stored coordinates for each attendance transaction.
+app.get("/api/attendance/security-logs", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!actor.isAdmin) {
+    return res.status(403).json({ error: 'Forbidden: Only Administrators or IT can review attendance security logs.' });
+  }
+
+  const employeeFilter = String(req.query?.employee_id || '').trim().toLowerCase();
+  const outcomeFilter = String(req.query?.outcome || '').trim().toLowerCase();
+  const actionFilter = String(req.query?.action || '').trim().toLowerCase();
+  const fromDate = String(req.query?.from || '').trim();
+  const toDate = String(req.query?.to || '').trim();
+  const limit = Math.min(Math.max(Number(req.query?.limit) || 200, 1), 1000);
+
+  const logs: any[] = db[GEOFENCE_VERIFICATION_LOG_COLLECTION] || [];
+  let filtered = logs.slice();
+
+  if (employeeFilter) {
+    filtered = filtered.filter((entry: any) =>
+      [entry.employee_id, entry.employee_name, entry.acting_user]
+        .some(value => String(value || '').trim().toLowerCase() === employeeFilter)
+    );
+  }
+  if (outcomeFilter) {
+    filtered = filtered.filter((entry: any) => String(entry.outcome || '').toLowerCase() === outcomeFilter);
+  }
+  if (actionFilter) {
+    filtered = filtered.filter((entry: any) => String(entry.action || '').toLowerCase() === actionFilter);
+  }
+  if (fromDate) {
+    filtered = filtered.filter((entry: any) => String(entry.verified_at || '') >= fromDate);
+  }
+  if (toDate) {
+    filtered = filtered.filter((entry: any) => String(entry.verified_at || '') <= `${toDate}T23:59:59.999Z`);
+  }
+
+  filtered.sort((a: any, b: any) => String(b.verified_at || '').localeCompare(String(a.verified_at || '')));
+  const page = filtered.slice(0, limit);
+
+  const attendance: any[] = db.attendance || [];
+  const records = attendance
+    .filter((record: any) => {
+      if (!employeeFilter) return true;
+      return [record.employee_id, record.employee_name]
+        .some(value => String(value || '').trim().toLowerCase() === employeeFilter);
+    })
+    .sort((a: any, b: any) => String(b.date || '').localeCompare(String(a.date || '')))
+    .slice(0, limit)
+    .map((record: any) => ({
+      id: record.id,
+      employee_id: record.employee_id,
+      employee_name: record.employee_name,
+      date: record.date,
+      clock_in: record.clock_in || record.check_in_time || '',
+      clock_out: record.clock_out || record.check_out_time || '',
+      status: record.status || record.attendance_status || '',
+      attendance_location: record.attendance_location || null,
+      check_in_location: record.check_in_location || null,
+      check_out_location: record.check_out_location || null,
+      device_info: record.device_info || null,
+      geofence_verification: record.geofence_verification || null,
+      server_recorded_at: record.server_recorded_at || record.updated_at || '',
+    }));
+
+  res.json({
+    logs: page,
+    attendance_records: records,
+    totals: {
+      returned: page.length,
+      blocked: filtered.filter((entry: any) => entry.outcome === 'blocked').length,
+      allowed: filtered.filter((entry: any) => entry.outcome === 'allowed').length,
+    },
+  });
 });
 
 // Retrieve Attendance & Log-In Data for the Previous Two Days from Cloud Firestore
@@ -5053,6 +5211,972 @@ async function runScheduledCalendarRemindersTick() {
     console.warn('Scheduled calendar reminder tick warning:', err);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Leave & Permission Management
+// ---------------------------------------------------------------------------
+const LEAVE_POLICY_DOC_ID = 'default';
+const MAX_ATTACHMENT_CHARS = 700000;
+
+const DEFAULT_LEAVE_TYPES = [
+  { id: 'annual', label_en: 'Annual Leave', label_ar: 'إجازة سنوية', deducts_balance: true, requires_attachment: false, active: true },
+  { id: 'sick', label_en: 'Sick Leave', label_ar: 'إجازة مرضية', deducts_balance: true, requires_attachment: false, active: true },
+  { id: 'emergency', label_en: 'Emergency Leave', label_ar: 'إجازة طارئة', deducts_balance: true, requires_attachment: false, active: true },
+  { id: 'hourly_permission', label_en: 'Hourly Permission', label_ar: 'إذن بالساعة', is_hourly: true, deducts_balance: false, requires_attachment: false, active: true },
+  { id: 'unpaid', label_en: 'Unpaid Leave', label_ar: 'إجازة بدون راتب', deducts_balance: false, requires_attachment: false, active: true },
+];
+
+function defaultLeavePolicy(): any {
+  const nowIso = new Date().toISOString();
+  return {
+    id: LEAVE_POLICY_DOC_ID,
+    default_annual_allowance: 21,
+    leave_types: DEFAULT_LEAVE_TYPES,
+    updated_by: 'System',
+    updated_at: nowIso,
+    created_at: nowIso,
+  };
+}
+
+async function readLeavePolicy(forceRefresh = false): Promise<any> {
+  try {
+    if (!db.leave_policies?.length || forceRefresh) {
+      await getCollectionDocs('leave_policies');
+    }
+  } catch {
+    // fall back to cached / defaults
+  }
+  const found = (db.leave_policies || []).find((p: any) => p.id === LEAVE_POLICY_DOC_ID);
+  if (!found) return defaultLeavePolicy();
+  const types = Array.isArray(found.leave_types) && found.leave_types.length
+    ? found.leave_types.map((t: any) => ({
+        id: String(t.id || '').trim(),
+        label_en: String(t.label_en || t.id || ''),
+        label_ar: String(t.label_ar || t.label_en || t.id || ''),
+        is_hourly: Boolean(t.is_hourly),
+        deducts_balance: t.deducts_balance !== false,
+        requires_attachment: Boolean(t.requires_attachment),
+        default_days: Number(t.default_days) || undefined,
+        active: t.active !== false,
+      })).filter((t: any) => t.id)
+    : DEFAULT_LEAVE_TYPES;
+  return {
+    id: LEAVE_POLICY_DOC_ID,
+    default_annual_allowance: Math.max(0, Number(found.default_annual_allowance) || 21),
+    leave_types: types,
+    updated_by: found.updated_by,
+    updated_at: found.updated_at,
+    created_at: found.created_at,
+  };
+}
+
+function isValidDateOnly(value: unknown): boolean {
+  const s = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+function dateOnlyToUtc(value: string): number {
+  return Date.parse(`${value}T00:00:00Z`);
+}
+
+function inclusiveDayCount(start: string, end: string): number {
+  const diff = dateOnlyToUtc(end) - dateOnlyToUtc(start);
+  if (!Number.isFinite(diff) || diff < 0) return 0;
+  return Math.floor(diff / 86400000) + 1;
+}
+
+function timeToMinutes(value: unknown): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function rangesOverlap(startA: string, endA: string, startB: string, endB: string): boolean {
+  return dateOnlyToUtc(startA) <= dateOnlyToUtc(endB) && dateOnlyToUtc(startB) <= dateOnlyToUtc(endA);
+}
+
+function findActorEmployeeRecord(employees: any[], actor: ActingActor): any | undefined {
+  return employees.find(emp => employeeMatchesToken(emp, actor.username));
+}
+
+function actorEmployeeIsManager(actor: ActingActor, employee: any | undefined): boolean {
+  const role = String(actor.role || '').toLowerCase();
+  const position = String(employee?.position || '').toLowerCase();
+  const jobTitle = String(employee?.job_title || '').toLowerCase();
+  const permissions = Array.isArray(employee?.permissions) ? employee.permissions : [];
+  return (
+    role === 'manager' ||
+    position.includes('manager') ||
+    jobTitle.includes('manager') ||
+    position === 'hr' ||
+    position.includes('hr ') ||
+    jobTitle.includes('hr') ||
+    permissions.includes('approve_leave')
+  );
+}
+
+function canReviewLeave(
+  actor: ActingActor,
+  actorEmployee: any | undefined,
+  request: any
+): { allowed: boolean; reason?: string } {
+  if (actor.isAdmin) return { allowed: true };
+  if (!actorEmployee) return { allowed: false, reason: 'AUTH_REQUIRED' };
+  if (employeeMatchesToken(actorEmployee, request.employee_id) ||
+      employeeMatchesToken(actorEmployee, request.employee_name)) {
+    return { allowed: false, reason: 'SELF_APPROVAL_FORBIDDEN' };
+  }
+  const isManager = actorEmployeeIsManager(actor, actorEmployee);
+  if (!isManager) return { allowed: false, reason: 'FORBIDDEN' };
+  const actorDept = String(actorEmployee.department || '').trim().toLowerCase();
+  const requestDept = String(request.department || '').trim().toLowerCase();
+  if (!actorDept || !requestDept || actorDept !== requestDept) {
+    return { allowed: false, reason: 'DEPARTMENT_MISMATCH' };
+  }
+  return { allowed: true };
+}
+
+function leaveTypeConfig(policy: any, typeId: unknown): any | undefined {
+  const id = String(typeId || '').trim();
+  return (policy.leave_types || []).find((t: any) => t.id === id);
+}
+
+function leaveRequestCountsForBalance(request: any, policy: any): boolean {
+  if (request.status !== 'Approved') return false;
+  if (request.is_hourly) return false;
+  const cfg = leaveTypeConfig(policy, request.leave_type);
+  return cfg ? cfg.deducts_balance !== false : true;
+}
+
+function leaveRequestYear(request: any): number {
+  const s = String(request.start_date || '');
+  return Number(s.slice(0, 4)) || new Date().getFullYear();
+}
+
+async function computeLeaveBalanceRows(
+  year: number,
+  employees: any[],
+  policy: any,
+  requests: any[],
+  balances: any[]
+): Promise<any[]> {
+  return employees
+    .filter(emp => emp.status !== 'Inactive' && emp.account_status !== 'Inactive')
+    .map(emp => {
+      const row = balances.find((b: any) =>
+        String(b.year) === String(year) &&
+        (employeeMatchesToken(emp, b.employee_id) || employeeMatchesToken(emp, b.employee_name))
+      );
+      const annualAllowance = row
+        ? Math.max(0, Number(row.annual_allowance) || 0)
+        : Number(policy.default_annual_allowance) || 0;
+      const carryForward = row ? Number(row.carry_forward_days) || 0 : 0;
+      const adjustment = row ? Number(row.adjustment_days) || 0 : 0;
+      const employeeRequests = requests.filter(req =>
+        leaveRequestYear(req) === year &&
+        (employeeMatchesToken(emp, req.employee_id) || employeeMatchesToken(emp, req.employee_name))
+      );
+      const used = employeeRequests
+        .filter(req => leaveRequestCountsForBalance(req, policy))
+        .reduce((sum, req) => sum + (Number(req.days) || 0), 0);
+      const pending = employeeRequests
+        .filter(req => req.status === 'Pending' && !req.is_hourly &&
+          (leaveTypeConfig(policy, req.leave_type)?.deducts_balance !== false))
+        .reduce((sum, req) => sum + (Number(req.days) || 0), 0);
+      const totalAllowance = annualAllowance + carryForward + adjustment;
+      return {
+        employee_id: emp.id || emp.employee_id,
+        employee_record_id: emp.id,
+        employee_name: emp.name || emp.full_name || emp.username || '',
+        department: emp.department || '',
+        year,
+        annual_allowance: annualAllowance,
+        carry_forward_days: carryForward,
+        adjustment_days: adjustment,
+        total_allowance: Math.round(totalAllowance * 100) / 100,
+        used: Math.round(used * 100) / 100,
+        pending: Math.round(pending * 100) / 100,
+        remaining: Math.round((totalAllowance - used) * 100) / 100,
+        has_override: Boolean(row),
+        updated_by: row?.updated_by,
+        updated_at: row?.updated_at,
+      };
+    });
+}
+
+async function notifyLeaveApprovers(request: any, employees: any[]): Promise<void> {
+  const recipients = new Map<string, any>();
+  for (const emp of employees) {
+    if (emp.status === 'Inactive' || emp.account_status === 'Inactive') continue;
+    const manager = actorEmployeeIsManager({ username: '', role: '', isIT: false, isAdmin: false }, emp);
+    const isAdmin = emp.is_admin === true || emp.position === 'Administrator';
+    if (!manager && !isAdmin) continue;
+    if (employeeMatchesToken(emp, request.employee_id)) continue;
+    const token = String(emp.username || emp.employee_id || emp.id || '');
+    if (!token) continue;
+    recipients.set(token, emp);
+  }
+  const targets = Array.from(recipients.entries());
+  if (targets.length === 0) {
+    await addNotification(
+      'New leave request',
+      `${request.employee_name} submitted a ${request.leave_type_label || request.leave_type} request (${request.start_date} to ${request.end_date}).`,
+      'leave',
+      request.id,
+      { tab: 'leave-management', category: 'leave', target_scope: 'ALL' }
+    );
+    return;
+  }
+  for (const [token, emp] of targets) {
+    await addNotification(
+      'New leave request awaiting review',
+      `${request.employee_name} (${request.department || 'No department'}) submitted a ${request.leave_type_label || request.leave_type} request from ${request.start_date} to ${request.end_date}.`,
+      'leave',
+      request.id,
+      {
+        target_scope: 'EMPLOYEE',
+        target_employee_id: token,
+        target_employee_name: emp.name || emp.full_name || token,
+        tab: 'leave-management',
+        category: 'leave',
+      }
+    );
+  }
+}
+
+async function notifyLeaveEmployee(request: any, title: string, message: string): Promise<void> {
+  await addNotification(title, message, 'leave', request.id, {
+    target_scope: 'EMPLOYEE',
+    target_employee_id: String(request.employee_id || ''),
+    target_employee_name: String(request.employee_name || ''),
+    tab: 'leave-management',
+    category: 'leave',
+    decision: request.status,
+  });
+}
+
+app.get("/api/leave-policies", async (_req, res) => {
+  const policy = await readLeavePolicy();
+  res.json(policy);
+});
+
+app.put("/api/leave-policies", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.isAdmin) {
+    return res.status(403).json({ error: 'Forbidden: Only HR Administrators can update leave policies.' });
+  }
+  const existing = await readLeavePolicy();
+  const rawTypes = Array.isArray(req.body?.leave_types) ? req.body.leave_types : existing.leave_types;
+  const seen = new Set<string>();
+  const types = rawTypes.map((t: any) => ({
+    id: String(t.id || '').trim().toLowerCase().replace(/\s+/g, '_'),
+    label_en: String(t.label_en || '').trim(),
+    label_ar: String(t.label_ar || '').trim(),
+    is_hourly: Boolean(t.is_hourly),
+    deducts_balance: t.deducts_balance !== false,
+    requires_attachment: Boolean(t.requires_attachment),
+    default_days: Number(t.default_days) > 0 ? Number(t.default_days) : undefined,
+    active: t.active !== false,
+  })).filter((t: any) => {
+    if (!t.id || !t.label_en || seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+  if (types.length === 0) {
+    return res.status(400).json({ error: 'At least one leave type with a label is required.' });
+  }
+  const annualAllowance = Number(req.body?.default_annual_allowance);
+  if (!Number.isFinite(annualAllowance) || annualAllowance < 0 || annualAllowance > 365) {
+    return res.status(400).json({ error: 'Annual allowance must be between 0 and 365 days.' });
+  }
+  const nowIso = new Date().toISOString();
+  const policy = {
+    id: LEAVE_POLICY_DOC_ID,
+    default_annual_allowance: annualAllowance,
+    leave_types: types,
+    updated_by: actor.username || 'Administrator',
+    updated_at: nowIso,
+    created_at: existing.created_at || nowIso,
+  };
+  if (!db.leave_policies) db.leave_policies = [];
+  const idx = (db.leave_policies as any[]).findIndex((p: any) => p.id === LEAVE_POLICY_DOC_ID);
+  if (idx >= 0) db.leave_policies[idx] = policy;
+  else db.leave_policies.push(policy);
+  await saveToFirestore('leave_policies', LEAVE_POLICY_DOC_ID, policy);
+  await logActivity(actor.username || 'Administrator', 'Updated leave policy and allowance settings', 'Leave Management', LEAVE_POLICY_DOC_ID);
+  res.json(policy);
+});
+
+app.get("/api/leave-requests", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+
+  const employees = await getCollectionDocs('employees');
+  const requests = await getCollectionDocs('leave_requests');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  const isPrivileged = actor.isAdmin || actorEmployeeIsManager(actor, actorEmployee);
+
+  const employeeFilter = String(req.query?.employee_id || '').trim().toLowerCase();
+  const departmentFilter = String(req.query?.department || '').trim().toLowerCase();
+  const typeFilter = String(req.query?.leave_type || '').trim().toLowerCase();
+  const statusFilter = String(req.query?.status || '').trim().toLowerCase();
+  const fromFilter = String(req.query?.from || '').trim();
+  const toFilter = String(req.query?.to || '').trim();
+
+  let rows = requests.slice();
+  if (!isPrivileged) {
+    if (!actorEmployee) return res.json([]);
+    rows = rows.filter(r => employeeMatchesToken(actorEmployee, r.employee_id) ||
+      employeeMatchesToken(actorEmployee, r.employee_name));
+  } else {
+    if (!actor.isAdmin && actorEmployee) {
+      const actorDept = String(actorEmployee.department || '').trim().toLowerCase();
+      rows = rows.filter(r => String(r.department || '').trim().toLowerCase() === actorDept);
+    }
+    if (employeeFilter) {
+      rows = rows.filter(r => [r.employee_id, r.employee_name]
+        .some(v => String(v || '').toLowerCase() === employeeFilter));
+    }
+  }
+  if (isPrivileged && departmentFilter) {
+    rows = rows.filter(r => String(r.department || '').toLowerCase() === departmentFilter);
+  }
+  if (typeFilter) rows = rows.filter(r => String(r.leave_type || '').toLowerCase() === typeFilter);
+  if (statusFilter) rows = rows.filter(r => String(r.status || '').toLowerCase() === statusFilter);
+  if (fromFilter) rows = rows.filter(r => String(r.end_date || '') >= fromFilter);
+  if (toFilter) rows = rows.filter(r => String(r.start_date || '') <= toFilter);
+
+  rows.sort((a: any, b: any) => String(b.submitted_at || b.created_at || '').localeCompare(String(a.submitted_at || a.created_at || '')));
+  res.json(rows);
+});
+
+app.post("/api/leave-requests", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+
+  const employees = await getCollectionDocs('employees');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  const requestedToken = req.body?.employee_id || req.body?.employee_name;
+  let targetEmployee = actorEmployee;
+
+  if (actor.isAdmin && requestedToken) {
+    targetEmployee = employees.find(emp => employeeMatchesToken(emp, requestedToken)) || actorEmployee;
+  }
+  if (!targetEmployee && actor.isAdmin) {
+    targetEmployee = {
+      id: String(req.body?.employee_id || actor.username),
+      employee_id: String(req.body?.employee_id || actor.username),
+      name: String(req.body?.employee_name || actor.username),
+      department: String(req.body?.department || ''),
+      status: 'Active',
+    };
+  }
+  if (!targetEmployee) return res.status(403).json({ error: 'No employee record is linked to this account.' });
+  if (actorEmployee && requestedToken && !employeeMatchesToken(actorEmployee, requestedToken) && !actor.isAdmin) {
+    return res.status(403).json({ error: 'You can only submit leave requests for your own account.' });
+  }
+  if (targetEmployee.status === 'Inactive' || targetEmployee.account_status === 'Inactive') {
+    return res.status(403).json({ error: 'Inactive employees cannot submit leave requests.' });
+  }
+
+  const policy = await readLeavePolicy();
+  const typeCfg = leaveTypeConfig(policy, req.body?.leave_type);
+  if (!typeCfg || typeCfg.active === false) {
+    return res.status(400).json({ error: 'Unknown or inactive leave type.' });
+  }
+
+  const startDate = String(req.body?.start_date || '').trim();
+  const endDate = String(req.body?.end_date || startDate).trim();
+  const startTime = String(req.body?.start_time || '').trim();
+  const endTime = String(req.body?.end_time || '').trim();
+  const reason = String(req.body?.reason || '').trim();
+
+  if (!isValidDateOnly(startDate) || !isValidDateOnly(endDate)) {
+    return res.status(400).json({ error: 'Invalid start or end date. Expected YYYY-MM-DD.' });
+  }
+  if (dateOnlyToUtc(endDate) < dateOnlyToUtc(startDate)) {
+    return res.status(400).json({ error: 'End date cannot be before the start date.' });
+  }
+  if (reason.length < 3) {
+    return res.status(400).json({ error: 'A reason of at least 3 characters is required.' });
+  }
+
+  let days = inclusiveDayCount(startDate, endDate);
+  if (typeCfg.is_hourly) {
+    const startMin = timeToMinutes(startTime);
+    const endMin = timeToMinutes(endTime);
+    if (startMin === null || endMin === null || endMin <= startMin) {
+      return res.status(400).json({ error: 'Hourly permission requires valid start and end times.' });
+    }
+    if (startDate !== endDate) {
+      return res.status(400).json({ error: 'Hourly permission must start and end on the same day.' });
+    }
+    days = Math.round(((endMin - startMin) / 60 / 8) * 100) / 100;
+  }
+
+  const attachmentData = String(req.body?.attachment_data || '');
+  if (attachmentData.length > MAX_ATTACHMENT_CHARS) {
+    return res.status(413).json({ error: 'Attachment is too large. Please upload a file smaller than 700 KB.' });
+  }
+  if (typeCfg.requires_attachment && !attachmentData) {
+    return res.status(400).json({ error: `An attachment is required for ${typeCfg.label_en}.` });
+  }
+
+  if (!db.leave_requests?.length) {
+    await getCollectionDocs('leave_requests');
+  }
+  const existing = db.leave_requests || [];
+  const overlapping = existing.find((r: any) => {
+    if (!['Pending', 'Approved'].includes(String(r.status))) return false;
+    if (!(employeeMatchesToken(targetEmployee, r.employee_id) || employeeMatchesToken(targetEmployee, r.employee_name))) return false;
+    return rangesOverlap(startDate, endDate, String(r.start_date), String(r.end_date));
+  });
+  if (overlapping) {
+    return res.status(409).json({
+      error: `This request overlaps an existing ${overlapping.status.toLowerCase()} request (${overlapping.start_date} to ${overlapping.end_date}).`,
+      code: 'OVERLAPPING_LEAVE',
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+  const seq = Math.floor(1000 + Math.random() * 9000);
+  const requestId = `LV-${nowIso.slice(0, 4)}-${seq}`;
+  const record = {
+    id: `LEAVE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+    request_id: requestId,
+    employee_id: String(targetEmployee.id || targetEmployee.employee_id || actor.username),
+    employee_name: String(targetEmployee.name || targetEmployee.full_name || actor.username),
+    department: String(targetEmployee.department || req.body?.department || ''),
+    leave_type: typeCfg.id,
+    leave_type_label: typeCfg.label_en,
+    is_hourly: Boolean(typeCfg.is_hourly),
+    start_date: startDate,
+    end_date: endDate,
+    start_time: typeCfg.is_hourly ? startTime : undefined,
+    end_time: typeCfg.is_hourly ? endTime : undefined,
+    days,
+    reason,
+    attachment_name: req.body?.attachment_name ? String(req.body.attachment_name).slice(0, 250) : undefined,
+    attachment_data: attachmentData || undefined,
+    status: 'Pending',
+    submitted_at: nowIso,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  if (!db.leave_requests) db.leave_requests = [];
+  db.leave_requests.unshift(record);
+  await saveToFirestore('leave_requests', record.id, record);
+  await logActivity(record.employee_name, `Submitted ${typeCfg.label_en} request (${startDate} to ${endDate})`, 'Leave Management', record.request_id);
+  void notifyLeaveApprovers(record, employees);
+  res.json(record);
+});
+
+app.post("/api/leave-requests/:id/cancel", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  await getCollectionDocs('leave_requests');
+  const request = (db.leave_requests || []).find((r: any) => r.id === req.params.id || r.request_id === req.params.id);
+  if (!request) return res.status(404).json({ error: 'Leave request not found.' });
+
+  const employees = await getCollectionDocs('employees');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  const ownsRequest = actorEmployee &&
+    (employeeMatchesToken(actorEmployee, request.employee_id) || employeeMatchesToken(actorEmployee, request.employee_name));
+  if (!actor.isAdmin && !ownsRequest) {
+    return res.status(403).json({ error: 'You can only cancel your own leave requests.' });
+  }
+  if (request.status === 'Rejected' || request.status === 'Cancelled') {
+    return res.status(409).json({ error: `This request is already ${request.status.toLowerCase()}.` });
+  }
+
+  const nowIso = new Date().toISOString();
+  request.status = 'Cancelled';
+  request.cancelled_at = nowIso;
+  request.cancelled_by = actor.username;
+  request.updated_at = nowIso;
+  await saveToFirestore('leave_requests', request.id, request);
+  await logActivity(actor.username, `Cancelled leave request ${request.request_id || request.id}`, 'Leave Management', request.id);
+  if (request.reviewed_by) {
+    await addNotification(
+      'Leave request cancelled',
+      `${request.employee_name} cancelled their ${request.leave_type_label || request.leave_type} request (${request.start_date} to ${request.end_date}).`,
+      'leave',
+      request.id,
+      {
+        target_scope: 'EMPLOYEE',
+        target_employee_id: String(request.reviewed_by),
+        target_employee_name: String(request.reviewed_by_name || request.reviewed_by),
+        tab: 'leave-management',
+        category: 'leave',
+      }
+    );
+  }
+  res.json(request);
+});
+
+app.post("/api/leave-requests/:id/approve", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  await getCollectionDocs('leave_requests');
+  const request = (db.leave_requests || []).find((r: any) => r.id === req.params.id || r.request_id === req.params.id);
+  if (!request) return res.status(404).json({ error: 'Leave request not found.' });
+  if (request.status !== 'Pending') {
+    return res.status(409).json({ error: `Only pending requests can be approved (current status: ${request.status}).` });
+  }
+
+  const employees = await getCollectionDocs('employees');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  const auth = canReviewLeave(actor, actorEmployee, request);
+  if (!auth.allowed) {
+    return res.status(403).json({ error: 'You are not authorized to approve this leave request.', code: auth.reason });
+  }
+
+  const policy = await readLeavePolicy();
+  const cfg = leaveTypeConfig(policy, request.leave_type);
+  if (cfg?.deducts_balance !== false && !request.is_hourly) {
+    const balances = await getCollectionDocs('leave_balances');
+    const rows = await computeLeaveBalanceRows(leaveRequestYear(request), employees, policy, db.leave_requests || [], balances);
+    const row = rows.find(r =>
+      employeeMatchesToken({ id: request.employee_id, employee_id: request.employee_id, name: request.employee_name }, r.employee_id) ||
+      String(r.employee_id) === String(request.employee_id)
+    );
+    if (row && row.remaining < Number(request.days)) {
+      return res.status(409).json({
+        error: `Insufficient leave balance. Remaining: ${row.remaining} day(s), requested: ${request.days} day(s).`,
+        code: 'INSUFFICIENT_BALANCE',
+        remaining: row.remaining,
+      });
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  request.status = 'Approved';
+  request.reviewed_by = String(actorEmployee?.id || actorEmployee?.username || actor.username);
+  request.reviewed_by_name = String(actorEmployee?.name || actorEmployee?.full_name || actor.username);
+  request.reviewed_at = nowIso;
+  request.manager_comment = req.body?.comment ? String(req.body.comment).slice(0, 1000) : '';
+  request.updated_at = nowIso;
+  await saveToFirestore('leave_requests', request.id, request);
+  await logActivity(actor.username, `Approved leave request ${request.request_id || request.id}`, 'Leave Management', request.id);
+  await notifyLeaveEmployee(
+    request,
+    'Leave request approved',
+    `Your ${request.leave_type_label || request.leave_type} request (${request.start_date} to ${request.end_date}) was approved${request.manager_comment ? `: ${request.manager_comment}` : '.'}`
+  );
+  res.json(request);
+});
+
+app.post("/api/leave-requests/:id/reject", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  await getCollectionDocs('leave_requests');
+  const request = (db.leave_requests || []).find((r: any) => r.id === req.params.id || r.request_id === req.params.id);
+  if (!request) return res.status(404).json({ error: 'Leave request not found.' });
+  if (request.status !== 'Pending') {
+    return res.status(409).json({ error: `Only pending requests can be rejected (current status: ${request.status}).` });
+  }
+
+  const employees = await getCollectionDocs('employees');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  const auth = canReviewLeave(actor, actorEmployee, request);
+  if (!auth.allowed) {
+    return res.status(403).json({ error: 'You are not authorized to reject this leave request.', code: auth.reason });
+  }
+  const comment = String(req.body?.comment || '').trim();
+  if (!comment) {
+    return res.status(400).json({ error: 'A rejection reason is required.' });
+  }
+
+  const nowIso = new Date().toISOString();
+  request.status = 'Rejected';
+  request.reviewed_by = String(actorEmployee?.id || actorEmployee?.username || actor.username);
+  request.reviewed_by_name = String(actorEmployee?.name || actorEmployee?.full_name || actor.username);
+  request.reviewed_at = nowIso;
+  request.manager_comment = comment.slice(0, 1000);
+  request.updated_at = nowIso;
+  await saveToFirestore('leave_requests', request.id, request);
+  await logActivity(actor.username, `Rejected leave request ${request.request_id || request.id}`, 'Leave Management', request.id);
+  await notifyLeaveEmployee(
+    request,
+    'Leave request rejected',
+    `Your ${request.leave_type_label || request.leave_type} request (${request.start_date} to ${request.end_date}) was rejected: ${comment}`
+  );
+  res.json(request);
+});
+
+app.get("/api/leave-balances", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  const year = Number(req.query?.year) || new Date().getFullYear();
+  if (year < 2000 || year > 2100) return res.status(400).json({ error: 'Invalid year.' });
+
+  const employees = await getCollectionDocs('employees');
+  const policy = await readLeavePolicy();
+  const requests = await getCollectionDocs('leave_requests');
+  const balances = await getCollectionDocs('leave_balances');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  const isPrivileged = actor.isAdmin || actorEmployeeIsManager(actor, actorEmployee);
+
+  let scope = isPrivileged ? employees : (actorEmployee ? [actorEmployee] : []);
+  if (!actor.isAdmin && actorEmployee && isPrivileged) {
+    const actorDept = String(actorEmployee.department || '').trim().toLowerCase();
+    scope = scope.filter(emp => String(emp.department || '').trim().toLowerCase() === actorDept);
+  }
+  const rows = await computeLeaveBalanceRows(year, scope, policy, requests, balances);
+  res.json(rows);
+});
+
+app.put("/api/leave-balances/:employeeId", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.isAdmin) {
+    return res.status(403).json({ error: 'Forbidden: Only HR Administrators can adjust employee leave balances.' });
+  }
+  const employees = await getCollectionDocs('employees');
+  const employee = employees.find(emp => employeeMatchesToken(emp, req.params.employeeId));
+  if (!employee) return res.status(404).json({ error: 'Employee not found.' });
+
+  const year = Number(req.body?.year) || new Date().getFullYear();
+  const allowance = Number(req.body?.annual_allowance);
+  const carry = Number(req.body?.carry_forward_days) || 0;
+  const adjustment = Number(req.body?.adjustment_days) || 0;
+  if (!Number.isFinite(allowance) || allowance < 0 || allowance > 365) {
+    return res.status(400).json({ error: 'Annual allowance must be between 0 and 365 days.' });
+  }
+  if (Math.abs(carry) > 365 || Math.abs(adjustment) > 365) {
+    return res.status(400).json({ error: 'Carry-forward and adjustment values must be between -365 and 365.' });
+  }
+
+  await getCollectionDocs('leave_balances');
+  const nowIso = new Date().toISOString();
+  const existing = (db.leave_balances || []).find((b: any) =>
+    String(b.year) === String(year) && employeeMatchesToken(employee, b.employee_id)
+  );
+  const record = {
+    id: existing?.id || `LB-${String(employee.id || employee.employee_id)}-${year}`,
+    employee_id: String(employee.id || employee.employee_id),
+    employee_name: String(employee.name || employee.full_name || ''),
+    department: String(employee.department || ''),
+    year,
+    annual_allowance: allowance,
+    carry_forward_days: carry,
+    adjustment_days: adjustment,
+    updated_by: actor.username || 'Administrator',
+    updated_at: nowIso,
+    created_at: existing?.created_at || nowIso,
+  };
+  if (!db.leave_balances) db.leave_balances = [];
+  const idx = (db.leave_balances as any[]).findIndex((b: any) => b.id === record.id);
+  if (idx >= 0) db.leave_balances[idx] = record;
+  else db.leave_balances.push(record);
+  await saveToFirestore('leave_balances', record.id, record);
+  await logActivity(actor.username || 'Administrator', `Updated leave balance for ${record.employee_name} (${year})`, 'Leave Management', record.employee_id);
+  res.json(record);
+});
+
+// ---------------------------------------------------------------------------
+// Internal Announcements
+// ---------------------------------------------------------------------------
+function announcementIsActive(announcement: any): boolean {
+  if (announcement.status !== 'Published') return false;
+  const publishAt = String(announcement.publish_date || '').slice(0, 10);
+  if (publishAt && publishAt > new Date().toISOString().slice(0, 10)) return false;
+  if (announcement.expires_at) {
+    const expiry = String(announcement.expires_at);
+    if (expiry.length === 10 ? expiry < new Date().toISOString().slice(0, 10) : Date.parse(expiry) < Date.now()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function employeeInAnnouncementAudience(employee: any, announcement: any): boolean {
+  const audience = String(announcement.audience_type || 'ALL');
+  if (audience === 'ALL') return true;
+  const employeeIds = [employee.id, employee.employee_id, employee.username]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (audience === 'EMPLOYEES') {
+    const targets = (announcement.target_employee_ids || []).map((v: any) => String(v || '').trim().toLowerCase());
+    return employeeIds.some(id => targets.includes(id));
+  }
+  if (audience === 'DEPARTMENTS') {
+    const dept = String(employee.department || '').trim().toLowerCase();
+    const targets = (announcement.target_departments || []).map((v: any) => String(v || '').trim().toLowerCase());
+    return Boolean(dept) && targets.includes(dept);
+  }
+  if (audience === 'GROUPS') {
+    const groups = String(employee.group || employee.employee_group || '').trim().toLowerCase();
+    const groupList = Array.isArray(employee.groups)
+      ? employee.groups.map((g: any) => String(g || '').trim().toLowerCase())
+      : [];
+    const targets = (announcement.target_groups || []).map((v: any) => String(v || '').trim().toLowerCase());
+    return (groups && targets.includes(groups)) || groupList.some(g => targets.includes(g));
+  }
+  return false;
+}
+
+function canManageAnnouncements(actor: ActingActor, actorEmployee: any | undefined): boolean {
+  if (actor.isAdmin) return true;
+  return Array.isArray(actorEmployee?.permissions) && actorEmployee.permissions.includes('manage_announcements');
+}
+
+async function notifyAnnouncementAudience(announcement: any, employees: any[]): Promise<void> {
+  const priority = announcement.priority === 'Urgent' ? '[Urgent] ' : announcement.priority === 'Important' ? '[Important] ' : '';
+  const title = `${priority}${announcement.title}`;
+  const message = String(announcement.description || '').slice(0, 180);
+  const extra = {
+    tab: 'announcements',
+    category: 'announcement',
+    announcement_id: announcement.id,
+    priority: announcement.priority,
+  };
+  if (announcement.audience_type === 'ALL') {
+    await addNotification(title, message, 'announcement', announcement.id, { ...extra, target_scope: 'ALL' });
+    return;
+  }
+  const recipients = employees.filter(emp =>
+    emp.status !== 'Inactive' &&
+    emp.account_status !== 'Inactive' &&
+    employeeInAnnouncementAudience(emp, announcement)
+  );
+  for (const emp of recipients) {
+    const token = String(emp.username || emp.employee_id || emp.id || '');
+    if (!token) continue;
+    await addNotification(title, message, 'announcement', announcement.id, {
+      ...extra,
+      target_scope: 'EMPLOYEE',
+      target_employee_id: token,
+      target_employee_name: emp.name || emp.full_name || token,
+    });
+  }
+}
+
+app.get("/api/announcements", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  const employees = await getCollectionDocs('employees');
+  const announcements = await getCollectionDocs('announcements');
+  const reads = await getCollectionDocs('announcement_reads');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  const isStaff = actor.isAdmin;
+
+  const rows = announcements
+    .filter(a => isStaff || (a.status === 'Published' && announcementIsActive(a) &&
+      Boolean(actorEmployee) && employeeInAnnouncementAudience(actorEmployee, a)))
+    .map(a => {
+      const read = reads.find((r: any) =>
+        String(r.announcement_id) === String(a.id) &&
+        (actorEmployee
+          ? (employeeMatchesToken(actorEmployee, r.employee_id) || employeeMatchesToken(actorEmployee, r.employee_name))
+          : String(r.employee_id) === String(actor.username))
+      );
+      const audienceCount = isStaff
+        ? employees.filter(emp => employeeInAnnouncementAudience(emp, a)).length
+        : undefined;
+      const readCount = isStaff
+        ? reads.filter((r: any) => String(r.announcement_id) === String(a.id)).length
+        : undefined;
+      return {
+        ...a,
+        is_read: Boolean(read),
+        read_at: read?.read_at,
+        audience_count: audienceCount,
+        read_count: readCount,
+      };
+    })
+    .sort((a: any, b: any) => String(b.publish_date || b.created_at || '').localeCompare(String(a.publish_date || a.created_at || '')));
+
+  res.json(rows);
+});
+
+app.post("/api/announcements", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  const employees = await getCollectionDocs('employees');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  if (!canManageAnnouncements(actor, actorEmployee)) {
+    return res.status(403).json({ error: 'Forbidden: Only administrators or authorized HR users can publish announcements.' });
+  }
+
+  const title = String(req.body?.title || '').trim();
+  const description = String(req.body?.description || '').trim();
+  if (title.length < 3) return res.status(400).json({ error: 'Announcement title must be at least 3 characters.' });
+  if (description.length < 3) return res.status(400).json({ error: 'Announcement description must be at least 3 characters.' });
+
+  const priority = ['Normal', 'Important', 'Urgent'].includes(req.body?.priority) ? req.body.priority : 'Normal';
+  const audienceType = ['ALL', 'DEPARTMENTS', 'GROUPS', 'EMPLOYEES'].includes(req.body?.audience_type)
+    ? req.body.audience_type
+    : 'ALL';
+  const publishDate = String(req.body?.publish_date || new Date().toISOString()).trim();
+  const expiresAt = req.body?.expires_at ? String(req.body.expires_at).trim() : undefined;
+
+  if (audienceType === 'DEPARTMENTS' && !(Array.isArray(req.body?.target_departments) && req.body.target_departments.length)) {
+    return res.status(400).json({ error: 'Select at least one department.' });
+  }
+  if (audienceType === 'EMPLOYEES' && !(Array.isArray(req.body?.target_employee_ids) && req.body.target_employee_ids.length)) {
+    return res.status(400).json({ error: 'Select at least one employee.' });
+  }
+  if (audienceType === 'GROUPS' && !(Array.isArray(req.body?.target_groups) && req.body.target_groups.length)) {
+    return res.status(400).json({ error: 'Select at least one group.' });
+  }
+
+  const attachmentData = String(req.body?.attachment_data || '');
+  if (attachmentData.length > MAX_ATTACHMENT_CHARS) {
+    return res.status(413).json({ error: 'Attachment is too large. Please upload a file smaller than 700 KB.' });
+  }
+
+  const nowIso = new Date().toISOString();
+  const announcement = {
+    id: `ANN-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+    title,
+    description,
+    publish_date: publishDate,
+    expires_at: expiresAt,
+    priority,
+    audience_type: audienceType,
+    target_departments: audienceType === 'DEPARTMENTS' ? req.body.target_departments.map((d: any) => String(d)) : [],
+    target_groups: audienceType === 'GROUPS' ? req.body.target_groups.map((g: any) => String(g)) : [],
+    target_employee_ids: audienceType === 'EMPLOYEES' ? req.body.target_employee_ids.map((e: any) => String(e)) : [],
+    attachment_name: req.body?.attachment_name ? String(req.body.attachment_name).slice(0, 250) : undefined,
+    attachment_data: attachmentData || undefined,
+    status: 'Published',
+    created_by: String(actorEmployee?.id || actor.username),
+    created_by_name: String(actorEmployee?.name || actorEmployee?.full_name || actor.username),
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  await getCollectionDocs('announcements');
+  if (!db.announcements) db.announcements = [];
+  db.announcements.unshift(announcement);
+  await saveToFirestore('announcements', announcement.id, announcement);
+  await logActivity(actor.username, `Published announcement "${title}"`, 'Announcements', announcement.id);
+  void notifyAnnouncementAudience(announcement, employees);
+  res.json(announcement);
+});
+
+app.put("/api/announcements/:id", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  const employees = await getCollectionDocs('employees');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  if (!canManageAnnouncements(actor, actorEmployee)) {
+    return res.status(403).json({ error: 'Forbidden: Only administrators or authorized HR users can update announcements.' });
+  }
+  await getCollectionDocs('announcements');
+  const announcement = (db.announcements || []).find((a: any) => a.id === req.params.id);
+  if (!announcement) return res.status(404).json({ error: 'Announcement not found.' });
+
+  const nowIso = new Date().toISOString();
+  if (req.body?.status === 'Archived') {
+    announcement.status = 'Archived';
+  }
+  if (req.body?.status === 'Published') {
+    announcement.status = 'Published';
+  }
+  if (req.body?.title !== undefined) {
+    const title = String(req.body.title).trim();
+    if (title.length < 3) return res.status(400).json({ error: 'Announcement title must be at least 3 characters.' });
+    announcement.title = title;
+  }
+  if (req.body?.description !== undefined) {
+    const description = String(req.body.description).trim();
+    if (description.length < 3) return res.status(400).json({ error: 'Announcement description must be at least 3 characters.' });
+    announcement.description = description;
+  }
+  if (req.body?.priority && ['Normal', 'Important', 'Urgent'].includes(req.body.priority)) {
+    announcement.priority = req.body.priority;
+  }
+  if (req.body?.expires_at !== undefined) {
+    announcement.expires_at = req.body.expires_at ? String(req.body.expires_at) : undefined;
+  }
+  announcement.updated_at = nowIso;
+  await saveToFirestore('announcements', announcement.id, announcement);
+  await logActivity(actor.username, `Updated announcement "${announcement.title}"`, 'Announcements', announcement.id);
+  res.json(announcement);
+});
+
+app.post("/api/announcements/:id/read", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  const employees = await getCollectionDocs('employees');
+  const actorEmployee = findActorEmployeeRecord(employees, actor);
+  await getCollectionDocs('announcements');
+  const announcement = (db.announcements || []).find((a: any) => a.id === req.params.id);
+  if (!announcement) return res.status(404).json({ error: 'Announcement not found.' });
+  if (!actor.isAdmin) {
+    if (!announcementIsActive(announcement)) {
+      return res.status(403).json({ error: 'This announcement is not available.' });
+    }
+    if (actorEmployee && !employeeInAnnouncementAudience(actorEmployee, announcement)) {
+      return res.status(403).json({ error: 'This announcement is not addressed to you.' });
+    }
+  }
+
+  await getCollectionDocs('announcement_reads');
+  if (!db.announcement_reads) db.announcement_reads = [];
+  const employeeId = String(actorEmployee?.id || actorEmployee?.employee_id || actor.username);
+  const employeeName = String(actorEmployee?.name || actorEmployee?.full_name || actor.username);
+  const existing = (db.announcement_reads as any[]).find((r: any) =>
+    String(r.announcement_id) === String(announcement.id) &&
+    (employeeMatchesToken(actorEmployee || {}, r.employee_id) || String(r.employee_id) === employeeId || String(r.employee_id) === actor.username)
+  );
+  if (existing) {
+    return res.json({ success: true, read: existing, already_read: true });
+  }
+
+  const read = {
+    id: `ANNR-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+    announcement_id: String(announcement.id),
+    employee_id: employeeId,
+    employee_name: employeeName,
+    read_at: new Date().toISOString(),
+  };
+  (db.announcement_reads as any[]).unshift(read);
+  await saveToFirestore('announcement_reads', read.id, read);
+  res.json({ success: true, read });
+});
+
+app.get("/api/announcements/:id/read-status", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!actor.isAdmin) {
+    return res.status(403).json({ error: 'Forbidden: Only administrators can view announcement read reports.' });
+  }
+  const employees = await getCollectionDocs('employees');
+  await getCollectionDocs('announcements');
+  const announcement = (db.announcements || []).find((a: any) => a.id === req.params.id);
+  if (!announcement) return res.status(404).json({ error: 'Announcement not found.' });
+  const reads = await getCollectionDocs('announcement_reads');
+  const audience = employees.filter(emp => employeeInAnnouncementAudience(emp, announcement));
+  const announcementReads = reads.filter((r: any) => String(r.announcement_id) === String(announcement.id));
+  const readers = audience.map(emp => {
+    const read = announcementReads.find((r: any) =>
+      employeeMatchesToken(emp, r.employee_id) || employeeMatchesToken(emp, r.employee_name)
+    );
+    return {
+      employee_id: String(emp.id || emp.employee_id || ''),
+      employee_name: String(emp.name || emp.full_name || ''),
+      department: String(emp.department || ''),
+      read_at: read?.read_at || null,
+      has_read: Boolean(read),
+    };
+  });
+  const nonReaders = readers.filter(r => !r.has_read);
+  res.json({
+    announcement_id: announcement.id,
+    total_audience: audience.length,
+    read_count: readers.filter(r => r.has_read).length,
+    unread_count: nonReaders.length,
+    readers,
+    non_readers: nonReaders,
+  });
+});
 
 // Notifications
 app.get("/api/notifications", async (req, res) => {

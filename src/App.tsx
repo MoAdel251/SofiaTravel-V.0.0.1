@@ -14,6 +14,9 @@ import { FinanceView } from './components/FinanceView';
 import { InvoicesView } from './components/InvoicesView';
 import { EmployeesView } from './components/EmployeesView';
 import { AttendanceDepartureView } from './components/AttendanceDepartureView';
+import { LeaveManagementView } from './components/LeaveManagementView';
+import { AnnouncementsView } from './components/AnnouncementsView';
+import { AttendanceSecurityView } from './components/AttendanceSecurityView';
 import { CalendarView } from './components/CalendarView';
 import { TasksView } from './components/TasksView';
 import { DocumentsView } from './components/DocumentsView';
@@ -4097,6 +4100,38 @@ export default function App() {
               onDeleteWorkSchedule={handleDeleteWorkSchedule}
               onSaveAttendanceSettings={handleSaveAttendanceSettings}
               onSyncFromDatabase={fetchAllData}
+            />
+          )}
+          {currentTab === 'leave-management' && (
+            <LeaveManagementView
+              employees={employees}
+              currentEmployee={currentEmployee}
+              currentUsername={currentUsername}
+              userRole={effectiveUserRole}
+              isAdmin={isCurrentAdmin}
+              isITAccount={isITAccount}
+              onShowToast={showToast}
+            />
+          )}
+          {currentTab === 'announcements' && (
+            <AnnouncementsView
+              employees={employees}
+              currentEmployee={currentEmployee}
+              currentUsername={currentUsername}
+              userRole={effectiveUserRole}
+              isAdmin={isCurrentAdmin}
+              isITAccount={isITAccount}
+              onShowToast={showToast}
+            />
+          )}
+          {currentTab === 'attendance-security' && (
+            <AttendanceSecurityView
+              employees={employees}
+              currentUsername={currentUsername}
+              userRole={effectiveUserRole}
+              isAdmin={isCurrentAdmin}
+              isITAccount={isITAccount}
+              onShowToast={showToast}
             />
           )}
           {currentTab === 'calendar' && (

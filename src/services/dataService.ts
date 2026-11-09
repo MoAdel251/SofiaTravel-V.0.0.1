@@ -50,7 +50,12 @@ export const OPERATIONAL_COLLECTIONS = [
   'finance_audit_logs',
   'attendance',
   'employee_attendance',
-  'attendance_verification_logs'
+  'attendance_verification_logs',
+  'leave_requests',
+  'leave_balances',
+  'leave_policies',
+  'announcements',
+  'announcement_reads'
 ] as const;
 
 export const dataService = {

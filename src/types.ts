@@ -772,6 +772,9 @@ export interface NotificationItem {
     | 'action'
     | 'permission'
     | 'attendance_reminder'
+    | 'attendance'
+    | 'leave'
+    | 'announcement'
     | 'custom'
     | 'system';
   date: string;
@@ -784,6 +787,9 @@ export interface NotificationItem {
   sender_name?: string;
   sender_role?: string;
   category?: string;
+  priority?: 'Normal' | 'Important' | 'Urgent' | string;
+  tab?: string;
+  announcement_id?: string;
   designated_check_in?: string;
   designated_check_out?: string;
   created_at?: string;
@@ -866,6 +872,8 @@ export interface AttendanceRecord {
   geofence_verification?: AttendanceGeofenceVerification | null;
   location_verified_at?: string;
   location_verification_result?: string;
+  device_info?: AttendanceDeviceInfo | null;
+  attendance_location?: AttendanceLocationInfo | null;
   created_at?: string;
   updated_at?: string;
   createdAt?: string;
@@ -924,6 +932,131 @@ export interface CompanyGeofencing {
   updated_at?: string;
   created_at?: string;
 }
+
+export type AttendanceDeviceType = 'Mobile' | 'Tablet' | 'Desktop' | 'Unknown';
+
+export interface AttendanceDeviceInfo {
+  device_type: AttendanceDeviceType;
+  os: string;
+  browser: string;
+  browser_version?: string;
+  user_agent?: string;
+  device_fingerprint?: string;
+  platform?: string;
+  language?: string;
+}
+
+export interface AttendanceLocationInfo {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  recorded_at: string;
+}
+
+export type LeaveRequestStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+
+export interface LeaveTypeConfig {
+  id: string;
+  label_en: string;
+  label_ar: string;
+  is_hourly?: boolean;
+  deducts_balance?: boolean;
+  requires_attachment?: boolean;
+  default_days?: number;
+  active?: boolean;
+}
+
+export interface LeavePolicy {
+  id: string;
+  default_annual_allowance: number;
+  leave_types: LeaveTypeConfig[];
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export interface LeaveRequest {
+  id: string;
+  request_id?: string;
+  employee_id: string;
+  employee_name: string;
+  department?: string;
+  leave_type: string;
+  leave_type_label?: string;
+  is_hourly?: boolean;
+  start_date: string;
+  end_date: string;
+  start_time?: string;
+  end_time?: string;
+  days: number;
+  reason: string;
+  attachment_name?: string;
+  attachment_data?: string;
+  status: LeaveRequestStatus;
+  submitted_at?: string;
+  reviewed_by?: string;
+  reviewed_by_name?: string;
+  reviewed_at?: string;
+  manager_comment?: string;
+  cancelled_at?: string;
+  cancelled_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface LeaveBalance {
+  id: string;
+  employee_id: string;
+  employee_record_id?: string;
+  employee_name: string;
+  department?: string;
+  year: number;
+  annual_allowance: number;
+  carry_forward_days?: number;
+  adjustment_days?: number;
+  total_allowance?: number;
+  used?: number;
+  pending?: number;
+  remaining?: number;
+  has_override?: boolean;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export type AnnouncementAudienceType = 'ALL' | 'DEPARTMENTS' | 'GROUPS' | 'EMPLOYEES';
+export type AnnouncementPriority = 'Normal' | 'Important' | 'Urgent';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  description: string;
+  publish_date: string;
+  expires_at?: string;
+  priority: AnnouncementPriority;
+  audience_type: AnnouncementAudienceType;
+  target_departments?: string[];
+  target_groups?: string[];
+  target_employee_ids?: string[];
+  attachment_name?: string;
+  attachment_data?: string;
+  status: 'Published' | 'Archived';
+  created_by: string;
+  created_by_name?: string;
+  created_at?: string;
+  updated_at?: string;
+  is_read?: boolean;
+  read_at?: string;
+  audience_count?: number;
+  read_count?: number;
+}
+
+export interface AnnouncementRead {
+  id: string;
+  announcement_id: string;
+  employee_id: string;
+  employee_name: string;
+  read_at: string;
+}
+
 
 export interface AttendanceLoginLog {
   id: string;

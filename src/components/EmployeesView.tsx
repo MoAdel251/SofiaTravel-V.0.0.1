@@ -142,6 +142,15 @@ export const PERMISSION_GROUPS = [
     ] 
   },
   { 
+    group: 'HR, Leave & Announcements', 
+    permissions: [
+      { id: 'approve_leave', label: 'Approve Leave Requests' },
+      { id: 'manage_leave_balances', label: 'Manage Leave Policies & Balances' },
+      { id: 'manage_announcements', label: 'Publish Internal Announcements' },
+      { id: 'view_attendance_security', label: 'Review Attendance Security Logs' }
+    ] 
+  },
+  { 
     group: 'System Settings & Bank Accounts', 
     permissions: [
       { id: 'view_settings', label: 'View System Settings' },
