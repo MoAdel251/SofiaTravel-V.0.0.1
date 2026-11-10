@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Clock,
   Calendar,
@@ -16,6 +16,8 @@ import {
   FileText,
   AlertCircle,
   RotateCcw,
+  QrCode,
+  KeyRound,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -33,6 +35,13 @@ import {
   normalizeTimeHHMM,
 } from '../utils/attendance';
 import { useLanguage } from '../context/LanguageContext';
+import {
+  getAttendanceQrStatus,
+  getStoredAttendanceQrToken,
+  normalizeAttendanceQrToken,
+  storeAttendanceQrToken,
+  type AttendanceQrStatus,
+} from '../services/attendanceQr';
 
 interface AttendanceDepartureViewProps {
   employees: Employee[];
@@ -104,6 +113,41 @@ export function AttendanceDepartureView({
   const [activeSection, setActiveSection] = useState<ActiveSection>('records');
   const [isSyncing, setIsSyncing] = useState(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+
+  // Monthly office QR: scanned token is stored locally and sent with clock-in/out.
+  const [qrStatus, setQrStatus] = useState<AttendanceQrStatus | null>(null);
+  const [qrToken, setQrToken] = useState<string>(() => getStoredAttendanceQrToken());
+  const [showQrEntry, setShowQrEntry] = useState(false);
+  const [qrEntry, setQrEntry] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    getAttendanceQrStatus().then(status => {
+      if (alive) setQrStatus(status);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const saveQrEntry = () => {
+    const normalized = normalizeAttendanceQrToken(qrEntry);
+    if (!normalized) {
+      setBannerMessage(isAr ? 'يرجى إدخال رمز الحضور بشكل صحيح.' : 'Please enter a valid attendance code.');
+      return;
+    }
+    storeAttendanceQrToken(normalized);
+    setQrToken(normalized);
+    setQrEntry('');
+    setShowQrEntry(false);
+    setBannerMessage(isAr ? 'تم حفظ رمز حضور المكتب لهذا الشهر.' : 'Office attendance code saved for this month.');
+  };
+
+  const clearQrEntry = () => {
+    storeAttendanceQrToken('');
+    setQrToken('');
+    setBannerMessage(null);
+  };
 
   // IT Manual Clock-In / Clock-Out Modal State
   const [showManualModal, setShowManualModal] = useState(false);
@@ -774,6 +818,79 @@ export function AttendanceDepartureView({
               ))}
           </div>
         </div>
+
+        {/* Monthly Office QR status (clock-in / clock-out) */}
+        <div className="relative z-10 mt-4 pt-4 border-t border-slate-700/60 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <QrCode className={`w-5 h-5 shrink-0 mt-0.5 ${qrToken ? 'text-emerald-400' : qrStatus?.is_enabled ? 'text-amber-400' : 'text-slate-400'}`} />
+              <div>
+                <p className="text-xs font-bold text-slate-100">
+                  {isAr ? 'رمز حضور المكتب الشهري (QR)' : 'Monthly Office Attendance QR'}
+                </p>
+                <p className="text-[11px] text-slate-300 leading-snug">
+                  {qrToken
+                    ? (isAr
+                        ? 'تم حفظ رمز QR لهذا الشهر. سيتم إرفاقه تلقائياً عند تسجيل الحضور والانصراف.'
+                        : 'Office QR code saved for this month. It is attached automatically to clock-in/out.')
+                    : qrStatus?.is_enabled
+                      ? (isAr
+                          ? 'مطلوب مسح رمز QR المعروض في المكتب قبل تسجيل الحضور أو الانصراف.'
+                          : 'Scanning the office QR is required before clocking in or out.')
+                      : (isAr
+                          ? 'مسح الرمز اختياري حالياً. افتح كاميرا الهاتف وامسح رمز المكتب لتخزينه.'
+                          : 'Scanning is optional right now. Scan the office QR with your phone camera to store it.')}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {qrToken && (
+                <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-mono font-bold">
+                  {qrToken.slice(0, 4)}•••{qrToken.slice(-4)}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowQrEntry(v => !v)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>{isAr ? 'إدخال رمز يدوياً' : 'Enter code'}</span>
+              </button>
+              {qrToken && (
+                <button
+                  type="button"
+                  onClick={clearQrEntry}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/40 border border-slate-600 text-rose-300 text-[11px] font-bold cursor-pointer"
+                >
+                  {isAr ? 'حذف' : 'Clear'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {showQrEntry && (
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={qrEntry}
+                onChange={e => setQrEntry(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') saveQrEntry();
+                }}
+                placeholder={isAr ? 'أدخل رمز الحضور المكوّن من 16 حرفاً' : 'Enter the 16-character attendance code'}
+                className="flex-1 bg-slate-950/70 border border-slate-600 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
+              />
+              <button
+                type="button"
+                onClick={saveQrEntry}
+                className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold cursor-pointer"
+              >
+                {isAr ? 'حفظ الرمز' : 'Save code'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Feedback Banner */}
@@ -1021,7 +1138,7 @@ export function AttendanceDepartureView({
           </span>
         </button>
 
-        {workSchedules.length > 0 && (
+        {workSchedules.length > 0 && userRole !== 'Office Boy' && (
           <button
             type="button"
             onClick={() => setActiveSection('schedules')}
