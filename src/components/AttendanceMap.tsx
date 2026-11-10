@@ -7,6 +7,17 @@ export interface AttendanceMapPoint {
   label: string;
   detail?: string;
   tone?: 'allowed' | 'blocked' | 'neutral';
+  employeeId?: string;
+  action?: string;
+  time?: string;
+  result?: string;
+  distanceMeters?: number | null;
+  accuracyMeters?: number | null;
+  deviceLabel?: string;
+  fingerprint?: string;
+  qrVerified?: boolean | null;
+  qrRequired?: boolean;
+  qrMonth?: string;
 }
 
 interface AttendanceMapProps {
@@ -212,11 +223,12 @@ export function AttendanceMap({ points, center, radiusMeters, onSelect }: Attend
               onClick={() => onSelect?.(point.id)}
               className="absolute z-10 -translate-x-1/2 -translate-y-1/2 group"
               style={{ left, top }}
-              title={`${point.label}${point.detail ? ` — ${point.detail}` : ''}`}
+              title={`${point.label}${point.detail ? ` — ${point.detail}` : ''}${point.result ? ` — ${point.result}` : ''}`}
             >
               <span className={`block w-4 h-4 rounded-full border-[3px] shadow-lg ${TONE_STYLES[point.tone || 'neutral']}`} />
               <span className="hidden group-hover:block absolute start-1/2 -translate-x-1/2 top-5 whitespace-nowrap rounded-lg bg-slate-900 text-white text-[10px] font-bold px-2 py-1 shadow-lg">
                 {point.label}
+                {point.result ? <span className="block text-[9px] font-mono text-cyan-300">{point.result}</span> : null}
               </span>
             </button>
           );
