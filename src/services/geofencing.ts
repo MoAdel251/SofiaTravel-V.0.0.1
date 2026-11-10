@@ -18,6 +18,8 @@ export type GeofenceReasonCode =
   | 'EMPLOYEE_INACTIVE'
   | 'ALREADY_CLOCKED_IN'
   | 'NO_OPEN_SHIFT'
+  | 'QR_REQUIRED'
+  | 'QR_INVALID'
   | 'SERVER_UNAVAILABLE'
   | 'SERVER_ERROR';
 
@@ -42,6 +44,7 @@ export interface SubmitSelfAttendanceParams {
   actingUser: string;
   actingRole?: string;
   position?: BrowserPosition | null;
+  qrToken?: string;
 }
 
 export type SelfAttendanceResult =
@@ -116,6 +119,14 @@ const MESSAGES: Record<GeofenceReasonCode, { en: string; ar: string }> = {
   NO_OPEN_SHIFT: {
     en: 'No active clock-in session found.',
     ar: 'لا يوجد تسجيل حضور مفتوح حالياً.',
+  },
+  QR_REQUIRED: {
+    en: 'Scan the office attendance QR code before clocking in or out.',
+    ar: 'يرجى مسح رمز QR الخاص بالحضور في المكتب قبل تسجيل الحضور أو الانصراف.',
+  },
+  QR_INVALID: {
+    en: 'This attendance QR code is not valid for the current month. Please scan the code shown at the office.',
+    ar: 'رمز QR هذا غير صالح للشهر الحالي. يرجى مسح الرمز المعروض في المكتب.',
   },
   SERVER_UNAVAILABLE: {
     en: 'Unable to verify your location with the server. Please try again.',
@@ -245,16 +256,22 @@ export async function submitSelfAttendance({
   actingUser,
   actingRole,
   position,
+  qrToken,
 }: SubmitSelfAttendanceParams): Promise<SelfAttendanceResult> {
   const body: Record<string, any> = {
     employee_id: employeeId,
     employee_name: employeeName,
     action,
+    platform: typeof navigator !== 'undefined' ? navigator.platform || '' : '',
+    language: typeof navigator !== 'undefined' ? navigator.language || '' : '',
   };
   if (position) {
     body.latitude = position.latitude;
     body.longitude = position.longitude;
     body.accuracy = position.accuracy;
+  }
+  if (qrToken) {
+    body.qr_token = qrToken;
   }
 
   try {
