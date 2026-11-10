@@ -9,6 +9,9 @@
 export const GEOFENCE_COLLECTION = 'company_geofencing';
 export const GEOFENCE_CONFIG_DOC_ID = 'main';
 export const GEOFENCE_VERIFICATION_LOG_COLLECTION = 'attendance_verification_logs';
+export const ATTENDANCE_QR_TOKEN_COLLECTION = 'attendance_qr_tokens';
+export const ATTENDANCE_QR_DEFAULT_VALIDITY_MINUTES = 1440;
+export const ATTENDANCE_QR_MAX_VALIDITY_MINUTES = 10080;
 export const DEFAULT_ALLOWED_RADIUS_METERS = 50;
 export const MIN_ALLOWED_RADIUS_METERS = 5;
 export const MAX_ALLOWED_RADIUS_METERS = 10000;
@@ -42,7 +45,10 @@ export type GeofenceReasonCode =
   | 'IDENTITY_MISMATCH'
   | 'EMPLOYEE_INACTIVE'
   | 'ALREADY_CLOCKED_IN'
-  | 'NO_OPEN_SHIFT';
+  | 'NO_OPEN_SHIFT'
+  | 'INVALID_QR_CODE'
+  | 'QR_TOKEN_EXPIRED'
+  | 'QR_TOKEN_REVOKED';
 
 export interface GeofenceDecision {
   allowed: boolean;
@@ -314,6 +320,18 @@ export const GEOFENCE_MESSAGES: Record<
   NO_OPEN_SHIFT: {
     en: 'No active clock-in session found.',
     ar: 'لا يوجد تسجيل حضور مفتوح حالياً.',
+  },
+  INVALID_QR_CODE: {
+    en: 'This attendance QR code is invalid. Please scan the official company QR code.',
+    ar: 'رمز QR للحضور غير صالح. يرجى مسح رمز الشركة الرسمي.',
+  },
+  QR_TOKEN_EXPIRED: {
+    en: 'This attendance QR code has expired. Please ask IT to generate a new one.',
+    ar: 'انتهت صلاحية رمز QR للحضور. يرجى طلب رمز جديد من تقنية المعلومات.',
+  },
+  QR_TOKEN_REVOKED: {
+    en: 'This attendance QR code has been revoked by IT. Please scan the current code.',
+    ar: 'تم إلغاء رمز QR للحضور بواسطة تقنية المعلومات. يرجى مسح الرمز الحالي.',
   },
   ATTENDANCE_REGISTERED: {
     en: 'Attendance registered successfully.',

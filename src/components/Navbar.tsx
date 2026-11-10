@@ -58,6 +58,8 @@ interface NavbarProps {
   todayAttendance?: AttendanceRecord | null;
   onClockIn?: () => void;
   onClockOut?: () => void;
+  /** Attendance-only employee accounts see a single navigation entry. */
+  restrictToAttendance?: boolean;
 }
 
 export function Navbar({
@@ -87,6 +89,7 @@ export function Navbar({
   todayAttendance,
   onClockIn,
   onClockOut,
+  restrictToAttendance = false,
 }: NavbarProps) {
   const { language, setLanguage, toggleLanguage, t } = useLanguage();
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
@@ -142,7 +145,9 @@ export function Navbar({
   const todayInDisplay = todayAttendance?.clock_in || todayAttendance?.check_in_time || '';
 
   const filteredItems = menuItems.filter(item =>
-    isTabAllowedForUser(item.id, userRole, userPermissions, isAdmin, isITAccount)
+    restrictToAttendance
+      ? item.id === 'attendance'
+      : isTabAllowedForUser(item.id, userRole, userPermissions, isAdmin, isITAccount)
   );
 
   const activeItem = filteredItems.find(i => i.id === currentTab) || filteredItems[0];

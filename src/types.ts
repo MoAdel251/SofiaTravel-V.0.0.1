@@ -690,6 +690,8 @@ export interface Employee {
   deactivated_by?: string;
   username?: string;
   password?: string;
+  /** When true the account can only open the Attendance module. */
+  attendance_only?: boolean;
   reservations_count?: number;
   total_sales?: number;
   total_profit?: number;
@@ -874,6 +876,10 @@ export interface AttendanceRecord {
   location_verification_result?: string;
   device_info?: AttendanceDeviceInfo | null;
   attendance_location?: AttendanceLocationInfo | null;
+  entry_channel?: 'MANUAL' | 'QR' | string;
+  qr_verified?: boolean;
+  qr_token_id?: string | null;
+  qr_scanned_at?: string | null;
   created_at?: string;
   updated_at?: string;
   createdAt?: string;

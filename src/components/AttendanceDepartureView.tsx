@@ -16,6 +16,7 @@ import {
   FileText,
   AlertCircle,
   RotateCcw,
+  QrCode,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -48,6 +49,8 @@ interface AttendanceDepartureViewProps {
   todaySelfAttendance?: AttendanceRecord | null;
   onSelfClockIn?: () => void;
   onSelfClockOut?: () => void;
+  onOpenQrScanner?: () => void;
+  qrTokenReady?: boolean;
   onSaveManualAttendance?: (data: {
     id?: string;
     employee_id: string;
@@ -82,6 +85,8 @@ export function AttendanceDepartureView({
   todaySelfAttendance,
   onSelfClockIn,
   onSelfClockOut,
+  onOpenQrScanner,
+  qrTokenReady = false,
   onSaveManualAttendance,
   onResetAttendanceTime,
   onDeleteAttendance,
@@ -743,7 +748,20 @@ export function AttendanceDepartureView({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+            {onOpenQrScanner && (
+              <button
+                type="button"
+                onClick={onOpenQrScanner}
+                className="px-5 py-3.5 bg-slate-800/90 hover:bg-slate-700 text-cyan-200 rounded-2xl text-xs sm:text-sm font-black shadow-lg flex items-center justify-center gap-2.5 cursor-pointer transition-all border border-cyan-400/30"
+              >
+                <QrCode className="w-5 h-5" />
+                <span>
+                  {isAr ? 'مسح رمز الحضور (QR)' : 'Scan Attendance QR'}
+                  {qrTokenReady && <span className="ms-1 text-[10px] text-emerald-300">●</span>}
+                </span>
+              </button>
+            )}
             {(onSelfClockIn || onSelfClockOut) &&
               (selfShiftOpen ? (
                 <button

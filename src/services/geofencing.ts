@@ -18,6 +18,9 @@ export type GeofenceReasonCode =
   | 'EMPLOYEE_INACTIVE'
   | 'ALREADY_CLOCKED_IN'
   | 'NO_OPEN_SHIFT'
+  | 'INVALID_QR_CODE'
+  | 'QR_TOKEN_EXPIRED'
+  | 'QR_TOKEN_REVOKED'
   | 'SERVER_UNAVAILABLE'
   | 'SERVER_ERROR';
 
@@ -42,6 +45,8 @@ export interface SubmitSelfAttendanceParams {
   actingUser: string;
   actingRole?: string;
   position?: BrowserPosition | null;
+  /** Optional attendance QR token scanned at the office entrance. */
+  qrCode?: string | null;
 }
 
 export type SelfAttendanceResult =
@@ -116,6 +121,18 @@ const MESSAGES: Record<GeofenceReasonCode, { en: string; ar: string }> = {
   NO_OPEN_SHIFT: {
     en: 'No active clock-in session found.',
     ar: 'لا يوجد تسجيل حضور مفتوح حالياً.',
+  },
+  INVALID_QR_CODE: {
+    en: 'This attendance QR code is invalid. Please scan the official company QR code.',
+    ar: 'رمز QR للحضور غير صالح. يرجى مسح رمز الشركة الرسمي.',
+  },
+  QR_TOKEN_EXPIRED: {
+    en: 'This attendance QR code has expired. Please ask IT to generate a new one.',
+    ar: 'انتهت صلاحية رمز QR للحضور. يرجى طلب رمز جديد من تقنية المعلومات.',
+  },
+  QR_TOKEN_REVOKED: {
+    en: 'This attendance QR code has been revoked by IT. Please scan the current code.',
+    ar: 'تم إلغاء رمز QR للحضور بواسطة تقنية المعلومات. يرجى مسح الرمز الحالي.',
   },
   SERVER_UNAVAILABLE: {
     en: 'Unable to verify your location with the server. Please try again.',
@@ -245,6 +262,7 @@ export async function submitSelfAttendance({
   actingUser,
   actingRole,
   position,
+  qrCode: qrCodeInput,
 }: SubmitSelfAttendanceParams): Promise<SelfAttendanceResult> {
   const body: Record<string, any> = {
     employee_id: employeeId,
@@ -256,6 +274,17 @@ export async function submitSelfAttendance({
     body.longitude = position.longitude;
     body.accuracy = position.accuracy;
   }
+  const qrCode = String(qrCodeInput || '').trim();
+  if (qrCode) {
+    body.qr_code = qrCode;
+  }
+  try {
+    const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+    if (nav) {
+      body.platform = String(nav.userAgentData?.platform || nav.platform || '');
+      body.language = String(nav.language || '');
+    }
+  } catch {}
 
   try {
     const controller = new AbortController();

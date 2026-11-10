@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import webpush from 'web-push';
+import QRCode from 'qrcode';
 import type { GoogleGenAI } from '@google/genai';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, getDocFromServer, setLogLevel } from "firebase/firestore";
@@ -18,6 +19,9 @@ import {
   GEOFENCE_COLLECTION,
   GEOFENCE_CONFIG_DOC_ID,
   GEOFENCE_VERIFICATION_LOG_COLLECTION,
+  ATTENDANCE_QR_TOKEN_COLLECTION,
+  ATTENDANCE_QR_DEFAULT_VALIDITY_MINUTES,
+  ATTENDANCE_QR_MAX_VALIDITY_MINUTES,
   ATTENDANCE_TIMEZONE,
   clampRadiusMeters,
   evaluateGeofence,
@@ -210,7 +214,8 @@ let db = {
   leave_balances: [],
   leave_policies: [],
   announcements: [],
-  announcement_reads: []
+  announcement_reads: [],
+  attendance_qr_tokens: []
 };
 
 async function getCollectionDocs(collectionName: string): Promise<any[]> {
@@ -270,7 +275,7 @@ async function loadFromFirestore() {
     "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "attendance_settings", "employee_attendance",
     "company_geofencing", "attendance_verification_logs",
     "push_subscriptions", "leave_requests", "leave_balances", "leave_policies",
-    "announcements", "announcement_reads"
+    "announcements", "announcement_reads", "attendance_qr_tokens"
   ];
   try {
     console.log("Loading persistent data from Firestore...");
@@ -306,7 +311,8 @@ async function wipeAllFirestoreTestData(includeNonAdminEmployees = true, actingA
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs", "customer_inquiries", "attendance", "employee_attendance", "attendance_verification_logs",
-    "leave_requests", "leave_balances", "announcements", "announcement_reads"
+    "leave_requests", "leave_balances", "announcements", "announcement_reads",
+    "attendance_qr_tokens"
   ];
   console.log(`Admin action by ${actingAdmin}: Wiping all operational data from Firestore...`);
   for (const col of collections) {
@@ -1149,10 +1155,15 @@ async function recordGeofenceVerificationLog(params: {
   accuracy: number;
   serverIso: string;
   outcome: 'allowed' | 'blocked';
+  overrideResult?: string;
+  entryChannel?: 'MANUAL' | 'QR';
+  qrTokenId?: string;
+  qrVerified?: boolean;
 }): Promise<void> {
   const {
     req, actor, employeeId, employeeName, action, config, decision,
     latitude, longitude, accuracy, serverIso, outcome,
+    overrideResult, entryChannel, qrTokenId, qrVerified,
   } = params;
 
   const deviceInfo = buildDeviceInfo({
@@ -1167,7 +1178,7 @@ async function recordGeofenceVerificationLog(params: {
     employee_name: employeeName,
     action,
     outcome,
-    result: decision.reasonCode,
+    result: overrideResult || decision.reasonCode,
     distance_meters: decision.distanceMeters !== null
       ? Math.round(decision.distanceMeters * 100) / 100
       : null,
@@ -1179,6 +1190,9 @@ async function recordGeofenceVerificationLog(params: {
     user_agent: String(req.headers['user-agent'] || '').substring(0, 300),
     ip_address: String(req.ip || ''),
     device_info: deviceInfo,
+    entry_channel: entryChannel || 'MANUAL',
+    qr_verified: Boolean(qrVerified),
+    qr_token_id: qrTokenId || null,
   };
 
   // Coordinates are sensitive: persist them only when the company policy allows it.
@@ -1218,6 +1232,9 @@ async function notifyAdminGeofenceNotConfigured(actor: ActingActor): Promise<voi
     console.warn('Could not notify IT administrator about missing geofencing config:', err);
   }
 }
+
+/** Slowest practical background Firestore refresh: 5 minutes (12 syncs/hour). */
+const BACKGROUND_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 const repeatedGeofenceAlerts = new Map<string, number>();
 const REPEATED_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
@@ -1264,6 +1281,273 @@ async function notifyRepeatedGeofenceAttempts(
     console.warn('Could not notify IT about repeated geofence attempts:', err);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Attendance QR codes
+//
+// The QR code only proves the employee is physically at the office terminal: it
+// never replaces the GPS/geofence check. A scan is submitted together with the
+// browser coordinates and goes through the exact same server-side verification
+// and logging path as a manual check-in/check-out.
+// ---------------------------------------------------------------------------
+const ATTENDANCE_QR_PREFIX = 'ATTQR';
+
+function buildAttendanceQrUrl(req: any, token: string): string {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const proto = forwardedProto || req.protocol || 'https';
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost').split(',')[0].trim();
+  return `${proto}://${host}/?attendance_qr=${encodeURIComponent(token)}`;
+}
+
+function extractAttendanceQrToken(raw: unknown): string {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (value.includes('attendance_qr=')) {
+    const match = value.match(/attendance_qr=([^&\s]+)/i);
+    if (match) {
+      try {
+        return decodeURIComponent(match[1]);
+      } catch {
+        return match[1];
+      }
+    }
+  }
+  return value;
+}
+
+async function readAttendanceQrTokenRecord(token: string): Promise<any | null> {
+  if (!token) return null;
+  try {
+    const snap = await getDoc(doc(firestoreDb, ATTENDANCE_QR_TOKEN_COLLECTION, token));
+    if (snap.exists()) return { id: snap.id, ...(snap.data() as any) };
+  } catch (err) {
+    // Fall through to the in-memory mirror below.
+  }
+  const cached = (db[ATTENDANCE_QR_TOKEN_COLLECTION] || []) as any[];
+  return cached.find((entry: any) => String(entry.id || entry.token) === token) || null;
+}
+
+async function validateAttendanceQrToken(
+  raw: unknown
+): Promise<
+  | { ok: true; token: any }
+  | { ok: false; code: 'INVALID_QR_CODE' | 'QR_TOKEN_EXPIRED' | 'QR_TOKEN_REVOKED' }
+> {
+  const token = extractAttendanceQrToken(raw);
+  if (!token) return { ok: false, code: 'INVALID_QR_CODE' };
+  const record = await readAttendanceQrTokenRecord(token);
+  if (!record) return { ok: false, code: 'INVALID_QR_CODE' };
+  if (record.revoked === true) return { ok: false, code: 'QR_TOKEN_REVOKED' };
+  const expiresAt = Date.parse(String(record.expires_at || ''));
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    return { ok: false, code: 'QR_TOKEN_EXPIRED' };
+  }
+  return { ok: true, token: record };
+}
+
+async function buildAttendanceQrResponse(req: any, record: any) {
+  const url = record.qr_url || buildAttendanceQrUrl(req, record.token || record.id);
+  let image: string | null = null;
+  try {
+    image = await QRCode.toDataURL(url, {
+      width: 512,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#0f172a', light: '#ffffff' },
+    });
+  } catch (err) {
+    console.warn('Could not render attendance QR image:', err);
+  }
+  return {
+    id: record.id || record.token,
+    token: record.token || record.id,
+    url,
+    created_at: record.created_at || null,
+    created_by: record.created_by || null,
+    expires_at: record.expires_at || null,
+    revoked: record.revoked === true,
+    label: record.label || '',
+    qr_image: image,
+  };
+}
+
+async function getActiveAttendanceQrRecords(): Promise<any[]> {
+  const tokens = await getCollectionDocs(ATTENDANCE_QR_TOKEN_COLLECTION);
+  const now = Date.now();
+  return tokens
+    .filter((entry: any) => {
+      if (entry.revoked === true) return false;
+      const expiresAt = Date.parse(String(entry.expires_at || ''));
+      return Number.isFinite(expiresAt) && expiresAt > now;
+    })
+    .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+}
+
+app.get('/api/attendance/qr', async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: only IT and Administrators can view the attendance QR code.' });
+  }
+  try {
+    const active = await getActiveAttendanceQrRecords();
+    if (active.length === 0) return res.json({ active: false, qr: null });
+    return res.json({ active: true, qr: await buildAttendanceQrResponse(req, active[0]) });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Unable to load the attendance QR code.' });
+  }
+});
+
+app.post('/api/attendance/qr/generate', async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: only IT and Administrators can generate the attendance QR code.' });
+  }
+  const requestedMinutes = Number(req.body?.valid_for_minutes);
+  const validityMinutes = Number.isFinite(requestedMinutes) && requestedMinutes > 0
+    ? Math.min(Math.max(Math.round(requestedMinutes), 5), ATTENDANCE_QR_MAX_VALIDITY_MINUTES)
+    : ATTENDANCE_QR_DEFAULT_VALIDITY_MINUTES;
+  const now = new Date();
+  const token = `${ATTENDANCE_QR_PREFIX}-${crypto.randomBytes(18).toString('hex')}`;
+  const record = {
+    id: token,
+    token,
+    label: String(req.body?.label || 'Company attendance QR').substring(0, 120),
+    created_by: actor.username,
+    created_at: now.toISOString(),
+    expires_at: new Date(now.getTime() + validityMinutes * 60 * 1000).toISOString(),
+    valid_for_minutes: validityMinutes,
+    revoked: false,
+    qr_url: buildAttendanceQrUrl(req, token),
+  };
+  try {
+    await saveToFirestore(ATTENDANCE_QR_TOKEN_COLLECTION, record.id, record);
+    if (!db[ATTENDANCE_QR_TOKEN_COLLECTION]) db[ATTENDANCE_QR_TOKEN_COLLECTION] = [];
+    (db[ATTENDANCE_QR_TOKEN_COLLECTION] as any[]).unshift(record);
+    await logActivity(
+      actor.username,
+      `Generated attendance QR code valid for ${validityMinutes} minutes`,
+      'Attendance',
+      record.id
+    );
+    return res.json({ active: true, qr: await buildAttendanceQrResponse(req, record) });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Unable to generate the attendance QR code.' });
+  }
+});
+
+app.post('/api/attendance/qr/revoke', async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: only IT and Administrators can revoke the attendance QR code.' });
+  }
+  const rawId = String(req.body?.id || req.body?.token || '').trim();
+  if (!rawId) return res.status(400).json({ error: 'A QR token id is required.' });
+  try {
+    const existing = await readAttendanceQrTokenRecord(rawId);
+    if (!existing) return res.status(404).json({ error: 'QR code not found.' });
+    const updated = {
+      ...existing,
+      id: existing.id || rawId,
+      revoked: true,
+      revoked_at: new Date().toISOString(),
+      revoked_by: actor.username,
+    };
+    await saveToFirestore(ATTENDANCE_QR_TOKEN_COLLECTION, updated.id, updated);
+    const cachedIdx = (db[ATTENDANCE_QR_TOKEN_COLLECTION] || []).findIndex((entry: any) => entry.id === updated.id);
+    if (cachedIdx >= 0) (db[ATTENDANCE_QR_TOKEN_COLLECTION] as any[])[cachedIdx] = updated;
+    await logActivity(actor.username, 'Revoked the active attendance QR code', 'Attendance', updated.id);
+    return res.json({ success: true, id: updated.id, revoked_at: updated.revoked_at });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Unable to revoke the attendance QR code.' });
+  }
+});
+
+// In-app notification to IT for every successful attendance transaction. The
+// record is always written to Firestore, so IT sees it on desktop even when no
+// phone/Web Push subscription exists.
+async function notifyITAttendanceRegistered(params: {
+  employeeId: string;
+  employeeName: string;
+  action: 'clock_in' | 'clock_out';
+  record: any;
+  qrVerified: boolean;
+}): Promise<void> {
+  const { employeeId, employeeName, action, record, qrVerified } = params;
+  const time = action === 'clock_in' ? record.clock_in : record.clock_out;
+  const title = action === 'clock_in' ? 'Employee Clock-In' : 'Employee Clock-Out';
+  const channel = qrVerified ? 'QR code + GPS geofence verified' : 'GPS geofence verified';
+  try {
+    await addNotification(
+      title,
+      `${employeeName} ${action === 'clock_in' ? 'clocked in' : 'clocked out'} at ${time || '--:--'} (${channel}).`,
+      'attendance',
+      record.id,
+      {
+        target_scope: 'EMPLOYEE',
+        target_employee_id: 'IT',
+        target_employee_name: 'IT',
+        tab: 'attendance-security',
+        category: 'attendance_event',
+        priority: 'Normal',
+        employee_id: employeeId,
+        employee_name: employeeName,
+        attendance_action: action,
+        attendance_time: time || '',
+        attendance_date: record.date || '',
+        qr_verified: qrVerified,
+        entry_channel: qrVerified ? 'QR' : 'MANUAL',
+      }
+    );
+  } catch (err) {
+    console.warn('Could not notify IT about an attendance transaction:', err);
+  }
+}
+
+// Website sign-in / sign-out audit notifications for IT. Delivered as a normal
+// in-app notification (visible on desktop) and via Web Push when subscribed.
+app.post('/api/auth/session-event', async (req, res) => {
+  const event = req.body?.event === 'logout' ? 'logout' : 'login';
+  const username = String(
+    req.headers['x-acting-user'] || req.body?.username || ''
+  ).trim();
+  if (!username) {
+    return res.status(400).json({ error: 'A username is required.' });
+  }
+  const role = String(req.headers['x-acting-role'] || req.body?.role || '').trim();
+  const device = buildDeviceInfo({
+    userAgent: req.headers['user-agent'],
+    platform: req.body?.platform,
+    language: req.body?.language,
+  });
+  const label = [device.device_type, device.os, device.browser && `${device.browser} ${device.browser_version || ''}`.trim()]
+    .filter(Boolean)
+    .join(' · ');
+  try {
+    await addNotification(
+      event === 'login' ? 'Site Login' : 'Site Logout',
+      `${username}${role ? ` (${role})` : ''} ${event === 'login' ? 'signed in to' : 'signed out of'} the website${label ? ` from ${label}` : ''}.`,
+      'action',
+      undefined,
+      {
+        target_scope: 'EMPLOYEE',
+        target_employee_id: 'IT',
+        target_employee_name: 'IT',
+        tab: 'notifications',
+        category: 'session_event',
+        session_event: event,
+        session_user: username,
+        session_role: role,
+        device_info: device,
+      }
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Unable to record the session event.' });
+  }
+});
 
 // Employee Attendance, Departure & Working Hours API (Connected to Firestore 'attendance')
 app.get("/api/attendance", async (req, res) => {
@@ -1321,10 +1605,31 @@ app.post("/api/attendance/self", async (req, res) => {
   const serverTime = getServerAttendanceTime();
   const decision = evaluateGeofence(config, latitude, longitude, accuracy);
 
+  // Optional QR scan: the code proves presence at the office terminal, but the
+  // GPS/geofence decision below stays mandatory and server-authoritative.
+  const qrRaw = req.body?.qr_code;
+  let qrTokenRecord: any = null;
+  if (qrRaw) {
+    const qrCheck = await validateAttendanceQrToken(qrRaw);
+    if (!qrCheck.ok) {
+      const qrFailureCode = (qrCheck as { code: string }).code;
+      await recordGeofenceVerificationLog({
+        req, actor, employeeId, employeeName, action, config, decision,
+        latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'blocked',
+        overrideResult: qrFailureCode, entryChannel: 'QR',
+      });
+      return sendGeofenceFailure(res, qrFailureCode, 400);
+    }
+    qrTokenRecord = qrCheck.token;
+  }
+  const entryChannel: 'MANUAL' | 'QR' = qrTokenRecord ? 'QR' : 'MANUAL';
+  const qrTokenId = qrTokenRecord ? String(qrTokenRecord.id || qrTokenRecord.token || '') : '';
+
   if (!decision.allowed) {
     await recordGeofenceVerificationLog({
       req, actor, employeeId, employeeName, action, config, decision,
       latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'blocked',
+      entryChannel, qrTokenId, qrVerified: Boolean(qrTokenRecord),
     });
     if (decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED') {
       void notifyAdminGeofenceNotConfigured(actor);
@@ -1358,6 +1663,7 @@ app.post("/api/attendance/self", async (req, res) => {
     await recordGeofenceVerificationLog({
       req, actor, employeeId, employeeName, action, config, decision,
       latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'allowed',
+      entryChannel, qrTokenId, qrVerified: Boolean(qrTokenRecord),
     });
     return sendGeofenceFailure(res, 'ALREADY_CLOCKED_IN', 409);
   }
@@ -1366,6 +1672,7 @@ app.post("/api/attendance/self", async (req, res) => {
     await recordGeofenceVerificationLog({
       req, actor, employeeId, employeeName, action, config, decision,
       latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'allowed',
+      entryChannel, qrTokenId, qrVerified: Boolean(qrTokenRecord),
     });
     return sendGeofenceFailure(res, 'NO_OPEN_SHIFT', 409);
   }
@@ -1397,6 +1704,8 @@ app.post("/api/attendance/self", async (req, res) => {
       : {}),
     verified_at: nowIso,
     method: 'haversine',
+    entry_channel: entryChannel,
+    qr_verified: Boolean(qrTokenRecord),
   };
 
   const deviceInfo = buildDeviceInfo({
@@ -1443,6 +1752,10 @@ app.post("/api/attendance/self", async (req, res) => {
       ? (attendanceLocation || base.check_out_location || null)
       : (base.check_out_location || null),
     device_info: deviceInfo,
+    entry_channel: entryChannel,
+    qr_verified: Boolean(qrTokenRecord),
+    qr_token_id: qrTokenRecord ? qrTokenId : null,
+    qr_scanned_at: qrTokenRecord ? nowIso : null,
     location_verified_at: nowIso,
     location_verification_result: decision.reasonCode,
     server_recorded_at: nowIso,
@@ -1464,6 +1777,7 @@ app.post("/api/attendance/self", async (req, res) => {
   await recordGeofenceVerificationLog({
     req, actor, employeeId, employeeName, action, config, decision,
     latitude, longitude, accuracy, serverIso: nowIso, outcome: 'allowed',
+    entryChannel, qrTokenId, qrVerified: Boolean(qrTokenRecord),
   });
 
   const verifiedSuffix = decision.reasonCode === 'WITHIN_GEOFENCE' ? ' (geofence verified)' : '';
@@ -1473,6 +1787,16 @@ app.post("/api/attendance/self", async (req, res) => {
     'Attendance',
     employeeId || attId
   );
+
+  // Requirement: IT must be notified on every clock-in and clock-out, in-app,
+  // regardless of whether IT has a mobile device / push subscription.
+  await notifyITAttendanceRegistered({
+    employeeId,
+    employeeName,
+    action,
+    record,
+    qrVerified: Boolean(qrTokenRecord),
+  });
 
   const message = action === 'clock_in'
     ? GEOFENCE_MESSAGES.ATTENDANCE_REGISTERED
@@ -1815,6 +2139,9 @@ app.get("/api/attendance/security-logs", async (req, res) => {
       check_out_location: record.check_out_location || null,
       device_info: record.device_info || null,
       geofence_verification: record.geofence_verification || null,
+      entry_channel: record.entry_channel || 'MANUAL',
+      qr_verified: record.qr_verified === true,
+      qr_token_id: record.qr_token_id || null,
       server_recorded_at: record.server_recorded_at || record.updated_at || '',
     }));
 
@@ -6568,6 +6895,9 @@ async function startServer() {
       console.log("Persistent data & Web Push VAPID keys synchronized from Firestore. Starting schedule reminder engine...");
       runScheduledAttendanceRemindersTick();
       runScheduledCalendarRemindersTick();
+      // Database synchronization policy: keep background Firestore reads as low
+      // as possible. Only the collections needed by the reminder engines are
+      // refreshed, and at a slow interval instead of every 30 seconds.
       setInterval(() => {
         Promise.all([
           getCollectionDocs('employees'),
@@ -6577,17 +6907,13 @@ async function startServer() {
           getCollectionDocs('customer_inquiries'),
           getCollectionDocs('reservations'),
           getCollectionDocs('invoices'),
-          getCollectionDocs('hotels'),
-          getCollectionDocs('flights'),
-          getCollectionDocs('tour_packages'),
-          getCollectionDocs('tasks'),
         ])
           .then(() => Promise.all([
             runScheduledAttendanceRemindersTick(),
             runScheduledCalendarRemindersTick(),
           ]))
           .catch(() => {});
-      }, 30 * 1000);
+      }, BACKGROUND_SYNC_INTERVAL_MS);
     } catch (e) {
       console.warn("Background Firestore initialization note:", e);
     }

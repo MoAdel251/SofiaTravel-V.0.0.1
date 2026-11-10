@@ -157,7 +157,7 @@ export async function ensurePushServiceWorkerReady(
           }
         });
         window.addEventListener('online', triggerUpdateCheck);
-        setInterval(triggerUpdateCheck, 5 * 60 * 1000);
+        setInterval(triggerUpdateCheck, 15 * 60 * 1000);
 
         await navigator.serviceWorker.ready;
         return registration;

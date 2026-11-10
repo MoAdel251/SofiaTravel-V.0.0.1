@@ -1463,7 +1463,7 @@ export function EmployeesView({
                   <div className="space-y-1.5">
                     <select
                       value={
-                        ['Manager', 'Accountant', 'Administrator', 'Sales Executive', 'Sales', 'Reservation Agent', 'Operations', 'Customer Service'].includes(formData.position)
+                        ['Manager', 'Accountant', 'Administrator', 'Sales Executive', 'Sales', 'Reservation Agent', 'Operations', 'Customer Service', 'Office Boy'].includes(formData.position)
                           ? formData.position
                           : 'CUSTOM'
                       }
@@ -1485,6 +1485,7 @@ export function EmployeesView({
                       <option value="Reservation Agent">Reservation Agent</option>
                       <option value="Operations">Operations</option>
                       <option value="Customer Service">Customer Service</option>
+                      <option value="Office Boy">Office Boy (Attendance Only)</option>
                       <option value="CUSTOM">Other / Custom Title...</option>
                     </select>
                     <input

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   MapPin, ShieldCheck, RefreshCw, AlertTriangle, Smartphone, Monitor,
   Tablet, CheckCircle2, XCircle, Users, Search, ListFilter, Fingerprint, ExternalLink,
+  QrCode, Copy, Ban, Loader2,
 } from 'lucide-react';
 import type { Employee, UserRole } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -28,6 +29,8 @@ interface SecurityLog {
   accuracy_meters: number | null;
   radius_meters: number | null;
   verified_at: string;
+  entry_channel?: 'MANUAL' | 'QR' | string;
+  qr_verified?: boolean;
   submitted_latitude?: number;
   submitted_longitude?: number;
   device_info?: {
@@ -53,12 +56,26 @@ interface SecurityAttendance {
   device_info?: SecurityLog['device_info'];
   geofence_verification?: { verification_result?: string; distance_meters?: number | null } | null;
   server_recorded_at?: string;
+  entry_channel?: 'MANUAL' | 'QR' | string;
+  qr_verified?: boolean;
 }
 
 interface SecurityResponse {
   logs: SecurityLog[];
   attendance_records: SecurityAttendance[];
   totals: { returned: number; blocked: number; allowed: number };
+}
+
+interface AttendanceQrState {
+  id: string;
+  token: string;
+  url: string;
+  created_at: string | null;
+  created_by: string | null;
+  expires_at: string | null;
+  revoked: boolean;
+  label: string;
+  qr_image: string | null;
 }
 
 interface GeofenceSettings {
@@ -108,6 +125,9 @@ export function AttendanceSecurityView({
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [qr, setQr] = useState<AttendanceQrState | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrValidFor, setQrValidFor] = useState(1440);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -121,10 +141,12 @@ export function AttendanceSecurityView({
       if (toDate) query.set('to', toDate);
       query.set('limit', '400');
 
-      const [security, geofence] = await Promise.all([
+      const [security, geofence, qrState] = await Promise.all([
         hrFetch<SecurityResponse>(`/api/attendance/security-logs?${query.toString()}`, acting),
         hrFetch<GeofenceSettings>('/api/geofencing/settings', acting).catch(() => null),
+        hrFetch<{ active: boolean; qr: AttendanceQrState | null }>('/api/attendance/qr', acting).catch(() => null),
       ]);
+      setQr(qrState?.active && qrState.qr ? qrState.qr : null);
       setData({
         logs: Array.isArray(security?.logs) ? security.logs : [],
         attendance_records: Array.isArray(security?.attendance_records) ? security.attendance_records : [],
@@ -203,6 +225,46 @@ export function AttendanceSecurityView({
     return Array.from(known.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [employees, data.logs]);
 
+  const generateQr = async () => {
+    setQrLoading(true);
+    try {
+      const result = await hrFetch<{ active: boolean; qr: AttendanceQrState }>('/api/attendance/qr/generate', acting, {
+        method: 'POST',
+        body: { valid_for_minutes: qrValidFor },
+      });
+      setQr(result.qr);
+      onShowToast?.(L('Attendance QR code generated and linked to GPS verification.', 'تم إنشاء رمز الحضور وربطه بالتحقق من الموقع.'));
+    } catch (err: any) {
+      onShowToast?.(err?.message || L('Unable to generate the QR code.', 'تعذر إنشاء رمز QR.'));
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const revokeQr = async () => {
+    if (!qr) return;
+    setQrLoading(true);
+    try {
+      await hrFetch('/api/attendance/qr/revoke', acting, { method: 'POST', body: { id: qr.id } });
+      setQr(null);
+      onShowToast?.(L('Attendance QR code revoked.', 'تم إلغاء رمز الحضور.'));
+    } catch (err: any) {
+      onShowToast?.(err?.message || L('Unable to revoke the QR code.', 'تعذر إلغاء رمز QR.'));
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const copyQrLink = async () => {
+    if (!qr?.url) return;
+    try {
+      await navigator.clipboard.writeText(qr.url);
+      onShowToast?.(L('QR link copied.', 'تم نسخ رابط QR.'));
+    } catch {
+      onShowToast?.(qr.url);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-slate-50 min-h-screen">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -258,6 +320,81 @@ export function AttendanceSecurityView({
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
             {settings ? `${settings.allowed_radius_meters} m` : L('Not configured', 'غير مُهيأ')}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-slate-900 rounded-2xl border border-slate-700 text-white p-4 sm:p-5">
+        <div className="flex flex-col lg:flex-row gap-5">
+          <div className="flex items-start gap-3 flex-1">
+            <div className="shrink-0 bg-white rounded-2xl p-2">
+              {qr?.qr_image ? (
+                <img src={qr.qr_image} alt="Attendance QR" className="w-36 h-36 sm:w-40 sm:h-40" />
+              ) : (
+                <div className="w-36 h-36 sm:w-40 sm:h-40 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                  <QrCode className="w-8 h-8" />
+                  <span className="text-[10px] font-bold mt-1 text-center px-2">
+                    {L('No active QR code', 'لا يوجد رمز نشط')}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-4 h-4 text-cyan-300" />
+                <h2 className="text-sm font-extrabold">{L('Attendance QR Code', 'رمز الحضور QR')}</h2>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed max-w-md">
+                {L(
+                  'Employees scan this code at the office. Every scan is submitted with GPS coordinates and still passes the server-side geofence check before check-in or check-out is recorded here.',
+                  'يمسح الموظفون هذا الرمز في المكتب. كل عملية مسح تُرسل مع إحداثيات GPS وتمر بالتحقق الجغرافي على السيرفر قبل تسجيل الحضور أو الانصراف هنا.'
+                )}
+              </p>
+              {qr && (
+                <div className="text-[11px] text-slate-300 space-y-0.5">
+                  <div>{L('Expires', 'ينتهي')}: <strong className="text-white">{formatDateTime(qr.expires_at)}</strong></div>
+                  <div>{L('Created by', 'أنشأه')}: <strong className="text-white">{qr.created_by || '—'}</strong></div>
+                  <button
+                    type="button"
+                    onClick={() => void copyQrLink()}
+                    className="inline-flex items-center gap-1 text-cyan-300 hover:text-cyan-200 font-bold"
+                  >
+                    <Copy className="w-3 h-3" /> {L('Copy QR link', 'نسخ رابط QR')}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 lg:w-56">
+            <select
+              value={qrValidFor}
+              onChange={e => setQrValidFor(Number(e.target.value))}
+              className="px-3 py-2 rounded-xl bg-slate-800 border border-slate-600 text-xs font-bold text-white"
+            >
+              <option value={60}>{L('Valid 1 hour', 'صالح ساعة')}</option>
+              <option value={480}>{L('Valid 8 hours', 'صالح 8 ساعات')}</option>
+              <option value={1440}>{L('Valid 24 hours', 'صالح 24 ساعة')}</option>
+              <option value={10080}>{L('Valid 7 days', 'صالح 7 أيام')}</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => void generateQr()}
+              disabled={qrLoading}
+              className="px-3 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
+            >
+              {qrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <QrCode className="w-3.5 h-3.5" />}
+              {qr ? L('Generate new code', 'إنشاء رمز جديد') : L('Generate QR code', 'إنشاء رمز QR')}
+            </button>
+            {qr && (
+              <button
+                type="button"
+                onClick={() => void revokeQr()}
+                disabled={qrLoading}
+                className="px-3 py-2 rounded-xl bg-rose-600/90 hover:bg-rose-600 text-white text-xs font-bold disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
+              >
+                <Ban className="w-3.5 h-3.5" /> {L('Revoke current code', 'إلغاء الرمز الحالي')}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -375,6 +512,11 @@ export function AttendanceSecurityView({
                     <td className="px-3 py-2.5">
                       <div className="font-bold text-slate-800">{log.employee_name}</div>
                       <div className="text-[10px] text-slate-400 font-mono">{log.employee_id}</div>
+                      {log.entry_channel === 'QR' && (
+                        <span className="inline-flex items-center gap-0.5 mt-0.5 px-1.5 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200 text-[9px] font-bold">
+                          <QrCode className="w-2.5 h-2.5" /> QR
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5">
                       <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
@@ -453,6 +595,11 @@ export function AttendanceSecurityView({
                       <td className="px-3 py-2.5">
                         <div className="font-bold text-slate-800">{record.employee_name}</div>
                         <div className="text-[10px] text-slate-400">{record.status}</div>
+                        {record.qr_verified && (
+                          <span className="inline-flex items-center gap-0.5 mt-0.5 px-1.5 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200 text-[9px] font-bold">
+                            <QrCode className="w-2.5 h-2.5" /> QR
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
                         <span className="font-semibold">{record.clock_in || '—'}</span>

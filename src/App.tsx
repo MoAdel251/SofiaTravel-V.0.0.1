@@ -14,6 +14,7 @@ import { FinanceView } from './components/FinanceView';
 import { InvoicesView } from './components/InvoicesView';
 import { EmployeesView } from './components/EmployeesView';
 import { AttendanceDepartureView } from './components/AttendanceDepartureView';
+import { AttendanceQrScanner } from './components/AttendanceQrScanner';
 import { LeaveManagementView } from './components/LeaveManagementView';
 import { AnnouncementsView } from './components/AnnouncementsView';
 import { AttendanceSecurityView } from './components/AttendanceSecurityView';
@@ -117,6 +118,8 @@ export default function App() {
   const { language } = useLanguage();
   const isAr = language === 'ar';
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [attendanceQrToken, setAttendanceQrToken] = useState('');
+  const [showAttendanceQrScanner, setShowAttendanceQrScanner] = useState(false);
   const [userRole, setUserRole] = useState<UserRole>(() => {
     return (localStorage.getItem('sofia_travel_role') as UserRole) || 'Administrator';
   });
@@ -289,7 +292,11 @@ export default function App() {
         isITAccount
       );
       if (!allowed) {
-        setCurrentTab('dashboard');
+        setCurrentTab(
+          isTabAllowedForUser('dashboard', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount)
+            ? 'dashboard'
+            : 'attendance'
+        );
         showToast(
           isAr
             ? 'تم إلغاء صلاحيتك للوصول لهذه الصفحة بواسطة الإدارة.'
@@ -306,6 +313,24 @@ export default function App() {
     currentUserPermissions,
     isAr,
   ]);
+
+  // Attendance-only accounts (e.g. Office Boy) must never land on the business dashboard.
+  const attendanceOnlyAccount = Boolean(currentEmployee?.attendance_only) && !isCurrentAdmin;
+  const canViewDashboard =
+    isCurrentAdmin ||
+    isITAccount ||
+    isTabAllowedForUser('dashboard', effectiveUserRole, currentUserPermissions, isCurrentAdmin, isITAccount);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (attendanceOnlyAccount && currentTab !== 'attendance') {
+      setCurrentTab('attendance');
+      return;
+    }
+    if (currentTab === 'dashboard' && !canViewDashboard) {
+      setCurrentTab('attendance');
+    }
+  }, [isAuthenticated, currentTab, canViewDashboard, attendanceOnlyAccount]);
 
   // Merge & normalize attendance records and employee login/logout logs retrieved from Firestore
   const attendanceLoginLogs = useMemo(
@@ -2890,7 +2915,30 @@ export default function App() {
     ) ||
     null;
 
-  const handleSelfClockIn = async () => {
+  const resolveAttendanceQrToken = (override?: unknown): string => {
+    const candidate = typeof override === 'string' ? override : attendanceQrToken;
+    return String(candidate || '').trim();
+  };
+
+  // Reads ?attendance_qr=<token> from links opened by the phone camera.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('attendance_qr');
+      if (!token) return;
+      setAttendanceQrToken(token.trim());
+      params.delete('attendance_qr');
+      const remaining = params.toString();
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${remaining ? `?${remaining}` : ''}${window.location.hash || ''}`
+      );
+    } catch {}
+  }, []);
+
+  const handleSelfClockIn = async (qrOverride?: unknown) => {
+    const qrCode = resolveAttendanceQrToken(qrOverride);
     const status = await getGeofenceStatus();
     let position = null;
     if (!status || status.is_enabled) {
@@ -2910,12 +2958,14 @@ export default function App() {
       actingUser: isITAccount ? 'IT' : (currentUsername || activeSelfName),
       actingRole: isCurrentAdmin ? 'Administrator' : effectiveUserRole,
       position,
+      qrCode,
     });
 
     if (!result.ok) {
       showToast(isAr ? result.messageAr : result.messageEn);
       return;
     }
+    if (qrCode) setAttendanceQrToken('');
 
     const savedRecord = result.record;
     setRawAttendanceRecords(prev => {
@@ -2935,7 +2985,8 @@ export default function App() {
     );
   };
 
-  const handleSelfClockOut = async () => {
+  const handleSelfClockOut = async (qrOverride?: unknown) => {
+    const qrCode = resolveAttendanceQrToken(qrOverride);
     const openRec = attendanceRecords.find(
       a =>
         isAttendanceShiftOpen(a) &&
@@ -2965,12 +3016,14 @@ export default function App() {
       actingUser: isITAccount ? 'IT' : (currentUsername || activeSelfName),
       actingRole: isCurrentAdmin ? 'Administrator' : effectiveUserRole,
       position,
+      qrCode,
     });
 
     if (!result.ok) {
       showToast(isAr ? result.messageAr : result.messageEn);
       return;
     }
+    if (qrCode) setAttendanceQrToken('');
 
     const savedRecord = result.record;
     setRawAttendanceRecords(prev => {
@@ -2983,6 +3036,23 @@ export default function App() {
         ? `تم تسجيل الانصراف بنجاح. وقت الخروج: ${savedRecord.clock_out} — ساعات العمل: ${savedRecord.working_hours_formatted || ''}`
         : `Departure registered successfully. Check-out: ${savedRecord.clock_out} — Working hours: ${savedRecord.working_hours_formatted || ''}`
     );
+  };
+
+  const handleAttendanceQrScanned = async (token: string) => {
+    const value = String(token || '').trim();
+    if (!value) return;
+    setShowAttendanceQrScanner(false);
+    setAttendanceQrToken(value);
+    const openRec = attendanceRecords.find(
+      a =>
+        isAttendanceShiftOpen(a) &&
+        (a.employee_id === activeSelfId || a.employee_name === activeSelfName)
+    );
+    if (openRec) {
+      await handleSelfClockOut(value);
+    } else {
+      await handleSelfClockIn(value);
+    }
   };
 
   const handleSaveManualAttendanceByIT = async (data: {
@@ -3511,7 +3581,8 @@ export default function App() {
       }
     };
 
-    const interval = setInterval(runClientScheduleCheck, 30 * 1000);
+    // Keep client-side reminder checks light: every 2 minutes, no Firestore reads.
+    const interval = setInterval(runClientScheduleCheck, 120 * 1000);
     return () => clearInterval(interval);
   }, [isAuthenticated, activeSelfId, activeSelfName, myDesignatedSchedule, isAr, language]);
 
@@ -3548,7 +3619,30 @@ export default function App() {
 
   const unreadNotifsCount = visibleNotifications.filter(n => !n.read).length;
 
+  const reportSessionEvent = (event: 'login' | 'logout', name: string, role: UserRole) => {
+    try {
+      const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+      void fetch('/api/auth/session-event', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acting-user': name,
+          'x-acting-role': role,
+        },
+        body: JSON.stringify({
+          event,
+          username: name,
+          role,
+          platform: String(nav?.userAgentData?.platform || nav?.platform || ''),
+          language: String(nav?.language || ''),
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {}
+  };
+
   const handleLogin = (name: string, role: UserRole, empId?: string) => {
+    reportSessionEvent('login', name, role);
     setCurrentUsername(name);
     setUserRole(role);
     if (empId) {
@@ -3566,6 +3660,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    reportSessionEvent('logout', currentUsername, effectiveUserRole);
     setIsAuthenticated(false);
     setCurrentEmpId('');
     try {
@@ -3670,6 +3765,12 @@ export default function App() {
         />
       )}
 
+      <AttendanceQrScanner
+        open={showAttendanceQrScanner && isAuthenticated}
+        onClose={() => setShowAttendanceQrScanner(false)}
+        onToken={(token) => { void handleAttendanceQrScanned(token); }}
+      />
+
       {toastMessage && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-2xl border border-slate-700 flex items-center gap-2 max-w-[92vw] animate-in fade-in">
           <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
@@ -3702,6 +3803,7 @@ export default function App() {
       )}
 
       <Navbar
+        restrictToAttendance={attendanceOnlyAccount}
         userRole={effectiveUserRole}
         userPermissions={currentUserPermissions}
         setUserRole={setUserRole}
@@ -3798,7 +3900,7 @@ export default function App() {
             </div>
           ) : (
             <>
-          {currentTab === 'dashboard' && (
+          {currentTab === 'dashboard' && canViewDashboard && (
             <DashboardView
               stats={stats}
               currentCurrency={currentCurrency}
@@ -4100,6 +4202,8 @@ export default function App() {
               onDeleteWorkSchedule={handleDeleteWorkSchedule}
               onSaveAttendanceSettings={handleSaveAttendanceSettings}
               onSyncFromDatabase={fetchAllData}
+              onOpenQrScanner={() => setShowAttendanceQrScanner(true)}
+              qrTokenReady={Boolean(attendanceQrToken)}
             />
           )}
           {currentTab === 'leave-management' && (
