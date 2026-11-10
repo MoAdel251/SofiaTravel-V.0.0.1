@@ -42,7 +42,9 @@ export type GeofenceReasonCode =
   | 'IDENTITY_MISMATCH'
   | 'EMPLOYEE_INACTIVE'
   | 'ALREADY_CLOCKED_IN'
-  | 'NO_OPEN_SHIFT';
+  | 'NO_OPEN_SHIFT'
+  | 'QR_REQUIRED'
+  | 'QR_INVALID';
 
 export interface GeofenceDecision {
   allowed: boolean;
@@ -314,6 +316,14 @@ export const GEOFENCE_MESSAGES: Record<
   NO_OPEN_SHIFT: {
     en: 'No active clock-in session found.',
     ar: 'لا يوجد تسجيل حضور مفتوح حالياً.',
+  },
+  QR_REQUIRED: {
+    en: 'Scan the office attendance QR code before clocking in or out.',
+    ar: 'يرجى مسح رمز QR الخاص بالحضور في المكتب قبل تسجيل الحضور أو الانصراف.',
+  },
+  QR_INVALID: {
+    en: 'This attendance QR code is not valid for the current month. Please scan the code shown at the office.',
+    ar: 'رمز QR هذا غير صالح للشهر الحالي. يرجى مسح الرمز المعروض في المكتب.',
   },
   ATTENDANCE_REGISTERED: {
     en: 'Attendance registered successfully.',
