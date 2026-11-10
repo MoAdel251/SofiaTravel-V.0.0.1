@@ -5,6 +5,7 @@ import {
   Plus,
   FileText,
   LayoutGrid,
+  Clock,
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -45,6 +46,39 @@ export function MobileBottomNav({
     currentTab === 'supplier-payments';
 
   const isVouchersActive = currentTab === 'vouchers' || currentTab === 'reservations';
+
+  // Attendance-only accounts (Office Boy) get a reduced bar: attendance + menu.
+  if (userRole === 'Office Boy') {
+    return (
+      <nav
+        aria-label="Mobile Primary Navigation"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl"
+      >
+        <div className="grid grid-cols-2 items-center max-w-sm mx-auto">
+          <button
+            type="button"
+            onClick={() => setCurrentTab('attendance')}
+            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
+              currentTab === 'attendance' || currentTab === 'leave-management'
+                ? 'text-cyan-400 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Clock className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_attendance')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="relative flex flex-col items-center justify-center min-h-[48px] rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+          >
+            <LayoutGrid className="w-5 h-5 mb-0.5" />
+            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_menu')}</span>
+          </button>
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <nav
