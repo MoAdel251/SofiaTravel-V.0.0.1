@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   MapPin, ShieldCheck, RefreshCw, AlertTriangle, Smartphone, Monitor,
   Tablet, CheckCircle2, XCircle, Users, Search, ListFilter, Fingerprint, ExternalLink,
-  QrCode, Copy, Ban, Loader2,
+  QrCode, Copy, Ban, Loader2, RotateCcw,
 } from 'lucide-react';
 import type { Employee, UserRole } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -74,8 +74,17 @@ interface AttendanceQrState {
   created_by: string | null;
   expires_at: string | null;
   revoked: boolean;
+  revoked_reason?: string | null;
+  renewed_from?: string | null;
+  restored_at?: string | null;
   label: string;
   qr_image: string | null;
+}
+
+interface AttendanceQrResponse {
+  active: boolean;
+  qr: AttendanceQrState | null;
+  previous: AttendanceQrState | null;
 }
 
 interface GeofenceSettings {
@@ -126,8 +135,8 @@ export function AttendanceSecurityView({
   const [toDate, setToDate] = useState('');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [qr, setQr] = useState<AttendanceQrState | null>(null);
+  const [previousQr, setPreviousQr] = useState<AttendanceQrState | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
-  const [qrValidFor, setQrValidFor] = useState(1440);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -144,9 +153,10 @@ export function AttendanceSecurityView({
       const [security, geofence, qrState] = await Promise.all([
         hrFetch<SecurityResponse>(`/api/attendance/security-logs?${query.toString()}`, acting),
         hrFetch<GeofenceSettings>('/api/geofencing/settings', acting).catch(() => null),
-        hrFetch<{ active: boolean; qr: AttendanceQrState | null }>('/api/attendance/qr', acting).catch(() => null),
+        hrFetch<AttendanceQrResponse>('/api/attendance/qr', acting).catch(() => null),
       ]);
       setQr(qrState?.active && qrState.qr ? qrState.qr : null);
+      setPreviousQr(qrState?.previous || null);
       setData({
         logs: Array.isArray(security?.logs) ? security.logs : [],
         attendance_records: Array.isArray(security?.attendance_records) ? security.attendance_records : [],
@@ -228,14 +238,38 @@ export function AttendanceSecurityView({
   const generateQr = async () => {
     setQrLoading(true);
     try {
-      const result = await hrFetch<{ active: boolean; qr: AttendanceQrState }>('/api/attendance/qr/generate', acting, {
+      const result = await hrFetch<AttendanceQrResponse>('/api/attendance/qr/generate', acting, {
         method: 'POST',
-        body: { valid_for_minutes: qrValidFor },
+        body: { label: 'Monthly company attendance QR' },
       });
       setQr(result.qr);
-      onShowToast?.(L('Attendance QR code generated and linked to GPS verification.', 'تم إنشاء رمز الحضور وربطه بالتحقق من الموقع.'));
+      setPreviousQr(result.previous || null);
+      onShowToast?.(L(
+        'New monthly attendance QR generated. The previous code was kept and can be restored.',
+        'تم إنشاء رمز حضور شهري جديد. تم الاحتفاظ بالرمز السابق ويمكن استعادته.'
+      ));
     } catch (err: any) {
       onShowToast?.(err?.message || L('Unable to generate the QR code.', 'تعذر إنشاء رمز QR.'));
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const restorePreviousQr = async () => {
+    setQrLoading(true);
+    try {
+      const result = await hrFetch<AttendanceQrResponse>('/api/attendance/qr/restore', acting, {
+        method: 'POST',
+        body: previousQr ? { id: previousQr.id } : {},
+      });
+      setQr(result.qr);
+      setPreviousQr(result.previous || null);
+      onShowToast?.(L(
+        'The previously active QR code is active again for one month.',
+        'تمت إعادة تفعيل رمز QR السابق لمدة شهر.'
+      ));
+    } catch (err: any) {
+      onShowToast?.(err?.message || L('Unable to restore the previous QR code.', 'تعذر استعادة رمز QR السابق.'));
     } finally {
       setQrLoading(false);
     }
@@ -247,6 +281,8 @@ export function AttendanceSecurityView({
     try {
       await hrFetch('/api/attendance/qr/revoke', acting, { method: 'POST', body: { id: qr.id } });
       setQr(null);
+      const refreshed = await hrFetch<AttendanceQrResponse>('/api/attendance/qr', acting).catch(() => null);
+      setPreviousQr(refreshed?.previous || null);
       onShowToast?.(L('Attendance QR code revoked.', 'تم إلغاء رمز الحضور.'));
     } catch (err: any) {
       onShowToast?.(err?.message || L('Unable to revoke the QR code.', 'تعذر إلغاء رمز QR.'));
@@ -346,8 +382,8 @@ export function AttendanceSecurityView({
               </div>
               <p className="text-[11px] text-slate-300 leading-relaxed max-w-md">
                 {L(
-                  'Employees scan this code at the office. Every scan is submitted with GPS coordinates and still passes the server-side geofence check before check-in or check-out is recorded here.',
-                  'يمسح الموظفون هذا الرمز في المكتب. كل عملية مسح تُرسل مع إحداثيات GPS وتمر بالتحقق الجغرافي على السيرفر قبل تسجيل الحضور أو الانصراف هنا.'
+                  'Employees scan this code at the office. It stays valid for one month and IT renews it every month. Every scan is submitted with GPS coordinates and still passes the server-side geofence check before check-in or check-out is recorded here.',
+                  'يمسح الموظفون هذا الرمز في المكتب. يظل صالحاً لمدة شهر وتقوم IT بتجديده كل شهر. كل عملية مسح تُرسل مع إحداثيات GPS وتمر بالتحقق الجغرافي على السيرفر قبل تسجيل الحضور أو الانصراف هنا.'
                 )}
               </p>
               {qr && (
@@ -365,17 +401,13 @@ export function AttendanceSecurityView({
               )}
             </div>
           </div>
-          <div className="flex flex-col gap-2 lg:w-56">
-            <select
-              value={qrValidFor}
-              onChange={e => setQrValidFor(Number(e.target.value))}
-              className="px-3 py-2 rounded-xl bg-slate-800 border border-slate-600 text-xs font-bold text-white"
-            >
-              <option value={60}>{L('Valid 1 hour', 'صالح ساعة')}</option>
-              <option value={480}>{L('Valid 8 hours', 'صالح 8 ساعات')}</option>
-              <option value={1440}>{L('Valid 24 hours', 'صالح 24 ساعة')}</option>
-              <option value={10080}>{L('Valid 7 days', 'صالح 7 أيام')}</option>
-            </select>
+          <div className="flex flex-col gap-2 lg:w-60">
+            <div className="px-3 py-2 rounded-xl bg-slate-800 border border-slate-600 text-[11px] font-bold text-slate-200">
+              {L('Validity: one month', 'الصلاحية: شهر واحد')}
+              <span className="block text-[10px] font-medium text-slate-400">
+                {L('IT renews the code every month.', 'تقوم IT بتجديد الرمز كل شهر.')}
+              </span>
+            </div>
             <button
               type="button"
               onClick={() => void generateQr()}
@@ -383,8 +415,18 @@ export function AttendanceSecurityView({
               className="px-3 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
             >
               {qrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <QrCode className="w-3.5 h-3.5" />}
-              {qr ? L('Generate new code', 'إنشاء رمز جديد') : L('Generate QR code', 'إنشاء رمز QR')}
+              {qr ? L('Renew for one month', 'تجديد لمدة شهر') : L('Generate monthly QR', 'إنشاء رمز شهري')}
             </button>
+            {previousQr && (
+              <button
+                type="button"
+                onClick={() => void restorePreviousQr()}
+                disabled={qrLoading}
+                className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> {L('Restore previous QR', 'استعادة الرمز السابق')}
+              </button>
+            )}
             {qr && (
               <button
                 type="button"

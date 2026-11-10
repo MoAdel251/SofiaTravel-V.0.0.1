@@ -20,8 +20,8 @@ import {
   GEOFENCE_CONFIG_DOC_ID,
   GEOFENCE_VERIFICATION_LOG_COLLECTION,
   ATTENDANCE_QR_TOKEN_COLLECTION,
-  ATTENDANCE_QR_DEFAULT_VALIDITY_MINUTES,
-  ATTENDANCE_QR_MAX_VALIDITY_MINUTES,
+  ATTENDANCE_QR_VALIDITY_DAYS,
+  ATTENDANCE_QR_RENEWAL_REMINDER_DAYS,
   ATTENDANCE_TIMEZONE,
   clampRadiusMeters,
   evaluateGeofence,
@@ -1366,9 +1366,22 @@ async function buildAttendanceQrResponse(req: any, record: any) {
     created_by: record.created_by || null,
     expires_at: record.expires_at || null,
     revoked: record.revoked === true,
+    revoked_reason: record.revoked_reason || null,
+    renewed_from: record.renewed_from || null,
+    restored_at: record.restored_at || null,
+    last_reminder_at: record.last_reminder_at || null,
     label: record.label || '',
     qr_image: image,
   };
+}
+
+function addOneMonth(from: Date): Date {
+  const next = new Date(from.getTime());
+  const day = next.getDate();
+  next.setMonth(next.getMonth() + 1);
+  // Clamp month overflow (e.g. 31 Jan -> 28/29 Feb).
+  if (next.getDate() !== day) next.setDate(0);
+  return next;
 }
 
 async function getActiveAttendanceQrRecords(): Promise<any[]> {
@@ -1383,6 +1396,53 @@ async function getActiveAttendanceQrRecords(): Promise<any[]> {
     .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 }
 
+/** Most recent code that is no longer active, so IT can roll back a renewal. */
+async function getPreviousAttendanceQrRecord(): Promise<any | null> {
+  const tokens = await getCollectionDocs(ATTENDANCE_QR_TOKEN_COLLECTION);
+  const candidates = tokens
+    .filter((entry: any) => entry.revoked === true || Date.parse(String(entry.expires_at || '')) <= Date.now())
+    .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  return candidates[0] || null;
+}
+
+async function setAttendanceQrRecord(record: any): Promise<void> {
+  await saveToFirestore(ATTENDANCE_QR_TOKEN_COLLECTION, record.id, record);
+  if (!db[ATTENDANCE_QR_TOKEN_COLLECTION]) db[ATTENDANCE_QR_TOKEN_COLLECTION] = [];
+  const list = db[ATTENDANCE_QR_TOKEN_COLLECTION] as any[];
+  const idx = list.findIndex((entry: any) => entry.id === record.id);
+  if (idx >= 0) list[idx] = record;
+  else list.unshift(record);
+}
+
+async function deactivateAttendanceQrRecord(
+  record: any,
+  actorUsername: string,
+  reason: 'renewed' | 'replaced' | 'revoked'
+): Promise<any> {
+  const updated = {
+    ...record,
+    id: record.id || record.token,
+    revoked: true,
+    revoked_at: new Date().toISOString(),
+    revoked_by: actorUsername,
+    revoked_reason: reason,
+  };
+  await setAttendanceQrRecord(updated);
+  return updated;
+}
+
+async function buildQrStateResponse(req: any) {
+  const [active, previous] = await Promise.all([
+    getActiveAttendanceQrRecords(),
+    getPreviousAttendanceQrRecord(),
+  ]);
+  return {
+    active: active.length > 0,
+    qr: active.length > 0 ? await buildAttendanceQrResponse(req, active[0]) : null,
+    previous: previous ? await buildAttendanceQrResponse(req, previous) : null,
+  };
+}
+
 app.get('/api/attendance/qr', async (req, res) => {
   const actor = readActingActor(req, req.body);
   if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
@@ -1390,50 +1450,91 @@ app.get('/api/attendance/qr', async (req, res) => {
     return res.status(403).json({ error: 'Forbidden: only IT and Administrators can view the attendance QR code.' });
   }
   try {
-    const active = await getActiveAttendanceQrRecords();
-    if (active.length === 0) return res.json({ active: false, qr: null });
-    return res.json({ active: true, qr: await buildAttendanceQrResponse(req, active[0]) });
+    return res.json(await buildQrStateResponse(req));
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Unable to load the attendance QR code.' });
   }
 });
 
+// Renewal: IT generates one code per month. Any currently active code is
+// deactivated but kept, so the previous code can be restored.
 app.post('/api/attendance/qr/generate', async (req, res) => {
   const actor = readActingActor(req, req.body);
   if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
   if (!isGeofenceAdminActor(actor)) {
     return res.status(403).json({ error: 'Forbidden: only IT and Administrators can generate the attendance QR code.' });
   }
-  const requestedMinutes = Number(req.body?.valid_for_minutes);
-  const validityMinutes = Number.isFinite(requestedMinutes) && requestedMinutes > 0
-    ? Math.min(Math.max(Math.round(requestedMinutes), 5), ATTENDANCE_QR_MAX_VALIDITY_MINUTES)
-    : ATTENDANCE_QR_DEFAULT_VALIDITY_MINUTES;
-  const now = new Date();
-  const token = `${ATTENDANCE_QR_PREFIX}-${crypto.randomBytes(18).toString('hex')}`;
-  const record = {
-    id: token,
-    token,
-    label: String(req.body?.label || 'Company attendance QR').substring(0, 120),
-    created_by: actor.username,
-    created_at: now.toISOString(),
-    expires_at: new Date(now.getTime() + validityMinutes * 60 * 1000).toISOString(),
-    valid_for_minutes: validityMinutes,
-    revoked: false,
-    qr_url: buildAttendanceQrUrl(req, token),
-  };
   try {
-    await saveToFirestore(ATTENDANCE_QR_TOKEN_COLLECTION, record.id, record);
-    if (!db[ATTENDANCE_QR_TOKEN_COLLECTION]) db[ATTENDANCE_QR_TOKEN_COLLECTION] = [];
-    (db[ATTENDANCE_QR_TOKEN_COLLECTION] as any[]).unshift(record);
+    const now = new Date();
+    const currentActive = await getActiveAttendanceQrRecords();
+    const revoked = [];
+    for (const entry of currentActive) {
+      revoked.push(await deactivateAttendanceQrRecord(entry, actor.username, 'renewed'));
+    }
+    const token = `${ATTENDANCE_QR_PREFIX}-${crypto.randomBytes(18).toString('hex')}`;
+    const record = {
+      id: token,
+      token,
+      label: String(req.body?.label || 'Monthly company attendance QR').substring(0, 120),
+      created_by: actor.username,
+      created_at: now.toISOString(),
+      expires_at: addOneMonth(now).toISOString(),
+      valid_for_days: ATTENDANCE_QR_VALIDITY_DAYS,
+      renewed_from: revoked[0]?.id || null,
+      revoked: false,
+      qr_url: buildAttendanceQrUrl(req, token),
+    };
+    await setAttendanceQrRecord(record);
     await logActivity(
       actor.username,
-      `Generated attendance QR code valid for ${validityMinutes} minutes`,
+      'Renewed the monthly attendance QR code (valid for one month)',
       'Attendance',
       record.id
     );
-    return res.json({ active: true, qr: await buildAttendanceQrResponse(req, record) });
+    return res.json(await buildQrStateResponse(req));
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Unable to generate the attendance QR code.' });
+  }
+});
+
+// Restores the code that was active before the last renewal.
+app.post('/api/attendance/qr/restore', async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!actor.username) return res.status(401).json({ error: 'Authentication required.' });
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: only IT and Administrators can restore the attendance QR code.' });
+  }
+  try {
+    const requestedId = String(req.body?.id || '').trim();
+    const previous = requestedId
+      ? await readAttendanceQrTokenRecord(requestedId)
+      : await getPreviousAttendanceQrRecord();
+    if (!previous) return res.status(404).json({ error: 'No previous QR code is available to restore.' });
+
+    const currentActive = await getActiveAttendanceQrRecords();
+    for (const entry of currentActive) {
+      if (String(entry.id) === String(previous.id)) continue;
+      await deactivateAttendanceQrRecord(entry, actor.username, 'replaced');
+    }
+
+    const now = new Date();
+    const restored = {
+      ...previous,
+      id: previous.id || previous.token,
+      revoked: false,
+      revoked_at: null,
+      revoked_by: null,
+      revoked_reason: null,
+      restored_at: now.toISOString(),
+      restored_by: actor.username,
+      expires_at: addOneMonth(now).toISOString(),
+      valid_for_days: ATTENDANCE_QR_VALIDITY_DAYS,
+    };
+    await setAttendanceQrRecord(restored);
+    await logActivity(actor.username, 'Restored the previously active attendance QR code', 'Attendance', restored.id);
+    return res.json(await buildQrStateResponse(req));
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Unable to restore the attendance QR code.' });
   }
 });
 
@@ -1448,22 +1549,72 @@ app.post('/api/attendance/qr/revoke', async (req, res) => {
   try {
     const existing = await readAttendanceQrTokenRecord(rawId);
     if (!existing) return res.status(404).json({ error: 'QR code not found.' });
-    const updated = {
-      ...existing,
-      id: existing.id || rawId,
-      revoked: true,
-      revoked_at: new Date().toISOString(),
-      revoked_by: actor.username,
-    };
-    await saveToFirestore(ATTENDANCE_QR_TOKEN_COLLECTION, updated.id, updated);
-    const cachedIdx = (db[ATTENDANCE_QR_TOKEN_COLLECTION] || []).findIndex((entry: any) => entry.id === updated.id);
-    if (cachedIdx >= 0) (db[ATTENDANCE_QR_TOKEN_COLLECTION] as any[])[cachedIdx] = updated;
+    const updated = await deactivateAttendanceQrRecord(existing, actor.username, 'revoked');
     await logActivity(actor.username, 'Revoked the active attendance QR code', 'Attendance', updated.id);
     return res.json({ success: true, id: updated.id, revoked_at: updated.revoked_at });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Unable to revoke the attendance QR code.' });
   }
 });
+
+// Monthly renewal reminder for IT: at most one notification per 24 hours.
+async function maybeNotifyAttendanceQrRenewal(): Promise<void> {
+  try {
+    const active = await getActiveAttendanceQrRecords();
+    const now = Date.now();
+    const day = new Date(now).toISOString().slice(0, 10);
+
+    if (active.length === 0) {
+      const notifId = `NOTIF-QR-MISSING-${day}`;
+      if ((db.notifications || []).some((n: any) => n.id === notifId)) return;
+      await addNotification(
+        'Attendance QR code expired',
+        'There is no active attendance QR code. Generate a new monthly code from Attendance Security so employees can clock in and out.',
+        'attendance',
+        undefined,
+        {
+          id: notifId,
+          target_scope: 'EMPLOYEE',
+          target_employee_id: 'IT',
+          target_employee_name: 'IT',
+          tab: 'attendance-security',
+          category: 'qr_renewal',
+          priority: 'Important',
+        }
+      );
+      return;
+    }
+
+    const token = active[0];
+    const expiresAt = Date.parse(String(token.expires_at || ''));
+    if (!Number.isFinite(expiresAt)) return;
+    const daysLeft = (expiresAt - now) / (24 * 60 * 60 * 1000);
+    if (daysLeft > ATTENDANCE_QR_RENEWAL_REMINDER_DAYS) return;
+    const lastReminder = Date.parse(String(token.last_reminder_at || ''));
+    if (Number.isFinite(lastReminder) && now - lastReminder < 24 * 60 * 60 * 1000) return;
+
+    const updated = { ...token, last_reminder_at: new Date(now).toISOString() };
+    await setAttendanceQrRecord(updated);
+    await addNotification(
+      'Monthly attendance QR renewal due',
+      `The active attendance QR expires in ${Math.max(0, Math.ceil(daysLeft))} day(s). Renew it for one month from Attendance Security.`,
+      'attendance',
+      token.id,
+      {
+        target_scope: 'EMPLOYEE',
+        target_employee_id: 'IT',
+        target_employee_name: 'IT',
+        tab: 'attendance-security',
+        category: 'qr_renewal',
+        priority: 'Important',
+        qr_token_id: token.id,
+        expires_at: token.expires_at,
+      }
+    );
+  } catch (err) {
+    console.warn('Attendance QR renewal reminder warning:', err);
+  }
+}
 
 // In-app notification to IT for every successful attendance transaction. The
 // record is always written to Firestore, so IT sees it on desktop even when no
@@ -6911,6 +7062,7 @@ async function startServer() {
           .then(() => Promise.all([
             runScheduledAttendanceRemindersTick(),
             runScheduledCalendarRemindersTick(),
+            maybeNotifyAttendanceQrRenewal(),
           ]))
           .catch(() => {});
       }, BACKGROUND_SYNC_INTERVAL_MS);

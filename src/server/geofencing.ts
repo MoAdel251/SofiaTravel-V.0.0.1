@@ -10,8 +10,10 @@ export const GEOFENCE_COLLECTION = 'company_geofencing';
 export const GEOFENCE_CONFIG_DOC_ID = 'main';
 export const GEOFENCE_VERIFICATION_LOG_COLLECTION = 'attendance_verification_logs';
 export const ATTENDANCE_QR_TOKEN_COLLECTION = 'attendance_qr_tokens';
-export const ATTENDANCE_QR_DEFAULT_VALIDITY_MINUTES = 1440;
-export const ATTENDANCE_QR_MAX_VALIDITY_MINUTES = 10080;
+/** Monthly attendance QR: one calendar month, renewed manually by IT. */
+export const ATTENDANCE_QR_VALIDITY_DAYS = 30;
+/** IT is reminded this many days before the monthly code expires. */
+export const ATTENDANCE_QR_RENEWAL_REMINDER_DAYS = 3;
 export const DEFAULT_ALLOWED_RADIUS_METERS = 50;
 export const MIN_ALLOWED_RADIUS_METERS = 5;
 export const MAX_ALLOWED_RADIUS_METERS = 10000;
