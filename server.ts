@@ -30,6 +30,17 @@ import {
   type CompanyGeofencingConfig,
 } from './src/server/geofencing';
 import { buildDeviceInfo } from './src/server/deviceInfo';
+import {
+  ATTENDANCE_QR_COLLECTION,
+  ATTENDANCE_QR_DOC_ID,
+  attendanceMonthBounds,
+  buildAttendanceQrToken,
+  createAttendanceQrSecret,
+  normalizeAttendanceQrConfig,
+  resolveAttendanceMonth,
+  verifyAttendanceQrToken,
+  type AttendanceQrConfig,
+} from './src/server/attendanceQr';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -205,6 +216,7 @@ let db = {
   employee_attendance: [],
   company_geofencing: [],
   attendance_verification_logs: [],
+  attendance_qr_settings: [],
   push_subscriptions: [],
   leave_requests: [],
   leave_balances: [],
@@ -268,7 +280,7 @@ async function loadFromFirestore() {
     "tasks", "documents", "notifications", "invoices", "activity_logs",
     "permission_requests", "payroll_records", "employee_advances", "commission_records",
     "finance_audit_logs", "customer_inquiries", "attendance", "work_schedules", "attendance_settings", "employee_attendance",
-    "company_geofencing", "attendance_verification_logs",
+    "company_geofencing", "attendance_verification_logs", "attendance_qr_settings",
     "push_subscriptions", "leave_requests", "leave_balances", "leave_policies",
     "announcements", "announcement_reads"
   ];
@@ -1066,6 +1078,70 @@ async function persistGeofencingConfig(config: CompanyGeofencingConfig): Promise
   await saveToFirestore(GEOFENCE_COLLECTION, config.id, config);
 }
 
+let attendanceQrConfigCache: { config: AttendanceQrConfig; loadedAt: number } | null = null;
+const ATTENDANCE_QR_CONFIG_CACHE_TTL_MS = 10 * 1000;
+// Keeps the monthly code stable inside this process even if Firestore is unreachable.
+let fallbackAttendanceQrSecret = '';
+
+async function readAttendanceQrConfig(forceRefresh = false): Promise<AttendanceQrConfig> {
+  if (
+    !forceRefresh &&
+    attendanceQrConfigCache &&
+    Date.now() - attendanceQrConfigCache.loadedAt < ATTENDANCE_QR_CONFIG_CACHE_TTL_MS
+  ) {
+    return attendanceQrConfigCache.config;
+  }
+
+  const envSecret = String(process.env.ATTENDANCE_QR_SECRET || '').trim();
+  if (!fallbackAttendanceQrSecret) fallbackAttendanceQrSecret = createAttendanceQrSecret();
+  const fallbackSecret = envSecret || fallbackAttendanceQrSecret;
+  let found: any = null;
+
+  try {
+    const docs = await Promise.race([
+      getCollectionDocs(ATTENDANCE_QR_COLLECTION),
+      new Promise<any[]>((_, reject) =>
+        setTimeout(() => reject(new Error('Attendance QR config read timeout')), 2500)
+      ),
+    ]);
+    found = docs.find((d: any) => d.id === ATTENDANCE_QR_DOC_ID) || docs[0] || null;
+  } catch (err) {
+    console.warn('Attendance QR config read fallback:', (err as any)?.message || err);
+    found = (db[ATTENDANCE_QR_COLLECTION] || []).find((d: any) => d.id === ATTENDANCE_QR_DOC_ID) || null;
+  }
+
+  const config = normalizeAttendanceQrConfig(found, fallbackSecret);
+  if (!found?.secret) {
+    // First run: persist the generated secret so the monthly code stays stable across restarts.
+    void persistAttendanceQrConfig({ ...config, created_at: config.created_at || new Date().toISOString() });
+  }
+  attendanceQrConfigCache = { config, loadedAt: Date.now() };
+  return config;
+}
+
+async function persistAttendanceQrConfig(config: AttendanceQrConfig): Promise<void> {
+  if (!db[ATTENDANCE_QR_COLLECTION]) db[ATTENDANCE_QR_COLLECTION] = [];
+  const idx = (db[ATTENDANCE_QR_COLLECTION] as any[]).findIndex((c: any) => c.id === config.id);
+  if (idx >= 0) db[ATTENDANCE_QR_COLLECTION][idx] = config;
+  else db[ATTENDANCE_QR_COLLECTION].push(config);
+  attendanceQrConfigCache = { config, loadedAt: Date.now() };
+  await saveToFirestore(ATTENDANCE_QR_COLLECTION, config.id, config);
+}
+
+function describeAttendanceQr(config: AttendanceQrConfig, now: Date = new Date()) {
+  const month = resolveAttendanceMonth(now);
+  const bounds = attendanceMonthBounds(month);
+  return {
+    month,
+    token: buildAttendanceQrToken(config.secret, month),
+    is_enabled: config.is_enabled,
+    valid_from: bounds.valid_from,
+    valid_until: bounds.valid_until,
+    checked_at: now.toISOString(),
+  };
+}
+
+
 function isAttendanceRecordOpen(record: any): boolean {
   const clockIn = String(record?.clock_in || record?.check_in_time || '').trim();
   const rawOut = String(record?.clock_out || record?.check_out_time || '').trim();
@@ -1149,6 +1225,8 @@ async function recordGeofenceVerificationLog(params: {
   accuracy: number;
   serverIso: string;
   outcome: 'allowed' | 'blocked';
+  resultOverride?: string;
+  qrVerification?: { required: boolean; verified: boolean; month: string; tokenSupplied: boolean };
 }): Promise<void> {
   const {
     req, actor, employeeId, employeeName, action, config, decision,
@@ -1167,7 +1245,7 @@ async function recordGeofenceVerificationLog(params: {
     employee_name: employeeName,
     action,
     outcome,
-    result: decision.reasonCode,
+    result: params.resultOverride || decision.reasonCode,
     distance_meters: decision.distanceMeters !== null
       ? Math.round(decision.distanceMeters * 100) / 100
       : null,
@@ -1180,6 +1258,13 @@ async function recordGeofenceVerificationLog(params: {
     ip_address: String(req.ip || ''),
     device_info: deviceInfo,
   };
+
+  if (params.qrVerification) {
+    entry.qr_required = params.qrVerification.required;
+    entry.qr_verified = params.qrVerification.verified;
+    entry.qr_month = params.qrVerification.month;
+    entry.qr_token_supplied = params.qrVerification.tokenSupplied;
+  }
 
   // Coordinates are sensitive: persist them only when the company policy allows it.
   if (config.store_coordinates && isValidLatitude(latitude) && isValidLongitude(longitude)) {
@@ -1321,15 +1406,39 @@ app.post("/api/attendance/self", async (req, res) => {
   const serverTime = getServerAttendanceTime();
   const decision = evaluateGeofence(config, latitude, longitude, accuracy);
 
-  if (!decision.allowed) {
+  // Monthly QR: opt-in, validated server-side against the current month only.
+  const qrConfig = await readAttendanceQrConfig();
+  const submittedQrToken = req.body?.qr_token ?? req.body?.qrToken;
+  const qrCheck = verifyAttendanceQrToken(qrConfig.secret, submittedQrToken);
+  const qrVerification = {
+    required: qrConfig.is_enabled,
+    verified: !qrConfig.is_enabled || qrCheck.valid,
+    month: qrCheck.month,
+    tokenSupplied: Boolean(String(submittedQrToken || '').trim()),
+  };
+  const qrFailureCode =
+    !qrConfig.is_enabled
+      ? null
+      : qrCheck.valid
+        ? null
+        : qrVerification.tokenSupplied
+          ? 'QR_INVALID'
+          : 'QR_REQUIRED';
+
+  if (!decision.allowed || qrFailureCode) {
     await recordGeofenceVerificationLog({
       req, actor, employeeId, employeeName, action, config, decision,
       latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'blocked',
+      resultOverride: qrFailureCode || undefined,
+      qrVerification,
     });
-    if (decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED') {
+    if (!qrFailureCode && decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED') {
       void notifyAdminGeofenceNotConfigured(actor);
     }
-    void notifyRepeatedGeofenceAttempts(employeeId, employeeName, decision.reasonCode);
+    void notifyRepeatedGeofenceAttempts(employeeId, employeeName, qrFailureCode || decision.reasonCode);
+    if (qrFailureCode) {
+      return sendGeofenceFailure(res, qrFailureCode, 403, { qr_month: qrCheck.month });
+    }
     const status =
       decision.reasonCode === 'GEOFENCE_NOT_CONFIGURED'
         ? 409
@@ -1358,6 +1467,7 @@ app.post("/api/attendance/self", async (req, res) => {
     await recordGeofenceVerificationLog({
       req, actor, employeeId, employeeName, action, config, decision,
       latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'allowed',
+      qrVerification,
     });
     return sendGeofenceFailure(res, 'ALREADY_CLOCKED_IN', 409);
   }
@@ -1366,6 +1476,7 @@ app.post("/api/attendance/self", async (req, res) => {
     await recordGeofenceVerificationLog({
       req, actor, employeeId, employeeName, action, config, decision,
       latitude, longitude, accuracy, serverIso: serverTime.iso, outcome: 'allowed',
+      qrVerification,
     });
     return sendGeofenceFailure(res, 'NO_OPEN_SHIFT', 409);
   }
@@ -1411,6 +1522,24 @@ app.post("/api/attendance/self", async (req, res) => {
     ? { latitude, longitude, accuracy, recorded_at: nowIso }
     : null;
 
+  // Device fingerprints are kept per transaction: a clock-out must never
+  // overwrite the fingerprint captured at clock-in (both are reviewable).
+  const previousDeviceInfo = base.device_info || null;
+  const checkInDeviceInfo = action === 'clock_in'
+    ? deviceInfo
+    : (base.check_in_device_info || previousDeviceInfo || null);
+  const checkOutDeviceInfo = action === 'clock_out'
+    ? deviceInfo
+    : (base.check_out_device_info || null);
+  const effectiveQrVerification = qrConfig.is_enabled
+    ? {
+        verified: qrVerification.verified,
+        month: qrVerification.month,
+        action,
+        verified_at: nowIso,
+      }
+    : (base.qr_verification || null);
+
   const record = {
     ...base,
     id: attId,
@@ -1443,6 +1572,9 @@ app.post("/api/attendance/self", async (req, res) => {
       ? (attendanceLocation || base.check_out_location || null)
       : (base.check_out_location || null),
     device_info: deviceInfo,
+    check_in_device_info: checkInDeviceInfo,
+    check_out_device_info: checkOutDeviceInfo,
+    qr_verification: effectiveQrVerification,
     location_verified_at: nowIso,
     location_verification_result: decision.reasonCode,
     server_recorded_at: nowIso,
@@ -1464,6 +1596,7 @@ app.post("/api/attendance/self", async (req, res) => {
   await recordGeofenceVerificationLog({
     req, actor, employeeId, employeeName, action, config, decision,
     latitude, longitude, accuracy, serverIso: nowIso, outcome: 'allowed',
+    qrVerification,
   });
 
   const verifiedSuffix = decision.reasonCode === 'WITHIN_GEOFENCE' ? ' (geofence verified)' : '';
@@ -1705,6 +1838,61 @@ app.put("/api/geofencing/settings", async (req, res) => {
   res.json(updated);
 });
 
+// ---------------------------------------------------------------------------
+// Monthly attendance QR code (clock-in / clock-out at the office)
+// The token is an HMAC of the attendance month, so it rotates automatically on
+// the 1st of every month and stays stable for the whole month.
+// ---------------------------------------------------------------------------
+
+// Public, secret-free status: employees only learn whether a scan is required.
+app.get("/api/attendance/qr/status", async (_req, res) => {
+  try {
+    const config = await readAttendanceQrConfig();
+    res.json({
+      is_enabled: config.is_enabled,
+      month: resolveAttendanceMonth(),
+    });
+  } catch (err) {
+    res.json({ is_enabled: false, month: resolveAttendanceMonth() });
+  }
+});
+
+app.get("/api/attendance/qr", async (req, res) => {
+  const actor = readActingActor(req);
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: Only authorized IT Administrators can view the attendance QR code.' });
+  }
+  const config = await readAttendanceQrConfig();
+  res.json(describeAttendanceQr(config));
+});
+
+app.put("/api/attendance/qr/settings", async (req, res) => {
+  const actor = readActingActor(req, req.body);
+  if (!isGeofenceAdminActor(actor)) {
+    return res.status(403).json({ error: 'Forbidden: Only authorized IT Administrators can modify the attendance QR settings.' });
+  }
+
+  const existing = await readAttendanceQrConfig(true);
+  const isEnabled = req.body?.is_enabled === true || req.body?.is_enabled === 'true';
+  const nowIso = new Date().toISOString();
+  const updated: AttendanceQrConfig = {
+    ...existing,
+    is_enabled: isEnabled,
+    updated_by: actor.username || 'Administrator',
+    updated_at: nowIso,
+    created_at: existing.created_at || nowIso,
+  };
+
+  await persistAttendanceQrConfig(updated);
+  await logActivity(
+    actor.username || 'Administrator',
+    `Attendance QR code ${isEnabled ? 'enabled (scan required)' : 'disabled (scan optional)'}`,
+    'Attendance Settings',
+    ATTENDANCE_QR_DOC_ID
+  );
+  res.json(describeAttendanceQr(updated));
+});
+
 // Address search proxy for the administrator map (OpenStreetMap Nominatim).
 app.get("/api/geofencing/geocode", async (req, res) => {
   const actor = readActingActor(req);
@@ -1814,6 +2002,11 @@ app.get("/api/attendance/security-logs", async (req, res) => {
       check_in_location: record.check_in_location || null,
       check_out_location: record.check_out_location || null,
       device_info: record.device_info || null,
+      check_in_device_info: record.check_in_device_info || record.device_info || null,
+      check_out_device_info: record.check_out_device_info || null,
+      qr_verification: record.qr_verification || null,
+      location_verification_result: record.location_verification_result || '',
+      location_verified_at: record.location_verified_at || '',
       geofence_verification: record.geofence_verification || null,
       server_recorded_at: record.server_recorded_at || record.updated_at || '',
     }));
@@ -3703,12 +3896,14 @@ app.post("/api/employees", async (req, res) => {
     ((deptLower === 'accounting' || deptLower === 'المحاسبة' || deptLower === 'الحسابات') &&
       (!posLower || posLower === 'sales executive' || posLower === 'staff member'));
 
+  const isOfficeBoy = posLower === 'office boy';
   const shouldBeAdmin = Boolean(
-    data.is_admin === true ||
-    posLower === 'administrator' ||
-    posLower === 'admin' ||
-    String(data.account_type || '').toLowerCase() === 'admin' ||
-    (isCreatedByIT && isManagerOrAccountant)
+    !isOfficeBoy &&
+    (data.is_admin === true ||
+      posLower === 'administrator' ||
+      posLower === 'admin' ||
+      String(data.account_type || '').toLowerCase() === 'admin' ||
+      (isCreatedByIT && isManagerOrAccountant))
   );
 
   const emp = {
@@ -3721,6 +3916,7 @@ app.post("/api/employees", async (req, res) => {
     position,
     job_title: data.job_title || position,
     is_admin: shouldBeAdmin,
+    permissions: isOfficeBoy ? [] : data.permissions,
     account_type: shouldBeAdmin ? 'Admin' : (data.account_type || 'Employee'),
     designation: shouldBeAdmin ? 'Admin' : (data.designation || 'Employee'),
     role: shouldBeAdmin ? 'Admin' : (data.role || position),
