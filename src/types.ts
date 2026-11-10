@@ -1,4 +1,4 @@
-export type UserRole = 'Administrator' | 'Manager' | 'Sales' | 'Accountant' | 'Operations' | 'Customer Service';
+export type UserRole = 'Administrator' | 'Manager' | 'Sales' | 'Accountant' | 'Operations' | 'Customer Service' | 'Office Boy';
 
 export interface User {
   id: string;
@@ -662,6 +662,7 @@ export type EmployeePosition =
   | 'Accountant' 
   | 'Operations' 
   | 'Customer Service'
+  | 'Office Boy'
   | (string & {});
 
 export interface Employee {
@@ -873,7 +874,17 @@ export interface AttendanceRecord {
   location_verified_at?: string;
   location_verification_result?: string;
   device_info?: AttendanceDeviceInfo | null;
+  check_in_device_info?: AttendanceDeviceInfo | null;
+  check_out_device_info?: AttendanceDeviceInfo | null;
+  qr_verification?: {
+    verified: boolean;
+    month: string;
+    action?: string;
+    verified_at?: string;
+  } | null;
   attendance_location?: AttendanceLocationInfo | null;
+  check_in_location?: AttendanceLocationInfo | null;
+  check_out_location?: AttendanceLocationInfo | null;
   created_at?: string;
   updated_at?: string;
   createdAt?: string;
