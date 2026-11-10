@@ -63,6 +63,8 @@ const roleDefaultTabs: Record<string, string[]> = {
     'invoices', 'permission-requests', 'attendance', 'calendar', 'tasks',
     'documents', 'notifications',
   ],
+  // Attendance-only account: used to clock in/out, nothing else.
+  'Office Boy': ['attendance'],
 };
 
 /**
@@ -126,6 +128,11 @@ export function isTabAllowedForUser(
 ): boolean {
   if (isAdmin || isITAccount) {
     return true;
+  }
+
+  // Office Boy accounts exist only to clock in/out. No granting can widen this.
+  if (userRole === 'Office Boy') {
+    return tabId === 'attendance';
   }
 
   if (tabId === 'attendance' || tabId === 'leave-management' || tabId === 'announcements') {

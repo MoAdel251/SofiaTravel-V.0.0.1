@@ -171,7 +171,7 @@ export function Navbar({
         <div className="flex items-center gap-2.5 min-w-0 shrink-0">
           <button
             type="button"
-            onClick={() => setCurrentTab('dashboard')}
+            onClick={() => setCurrentTab(userRole === 'Office Boy' ? 'attendance' : 'dashboard')}
             className="flex items-center gap-2.5 focus:outline-none cursor-pointer shrink-0"
             title={companyName}
           >

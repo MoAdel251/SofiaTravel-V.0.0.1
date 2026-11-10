@@ -485,6 +485,15 @@ export function EmployeesView({
       }
     }
 
+    // Attendance-only account: no admin rights and no module permissions at all.
+    if (updates.position === 'Office Boy') {
+      updated.is_admin = false;
+      updated.account_type = 'Employee';
+      updated.designation = 'Employee';
+      updated.permissions = [];
+      if (!updates.department) updated.department = 'Office';
+    }
+
     // Requirement: When the IT department adds an account for managers or accountants, designate their account as "Admin"
     if (
       isITAccount &&
@@ -598,10 +607,12 @@ export function EmployeesView({
       !editingEmployee &&
       isITAccount &&
       isManagerOrAccountantRole(formData.position, formData.department);
+    const isOfficeBoy = formData.position === 'Office Boy';
     const shouldBeAdmin = Boolean(
-      formData.is_admin ||
-      isITAddingMgrOrAcc ||
-      formData.position === 'Administrator'
+      !isOfficeBoy &&
+      (formData.is_admin ||
+        isITAddingMgrOrAcc ||
+        formData.position === 'Administrator')
     );
 
     const payload: Partial<Employee> & { username?: string; password?: string } = {
@@ -610,7 +621,7 @@ export function EmployeesView({
       account_type: shouldBeAdmin ? 'Admin' : 'Employee',
       designation: shouldBeAdmin ? 'Admin' : 'Employee',
       role: shouldBeAdmin ? 'Admin' : formData.position,
-      permissions: shouldBeAdmin ? ALL_PERMISSIONS : normalizePermissions(formData.permissions),
+      permissions: isOfficeBoy ? [] : (shouldBeAdmin ? ALL_PERMISSIONS : normalizePermissions(formData.permissions)),
     };
 
     if (editingEmployee) {
@@ -1556,7 +1567,17 @@ export function EmployeesView({
               {/* Employee Permissions Section */}
               {canManagePermissions && (
               <div className="pt-4 border-t border-slate-200 space-y-4">
-                {formData.is_admin ? (
+                {formData.position === 'Office Boy' ? (
+                  <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Shield className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-xs">Attendance-Only Account</p>
+                      <p className="text-[11px] text-amber-800">Office Boy accounts can only clock in and clock out from the Attendance page. All module permissions stay disabled; only an Administrator can change this role.</p>
+                    </div>
+                  </div>
+                ) : formData.is_admin ? (
                   <div className="p-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-2xl flex items-center gap-3">
                     <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                       <Shield className="w-4 h-4" />

@@ -1,4 +1,4 @@
-export type UserRole = 'Administrator' | 'Manager' | 'Sales' | 'Accountant' | 'Operations' | 'Customer Service';
+export type UserRole = 'Administrator' | 'Manager' | 'Sales' | 'Accountant' | 'Operations' | 'Customer Service' | 'Office Boy';
 
 export interface User {
   id: string;
@@ -662,6 +662,7 @@ export type EmployeePosition =
   | 'Accountant' 
   | 'Operations' 
   | 'Customer Service'
+  | 'Office Boy'
   | (string & {});
 
 export interface Employee {

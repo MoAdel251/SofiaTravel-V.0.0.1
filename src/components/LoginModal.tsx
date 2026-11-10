@@ -93,7 +93,8 @@ export function LoginModal({ onLogin, companyName, employees = [], isSiteDisable
         matchedEmployee.position === 'Accountant' ||
         matchedEmployee.position === 'Operations' ||
         matchedEmployee.position === 'Customer Service' ||
-        matchedEmployee.position === 'Sales'
+        matchedEmployee.position === 'Sales' ||
+        matchedEmployee.position === 'Office Boy'
       ) {
         role = matchedEmployee.position as UserRole;
       } else if (matchedEmployee.position === 'Reservation Agent') {
