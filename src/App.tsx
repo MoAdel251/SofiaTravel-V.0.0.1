@@ -83,6 +83,11 @@ import {
   submitSelfAttendance,
   type GeofenceReasonCode,
 } from './services/geofencing';
+import {
+  captureAttendanceQrFromUrl,
+  clearStoredAttendanceQrToken,
+  getStoredAttendanceQrToken,
+} from './services/attendanceQr';
 import { convertCurrency } from './utils/currency';
 import {
   applyAttendancePolicy,
@@ -247,7 +252,7 @@ export default function App() {
     isEmployeeDesignatedAdmin(currentEmployee);
   const employeeRecordRole: UserRole =
     currentEmployee &&
-    ['Manager', 'Accountant', 'Operations', 'Customer Service', 'Sales'].includes(
+    ['Manager', 'Accountant', 'Operations', 'Customer Service', 'Sales', 'Office Boy'].includes(
       String(currentEmployee.position || '')
     )
       ? (currentEmployee.position as UserRole)
@@ -278,9 +283,18 @@ export default function App() {
     }
   }, [isAuthenticated, isCurrentAdmin, currentEmployee, employeeRecordRole, userRole]);
 
-  // Permission Guard Watchdog: If an administrator revokes an employee's access to the active page tab, immediately redirect them to the Dashboard
+  // Scanning the printed office QR opens the app with ?clock=TOKEN; keep that token for clock-in/out.
+  const pendingQrLandingRef = useRef(false);
   useEffect(() => {
-    if (isAuthenticated && !isCurrentAdmin && !isITAccount && currentTab !== 'dashboard') {
+    if (!captureAttendanceQrFromUrl()) return;
+    pendingQrLandingRef.current = true;
+    if (isAuthenticated) setCurrentTab('attendance');
+  }, []);
+
+  // Permission Guard Watchdog: If an administrator revokes an employee's access to the active page tab, immediately redirect them to their home tab
+  useEffect(() => {
+    const homeTab = effectiveUserRole === 'Office Boy' ? 'attendance' : 'dashboard';
+    if (isAuthenticated && !isCurrentAdmin && !isITAccount && currentTab !== homeTab) {
       const allowed = isTabAllowedForUser(
         currentTab,
         effectiveUserRole,
@@ -289,7 +303,7 @@ export default function App() {
         isITAccount
       );
       if (!allowed) {
-        setCurrentTab('dashboard');
+        setCurrentTab(homeTab);
         showToast(
           isAr
             ? 'تم إلغاء صلاحيتك للوصول لهذه الصفحة بواسطة الإدارة.'
@@ -337,11 +351,12 @@ export default function App() {
   const isAuthorizedToDirectlyModify = isCurrentAdmin || effectiveUserRole === 'Manager' || effectiveUserRole === 'Accountant';
 
   // Hard gate for the rendered view: a revoked tab is blocked even before the watchdog redirect runs.
+  const homeTabForRole = effectiveUserRole === 'Office Boy' ? 'attendance' : 'dashboard';
   const isCurrentTabRevoked =
     isAuthenticated &&
     !isCurrentAdmin &&
     !isITAccount &&
-    currentTab !== 'dashboard' &&
+    currentTab !== homeTabForRole &&
     currentTab !== 'attendance' &&
     !isTabAllowedForUser(
       currentTab,
@@ -2337,13 +2352,17 @@ export default function App() {
   const handleAddEmployee = async (data: Partial<Employee> & { username?: string; password?: string }) => {
     const newId = data.id && String(data.id).trim() ? String(data.id).trim() : `EMP-${Date.now().toString(36).toUpperCase()}`;
     const empPos = (data.position || 'Sales') as EmployeePosition;
+    // Office Boy is a clock-in/out-only account: never an admin, never permissions.
+    const isOfficeBoy = empPos === 'Office Boy';
     const autoAdminByIT =
       isITAccount &&
+      !isOfficeBoy &&
       isManagerOrAccountantRole(empPos, data.department, data.role);
     const shouldBeAdmin = Boolean(
-      data.is_admin ||
-      autoAdminByIT ||
-      empPos === 'Administrator'
+      !isOfficeBoy &&
+      (data.is_admin ||
+        autoAdminByIT ||
+        empPos === 'Administrator')
     );
 
     const empRecord: Employee = {
@@ -2365,7 +2384,7 @@ export default function App() {
       total_profit: 0,
       ...data,
       id: newId,
-      permissions: normalizePermissions(data.permissions),
+      permissions: isOfficeBoy ? [] : normalizePermissions(data.permissions),
       is_admin: shouldBeAdmin,
       account_type: shouldBeAdmin ? 'Admin' : 'Employee',
       designation: shouldBeAdmin ? 'Admin' : 'Employee',
@@ -2393,8 +2412,10 @@ export default function App() {
       return;
     }
     const nextPos = (data.position || emp?.position || 'Sales') as EmployeePosition;
-    const nextIsAdmin =
-      data.is_admin !== undefined
+    const nextIsOfficeBoy = nextPos === 'Office Boy';
+    const nextIsAdmin = nextIsOfficeBoy
+      ? false
+      : data.is_admin !== undefined
         ? Boolean(data.is_admin)
         : isEmployeeDesignatedAdmin(emp);
     const updated: Employee = {
@@ -2407,8 +2428,9 @@ export default function App() {
       account_type: nextIsAdmin ? 'Admin' : 'Employee',
       designation: nextIsAdmin ? 'Admin' : 'Employee',
       role: nextIsAdmin ? 'Admin' : String(nextPos),
+      permissions: nextIsOfficeBoy ? [] : (data.permissions !== undefined ? data.permissions : emp?.permissions),
     };
-    if (Array.isArray(updated.permissions)) {
+    if (!nextIsOfficeBoy && Array.isArray(updated.permissions)) {
       updated.permissions = normalizePermissions(updated.permissions);
     }
     setEmployees(prev => prev.map(e => (e.id === docId ? updated : e)));
@@ -2910,9 +2932,11 @@ export default function App() {
       actingUser: isITAccount ? 'IT' : (currentUsername || activeSelfName),
       actingRole: isCurrentAdmin ? 'Administrator' : effectiveUserRole,
       position,
+      qrToken: getStoredAttendanceQrToken(),
     });
 
     if (!result.ok) {
+      if ('code' in result && result.code === 'QR_INVALID') clearStoredAttendanceQrToken();
       showToast(isAr ? result.messageAr : result.messageEn);
       return;
     }
@@ -2965,9 +2989,11 @@ export default function App() {
       actingUser: isITAccount ? 'IT' : (currentUsername || activeSelfName),
       actingRole: isCurrentAdmin ? 'Administrator' : effectiveUserRole,
       position,
+      qrToken: getStoredAttendanceQrToken(),
     });
 
     if (!result.ok) {
+      if ('code' in result && result.code === 'QR_INVALID') clearStoredAttendanceQrToken();
       showToast(isAr ? result.messageAr : result.messageEn);
       return;
     }
@@ -3555,6 +3581,10 @@ export default function App() {
       setCurrentEmpId(empId);
     }
     setIsAuthenticated(true);
+    // Office Boy accounts (and anyone arriving from a QR scan) land on the attendance page.
+    const landOnAttendance = role === 'Office Boy' || pendingQrLandingRef.current;
+    pendingQrLandingRef.current = false;
+    setCurrentTab(landOnAttendance ? 'attendance' : 'dashboard');
     try {
       localStorage.setItem('sofia_travel_auth', 'true');
       localStorage.setItem('sofia_travel_user', name);
