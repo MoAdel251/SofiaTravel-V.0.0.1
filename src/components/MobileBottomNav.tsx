@@ -23,6 +23,47 @@ interface MobileBottomNavProps {
   isITAccount?: boolean;
 }
 
+function NavButton({
+  active,
+  label,
+  onClick,
+  children,
+  badge,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  badge?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`relative flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 transition-colors cursor-pointer ${
+        active ? 'text-sofia-turquoise-600' : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
+      }`}
+    >
+      <span
+        className={`flex h-7 w-11 items-center justify-center rounded-lg transition-colors ${
+          active ? 'bg-sofia-turquoise/14' : ''
+        }`}
+      >
+        {children}
+      </span>
+      <span className={`max-w-full truncate px-1 text-[10px] leading-tight ${active ? 'font-bold' : 'font-semibold'}`}>
+        {label}
+      </span>
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute top-1 end-2.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function MobileBottomNav({
   currentTab,
   setCurrentTab,
@@ -52,29 +93,19 @@ export function MobileBottomNav({
     return (
       <nav
         aria-label="Mobile Primary Navigation"
-        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl"
+        className="fluent-bottom-nav lg:hidden fixed bottom-0 inset-x-0 z-40 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
       >
-        <div className="grid grid-cols-2 items-center max-w-sm mx-auto">
-          <button
-            type="button"
+        <div className="mx-auto grid max-w-sm grid-cols-2 items-center">
+          <NavButton
+            active={currentTab === 'attendance' || currentTab === 'leave-management'}
+            label={t('nav_attendance')}
             onClick={() => setCurrentTab('attendance')}
-            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
-              currentTab === 'attendance' || currentTab === 'leave-management'
-                ? 'text-cyan-400 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
           >
-            <Clock className="w-5 h-5 mb-0.5" />
-            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_attendance')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={onOpenMobileMenu}
-            className="relative flex flex-col items-center justify-center min-h-[48px] rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-          >
-            <LayoutGrid className="w-5 h-5 mb-0.5" />
-            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_menu')}</span>
-          </button>
+            <Clock className="h-[19px] w-[19px]" />
+          </NavButton>
+          <NavButton active={false} label={t('nav_menu')} onClick={onOpenMobileMenu}>
+            <LayoutGrid className="h-[19px] w-[19px]" />
+          </NavButton>
         </div>
       </nav>
     );
@@ -83,94 +114,71 @@ export function MobileBottomNav({
   return (
     <nav
       aria-label="Mobile Primary Navigation"
-      className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl"
+      className="fluent-bottom-nav lg:hidden fixed bottom-0 inset-x-0 z-40 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
-      <div className="grid grid-cols-5 items-center max-w-lg mx-auto">
-        {/* Dashboard */}
-        <button
-          type="button"
+      <div className="mx-auto grid max-w-lg grid-cols-5 items-center">
+        <NavButton
+          active={currentTab === 'dashboard'}
+          label={t('nav_dashboard')}
           onClick={() => setCurrentTab('dashboard')}
-          className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
-            currentTab === 'dashboard'
-              ? 'text-cyan-400 font-bold'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
         >
-          <LayoutDashboard className="w-5 h-5 mb-0.5" />
-          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_dashboard')}</span>
-        </button>
+          <LayoutDashboard className="h-[19px] w-[19px]" />
+        </NavButton>
 
-        {/* Vouchers */}
         {canViewVouchers ? (
-          <button
-            type="button"
+          <NavButton
+            active={isVouchersActive}
+            label={t('nav_vouchers_short')}
             onClick={() => setCurrentTab('vouchers')}
-            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
-              isVouchersActive
-                ? 'text-cyan-400 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
           >
-            <Ticket className="w-5 h-5 mb-0.5" />
-            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
-          </button>
+            <Ticket className="h-[19px] w-[19px]" />
+          </NavButton>
         ) : (
-          <div className="flex flex-col items-center justify-center min-h-[48px] text-slate-700 opacity-40">
-            <Ticket className="w-5 h-5 mb-0.5" />
-            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_vouchers_short')}</span>
+          <div className="flex min-h-[52px] flex-col items-center justify-center text-[var(--text-3)] opacity-35">
+            <Ticket className="h-[19px] w-[19px]" />
+            <span className="mt-0.5 text-[10px] font-semibold">{t('nav_vouchers_short')}</span>
           </div>
         )}
 
-        {/* Center Quick Add Button */}
         <div className="flex justify-center">
           <button
             type="button"
             onClick={onOpenQuickAdd}
-            className="relative -top-2.5 flex flex-col items-center justify-center cursor-pointer group"
+            className="relative -top-3 flex flex-col items-center justify-center cursor-pointer group"
             aria-label={t('nav_quick_add')}
           >
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-slate-950 flex items-center justify-center shadow-lg border-2 border-slate-900 transition-transform">
-              <Plus className="w-6 h-6 stroke-[2.5]" />
-            </div>
-            <span className="text-[10px] font-bold text-cyan-300 mt-0.5 leading-none">{t('nav_quick_add')}</span>
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl fluent-brand-gradient text-sofia-turquoise shadow-[0_10px_24px_rgba(41,24,63,0.35)] ring-1 ring-white/20 transition-transform active:scale-95">
+              <Plus className="h-6 w-6 stroke-[2.5]" />
+            </span>
+            <span className="mt-0.5 text-[9px] font-bold leading-none text-sofia-turquoise-600">
+              {t('nav_quick_add')}
+            </span>
           </button>
         </div>
 
-        {/* Invoices */}
         {canViewInvoices ? (
-          <button
-            type="button"
+          <NavButton
+            active={isInvoicesActive}
+            label={t('nav_invoices_short')}
             onClick={() => setCurrentTab('invoices')}
-            className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl transition-colors cursor-pointer ${
-              isInvoicesActive
-                ? 'text-cyan-400 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
           >
-            <FileText className="w-5 h-5 mb-0.5" />
-            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
-          </button>
+            <FileText className="h-[19px] w-[19px]" />
+          </NavButton>
         ) : (
-          <div className="flex flex-col items-center justify-center min-h-[48px] text-slate-700 opacity-40">
-            <FileText className="w-5 h-5 mb-0.5" />
-            <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_invoices_short')}</span>
+          <div className="flex min-h-[52px] flex-col items-center justify-center text-[var(--text-3)] opacity-35">
+            <FileText className="h-[19px] w-[19px]" />
+            <span className="mt-0.5 text-[10px] font-semibold">{t('nav_invoices_short')}</span>
           </div>
         )}
 
-        {/* All Modules App Drawer */}
-        <button
-          type="button"
+        <NavButton
+          active={false}
+          label={t('nav_menu')}
           onClick={onOpenMobileMenu}
-          className="relative flex flex-col items-center justify-center min-h-[48px] rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+          badge={pendingPermissionCount}
         >
-          <LayoutGrid className="w-5 h-5 mb-0.5" />
-          <span className="text-[11px] leading-tight truncate max-w-full px-1">{t('nav_menu')}</span>
-          {pendingPermissionCount > 0 && (
-            <span className="absolute top-1 end-3 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
-              {pendingPermissionCount}
-            </span>
-          )}
-        </button>
+          <LayoutGrid className="h-[19px] w-[19px]" />
+        </NavButton>
       </div>
     </nav>
   );

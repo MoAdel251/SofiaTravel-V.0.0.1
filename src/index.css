@@ -1,5 +1,85 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   SOFIA TRAVEL — Windows 11 Fluent Design System
+   Brand tokens only; no business logic. Light is the default surface.
+   ========================================================================== */
+@theme {
+  --color-sofia-purple: #29183F;
+  --color-sofia-purple-700: #3A2556;
+  --color-sofia-purple-500: #5A3F80;
+  --color-sofia-turquoise: #13C8CC;
+  --color-sofia-turquoise-600: #0FAEB2;
+  --color-sofia-turquoise-100: #D6F7F7;
+  --color-sofia-lavender: #A49AEF;
+  --color-sofia-lavender-100: #ECE9FC;
+  --color-sofia-mist: #F5F3FA;
+  --color-sofia-ink: #273047;
+  --color-sofia-ink-soft: #5C6579;
+
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    "SF Pro Text", "Inter", "Noto Sans Arabic", "Tahoma", "Arial", sans-serif;
+
+  --radius-fluent-sm: 8px;
+  --radius-fluent: 12px;
+  --radius-fluent-lg: 16px;
+  --radius-fluent-xl: 20px;
+
+  --shadow-fluent: 0 1px 2px rgba(41, 24, 63, 0.05), 0 6px 18px rgba(41, 24, 63, 0.06);
+  --shadow-fluent-lg: 0 10px 32px rgba(41, 24, 63, 0.10), 0 2px 8px rgba(41, 24, 63, 0.05);
+  --shadow-fluent-xl: 0 24px 64px rgba(41, 24, 63, 0.18);
+}
+
+:root {
+  color-scheme: light;
+  --app-bg: #F5F3FA;
+  --app-bg-glow-1: rgba(19, 200, 204, 0.10);
+  --app-bg-glow-2: rgba(164, 154, 239, 0.18);
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-solid: #FFFFFF;
+  --surface-soft: rgba(245, 243, 250, 0.88);
+  --surface-hover: rgba(41, 24, 63, 0.05);
+  --surface-active: rgba(19, 200, 204, 0.12);
+  --stroke: rgba(41, 24, 63, 0.09);
+  --stroke-strong: rgba(41, 24, 63, 0.16);
+  --text-1: #273047;
+  --text-2: #5C6579;
+  --text-3: #8A91A5;
+  --brand: #29183F;
+  --accent: #13C8CC;
+  --accent-strong: #0FAEB2;
+  --accent-soft: rgba(19, 200, 204, 0.12);
+  --lavender: #A49AEF;
+  --shadow-1: 0 1px 2px rgba(41, 24, 63, 0.05), 0 4px 12px rgba(41, 24, 63, 0.05);
+  --shadow-2: 0 8px 24px rgba(41, 24, 63, 0.08), 0 2px 6px rgba(41, 24, 63, 0.04);
+  --shadow-3: 0 22px 56px rgba(41, 24, 63, 0.16);
+  --ring: rgba(19, 200, 204, 0.5);
+  --sidebar-w: 268px;
+  --sidebar-w-collapsed: 84px;
+  --topbar-h: 64px;
+}
+
+html.dark {
+  color-scheme: dark;
+  --app-bg: #140E1E;
+  --app-bg-glow-1: rgba(19, 200, 204, 0.12);
+  --app-bg-glow-2: rgba(164, 154, 239, 0.14);
+  --surface: rgba(36, 26, 51, 0.82);
+  --surface-solid: #241A33;
+  --surface-soft: rgba(45, 33, 62, 0.9);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --surface-active: rgba(19, 200, 204, 0.16);
+  --stroke: rgba(255, 255, 255, 0.09);
+  --stroke-strong: rgba(255, 255, 255, 0.16);
+  --text-1: #F1EDF9;
+  --text-2: #C4BCD6;
+  --text-3: #948CA8;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 10px 28px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --ring: rgba(19, 200, 204, 0.65);
+}
+
 html, body {
   height: 100%;
   min-height: 100dvh;
@@ -141,6 +221,274 @@ textarea:focus-visible {
 .custom-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
+}
+
+/* ==========================================
+   FLUENT SURFACES & COMPONENT PRIMITIVES
+   ========================================== */
+.app-canvas {
+  background-color: var(--app-bg);
+  background-image:
+    radial-gradient(1100px 520px at 100% -10%, var(--app-bg-glow-2), transparent 62%),
+    radial-gradient(900px 460px at -10% 0%, var(--app-bg-glow-1), transparent 58%);
+  background-attachment: fixed;
+}
+
+.fluent-mica {
+  background-color: var(--surface);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+}
+
+.fluent-acrylic {
+  background-color: var(--surface);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+  backdrop-filter: blur(40px) saturate(160%);
+  border: 1px solid var(--stroke);
+}
+
+.fluent-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  box-shadow: var(--shadow-1);
+}
+
+.fluent-card-soft {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  box-shadow: var(--shadow-1);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+
+.fluent-interactive {
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 180ms ease,
+    border-color 180ms ease;
+  will-change: transform;
+}
+
+@media (hover: hover) {
+  .fluent-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
+    border-color: var(--stroke-strong);
+  }
+}
+
+.fluent-interactive:active {
+  transform: translateY(0) scale(0.994);
+}
+
+.fluent-divider {
+  height: 1px;
+  background: var(--stroke);
+}
+
+.fluent-focus:focus-visible,
+.fluent-focusable:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.fluent-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 140, 168, 0.45) transparent;
+}
+.fluent-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.fluent-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 140, 168, 0.4);
+  border-radius: 999px;
+}
+.fluent-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 140, 168, 0.65);
+}
+
+/* Soft entrance for Fluent surfaces */
+@keyframes fluent-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.fluent-rise {
+  animation: fluent-rise 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes fluent-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.fluent-pop {
+  animation: fluent-pop 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Brand gradient helpers */
+.fluent-brand-gradient {
+  background-image:
+    radial-gradient(120% 140% at 100% 0%, rgba(19, 200, 204, 0.38), transparent 52%),
+    radial-gradient(120% 140% at 0% 100%, rgba(164, 154, 239, 0.42), transparent 58%),
+    linear-gradient(135deg, #29183F 0%, #3A2556 58%, #4A2E6B 100%);
+}
+
+.fluent-hero-glow {
+  background: radial-gradient(closest-side, rgba(19, 200, 204, 0.45), transparent);
+  filter: blur(18px);
+}
+
+/* ==========================================
+   DARK MODE — ADAPTATION LAYER FOR EXISTING UTILITIES
+   Scoped by html.dark so light mode remains untouched.
+   ========================================== */
+html.dark body {
+  background-color: var(--app-bg);
+  color: var(--text-1);
+}
+
+html.dark .bg-white {
+  background-color: var(--surface-solid);
+}
+html.dark .bg-white\/95,
+html.dark .bg-white\/90,
+html.dark .bg-white\/85,
+html.dark .bg-white\/80,
+html.dark .bg-white\/70 {
+  background-color: rgba(36, 26, 51, 0.88);
+}
+html.dark .bg-slate-50 {
+  background-color: #2A2039;
+}
+html.dark .bg-slate-100 {
+  background-color: #322743;
+}
+html.dark .bg-slate-200 {
+  background-color: #3B2F4D;
+}
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover {
+  background-color: #362A49;
+}
+html.dark .hover\:bg-white:hover {
+  background-color: #2E2340;
+}
+
+html.dark .text-slate-900,
+html.dark .text-slate-950 {
+  color: #F1EDF9;
+}
+html.dark .text-slate-800,
+html.dark .text-slate-700 {
+  color: #DCD5EB;
+}
+html.dark .text-slate-600 {
+  color: #BDB4D0;
+}
+html.dark .text-slate-500 {
+  color: #A69DBB;
+}
+html.dark .text-slate-400 {
+  color: #8A81A0;
+}
+html.dark .text-slate-300 {
+  color: #6F6585;
+}
+
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-300 {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+html.dark .ring-slate-200 {
+  --tw-ring-color: rgba(255, 255, 255, 0.12);
+}
+
+html.dark .shadow-sm,
+html.dark .shadow-xs,
+html.dark .shadow-2xs,
+html.dark .shadow-md,
+html.dark .shadow-lg {
+  --tw-shadow-color: rgba(0, 0, 0, 0.45);
+}
+
+html.dark .bg-blue-50,
+html.dark .bg-cyan-50,
+html.dark .bg-emerald-50,
+html.dark .bg-amber-50,
+html.dark .bg-rose-50,
+html.dark .bg-indigo-50,
+html.dark .bg-orange-50 {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+html.dark .border-blue-100,
+html.dark .border-cyan-100,
+html.dark .border-emerald-100,
+html.dark .border-amber-100,
+html.dark .border-rose-100 {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Forms keep readable contrast on dark acrylic surfaces */
+html.dark input:not([type='checkbox']):not([type='radio']),
+html.dark select,
+html.dark textarea {
+  color: var(--text-1);
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: var(--text-3);
+}
+
+/* Dark scrollbars */
+html.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+html.dark .custom-scrollbar {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+/* ==========================================
+   MOBILE FLUENT COMPOSITION
+   ========================================== */
+.fluent-bottom-nav {
+  background-color: rgba(255, 255, 255, 0.82);
+  -webkit-backdrop-filter: blur(32px) saturate(170%);
+  backdrop-filter: blur(32px) saturate(170%);
+  border-top: 1px solid var(--stroke);
+  box-shadow: 0 -8px 30px rgba(41, 24, 63, 0.08);
+}
+
+html.dark .fluent-bottom-nav {
+  background-color: rgba(26, 18, 38, 0.88);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 1023px) {
+  .fluent-mobile-page {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
 }
 
 /* ==========================================

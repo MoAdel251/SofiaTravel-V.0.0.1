@@ -133,97 +133,139 @@ export function LoginModal({ onLogin, companyName, employees = [], isSiteDisable
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden my-auto">
-        {/* Header with Attached Sofia Travel Logo As-Is */}
-        <div className="bg-slate-900 p-6 text-white text-center relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-sofia-purple/55 p-3 sm:p-4 backdrop-blur-xl">
+      <div className="fluent-card my-auto grid w-full max-w-4xl overflow-hidden rounded-3xl md:grid-cols-[1.05fr_1fr] shadow-[var(--shadow-3)]">
+        {/* Brand panel */}
+        <div className="fluent-brand-gradient relative overflow-hidden p-6 sm:p-8 text-white">
+          <div className="pointer-events-none absolute -end-12 -top-12 h-48 w-48 rounded-full bg-sofia-turquoise/30 blur-3xl" />
+          <div className="pointer-events-none absolute -start-10 bottom-0 h-40 w-40 rounded-full bg-sofia-lavender/30 blur-3xl" />
+
+          <div className="relative z-10 flex items-center justify-between">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/80">
+              <span className="h-1.5 w-1.5 rounded-full bg-sofia-turquoise" />
+              SOFIA TRAVEL
+            </span>
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-bold text-white transition-colors hover:bg-white/20 cursor-pointer"
+            >
+              {language === 'en' ? 'العربية' : 'English'}
+            </button>
+          </div>
+
+          <div className="relative z-10 mt-8 sm:mt-12">
+            <div className="inline-flex items-center justify-center rounded-2xl bg-white p-3 shadow-xl">
+              <img
+                src={SOFIA_LOGO_URL}
+                alt={companyName}
+                className="h-20 sm:h-24 w-auto object-contain select-none"
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (!img.src.endsWith('/sofia-logo.png')) {
+                    img.src = '/sofia-logo.png';
+                  }
+                }}
+              />
+            </div>
+            <h2 className="mt-5 text-xl sm:text-2xl font-extrabold tracking-tight">{companyName}</h2>
+            <p className="mt-1.5 text-xs sm:text-sm text-white/70 max-w-xs">
+              {language === 'ar' ? 'بوابة إدارة العمليات والحسابات السحابية' : 'Cloud Operations & Management Portal'}
+            </p>
+
+            <div className="mt-7 hidden sm:flex flex-col gap-2.5 text-[11px] text-white/80">
+              {[
+                language === 'ar' ? 'حضور وانصراف موثّق بالموقع' : 'Location-verified attendance',
+                language === 'ar' ? 'إجازات وموافقات لحظية' : 'Leave & approvals in real time',
+                language === 'ar' ? 'مزامنة سحابية آمنة' : 'Secure cloud synchronization',
+              ].map(item => (
+                <span key={item} className="inline-flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-sofia-turquoise/25 text-sofia-turquoise text-[9px] font-black">
+                    ✓
+                  </span>
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Form panel */}
+        <div className="relative bg-[var(--surface-solid)] p-6 sm:p-8">
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="absolute top-4 start-4 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 cursor-pointer"
+              className="absolute top-4 start-4 rounded-lg border border-[var(--stroke)] bg-[var(--surface-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--text-2)] hover:bg-[var(--surface-hover)] cursor-pointer"
             >
               {language === 'ar' ? 'رجوع' : 'Back'}
             </button>
           )}
-          <button
-            type="button"
-            onClick={toggleLanguage}
-            className="absolute top-4 end-4 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-cyan-300 cursor-pointer"
-          >
-            {language === 'en' ? 'العربية' : 'English'}
-          </button>
 
-          <div className="inline-flex items-center justify-center bg-white rounded-2xl p-2 shadow-lg mb-3">
-            <img
-              src={SOFIA_LOGO_URL}
-              alt={companyName}
-              className="h-24 sm:h-28 w-auto object-contain select-none"
-              onError={(e) => {
-                const img = e.currentTarget;
-                if (!img.src.endsWith('/sofia-logo.png')) {
-                  img.src = '/sofia-logo.png';
-                }
-              }}
-            />
+          <div className={`${onClose ? 'mt-8' : ''}`}>
+            <h3 className="text-lg font-extrabold text-[var(--text-1)]">
+              {language === 'ar' ? 'تسجيل الدخول' : 'Sign in'}
+            </h3>
+            <p className="mt-1 text-xs text-[var(--text-3)]">
+              {language === 'ar' ? 'أدخل بيانات حسابك للوصول إلى مساحة العمل.' : 'Enter your account details to access the workspace.'}
+            </p>
           </div>
-          <h2 className="text-lg font-extrabold tracking-tight">{companyName}</h2>
-          <p className="text-xs text-cyan-300 mt-0.5 font-medium">
-            {language === 'ar' ? 'بوابة إدارة العمليات والحسابات السحابية' : 'Cloud Operations & Management Portal'}
-          </p>
-        </div>
 
-        {/* Form Body */}
-        <div className="p-6">
           {error && (
-            <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+            <div className="mt-4 flex items-center gap-2 rounded-xl border border-rose-500/25 bg-rose-500/10 p-3 text-xs text-rose-600">
+              <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <form onSubmit={handleLoginSubmit} className="mt-5 space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <label className="mb-1.5 block text-xs font-bold text-[var(--text-2)]">
                 {language === 'ar' ? 'اسم المستخدم' : 'Username / Full Name'}
               </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute start-3.5 top-3.5 pointer-events-none" />
+                <User className="pointer-events-none absolute start-3.5 top-3.5 h-4 w-4 text-[var(--text-3)]" />
                 <input
                   type="text"
                   required
                   placeholder={language === 'ar' ? 'أدخل اسم المستخدم' : 'Enter username'}
                   value={username}
                   onChange={e => setUsername(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 ps-10 pe-4 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600 transition-all"
+                  className="w-full rounded-xl border border-[var(--stroke)] bg-[var(--surface-soft)] py-3 ps-10 pe-4 text-sm font-medium text-[var(--text-1)] transition-all focus:border-sofia-turquoise focus:outline-none focus:ring-2 focus:ring-sofia-turquoise/25"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <label className="mb-1.5 block text-xs font-bold text-[var(--text-2)]">
                 {language === 'ar' ? 'كلمة المرور' : 'Password'}
               </label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute start-3.5 top-3.5 pointer-events-none" />
+                <Lock className="pointer-events-none absolute start-3.5 top-3.5 h-4 w-4 text-[var(--text-3)]" />
                 <input
                   type="password"
                   required
                   placeholder="••••••••"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 ps-10 pe-4 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600 transition-all"
+                  className="w-full rounded-xl border border-[var(--stroke)] bg-[var(--surface-soft)] py-3 ps-10 pe-4 text-sm font-medium text-[var(--text-1)] transition-all focus:border-sofia-turquoise focus:outline-none focus:ring-2 focus:ring-sofia-turquoise/25"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-md transition-all text-sm mt-2 cursor-pointer flex items-center justify-center gap-2 min-h-[48px]"
+              className="mt-2 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-sofia-purple py-3.5 text-sm font-bold text-white shadow-lg shadow-sofia-purple/20 transition-all hover:bg-sofia-purple-700 active:scale-[0.995] cursor-pointer"
             >
               <span>{language === 'ar' ? 'تسجيل الدخول إلى النظام' : 'Sign In to Portal'}</span>
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="h-4 w-4 rtl:rotate-180" />
             </button>
+
+            <p className="pt-1 text-center text-[10px] text-[var(--text-3)]">
+              {language === 'ar'
+                ? 'الدخول مخصص للموظفين المصرح لهم فقط.'
+                : 'Access is restricted to authorized employees only.'}
+            </p>
           </form>
         </div>
       </div>

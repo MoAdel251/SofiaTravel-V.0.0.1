@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 import { Navbar } from './components/Navbar';
+import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { CustomersView } from './components/CustomersView';
 import { VouchersView } from './components/VouchersView';
@@ -3757,7 +3758,25 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-[100dvh] min-h-[100dvh] bg-slate-100 overflow-hidden font-sans flex-col w-full max-w-full">
+    <div className="app-canvas flex h-[100dvh] min-h-[100dvh] overflow-hidden font-sans w-full max-w-full">
+      {isAuthenticated && (
+        <Sidebar
+          currentTab={currentTab}
+          setCurrentTab={setCurrentTab}
+          userRole={effectiveUserRole}
+          userPermissions={currentUserPermissions}
+          username={currentUsername}
+          companyName={settings.company_name}
+          onLogout={handleLogout}
+          pendingPermissionCount={permissionRequests.filter(r => r.status === 'Pending').length}
+          isAdmin={isCurrentAdmin}
+          isITAccount={isITAccount}
+          restrictToAttendance={attendanceOnlyAccount}
+          onOpenSearch={() => setIsSearchOpen(true)}
+        />
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col h-full">
       {!isAuthenticated && (
         <LoginModal
           employees={employees}
@@ -3845,10 +3864,10 @@ export default function App() {
 
       {/* One-Tap Phone Push Notification Permission Strip for Employees */}
       {isAuthenticated && phonePermStatus === 'default' && !pushBannerDismissed && currentTab !== 'notifications' && (
-        <div className="bg-slate-900 border-b border-slate-800 text-white px-3 sm:px-6 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-30">
+        <div className="fluent-mica border-b border-[var(--stroke)] text-[var(--text-1)] px-3 sm:px-6 py-2 text-xs flex flex-wrap items-center justify-between gap-2 shrink-0 z-30">
           <div className="flex items-center gap-2 min-w-0">
-            <BellRing className="w-4 h-4 text-cyan-400 shrink-0" />
-            <span className="font-semibold text-slate-200 truncate">
+            <BellRing className="w-4 h-4 text-sofia-turquoise shrink-0" />
+            <span className="font-semibold text-[var(--text-2)] truncate">
               {isAr
                 ? `فعّل إشعارات الهاتف الفورية لتذكيرك بموعد حضورك (${myDesignatedSchedule.checkIn}) وانصرافك (${myDesignatedSchedule.checkOut})`
                 : `Enable direct phone push alerts & check-in (${myDesignatedSchedule.checkIn}) / check-out (${myDesignatedSchedule.checkOut}) reminders`}
@@ -3859,7 +3878,7 @@ export default function App() {
               type="button"
               onClick={handleQuickAllowPhonePush}
               disabled={isActivatingBannerPush}
-              className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-[11px] cursor-pointer transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-sofia-turquoise hover:bg-sofia-turquoise-600 text-sofia-purple font-black text-[11px] cursor-pointer transition-colors"
             >
               {isActivatingBannerPush
                 ? (isAr ? 'جاري التفعيل...' : 'Enabling...')
@@ -3868,7 +3887,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setPushBannerDismissed(true)}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              className="p-1 rounded-lg text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer"
               aria-label="Dismiss"
             >
               <X className="w-3.5 h-3.5" />
@@ -3913,6 +3932,13 @@ export default function App() {
               isSiteDisabled={isSiteTemporarilyDisabled}
               onOpenITSiteControl={() => setIsITSiteModalOpen(true)}
               onNavigateTab={setCurrentTab}
+              username={currentEmployee?.name || currentUsername}
+              userRole={effectiveUserRole}
+              currentUsername={currentUsername}
+              todayAttendance={todaySelfAttendance}
+              notifications={visibleNotifications}
+              onClockIn={handleSelfClockIn}
+              onClockOut={handleSelfClockOut}
             />
           )}
 
@@ -4460,6 +4486,7 @@ export default function App() {
 
       {/* Cloud Connectivity and Offline Indicator */}
       <OfflineIndicator />
+      </div>
     </div>
   );
 }
