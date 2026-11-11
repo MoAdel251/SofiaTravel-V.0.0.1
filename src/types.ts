@@ -863,6 +863,8 @@ export interface AttendanceRecord {
   total_working_hours?: string;
   late_minutes?: number;
   early_departure_minutes?: number;
+  scheduled_start_time?: string;
+  grace_period_minutes?: number;
   attendance_status?: 'Present' | 'Late' | 'Absent' | string;
   status: 'Clocked In' | 'Completed' | 'Present' | 'Late' | 'Absent';
   entry_source?: 'Employee' | 'IT Manual';
@@ -922,10 +924,16 @@ export interface AttendanceGeofenceVerification {
     | string;
   distance_meters?: number | null;
   accuracy_meters?: number | null;
+  /** Coarse desktop/Wi-Fi fix that was accepted for the device type. */
+  accuracy_relaxed?: boolean;
+  max_accuracy_meters?: number;
+  device_type?: AttendanceDeviceType;
   latitude?: number;
   longitude?: number;
   verified_at?: string;
   method?: 'haversine' | string;
+  entry_channel?: 'MANUAL' | 'QR' | string;
+  qr_verified?: boolean;
 }
 
 export interface CompanyGeofencing {

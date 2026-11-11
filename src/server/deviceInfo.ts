@@ -6,13 +6,22 @@ import type { AttendanceDeviceInfo, AttendanceDeviceType } from '../types';
  * headers; classification happens on the server so attendance logs cannot be
  * forged by sending a made-up device label.
  */
-function detectDeviceType(userAgent: string): AttendanceDeviceType {
+function detectDeviceType(
+  userAgent: string,
+  platform: string,
+  maxTouchPoints: number,
+  secChUaMobile: string
+): AttendanceDeviceType {
   const ua = userAgent.toLowerCase();
-  if (!ua) return 'Unknown';
+  const plat = platform.toLowerCase();
+  // iPadOS 13+ reports a desktop-class "Macintosh" user agent.
+  if (plat === 'macintel' && maxTouchPoints > 1) return 'Tablet';
   if (/ipad|tablet|playbook|silk/.test(ua)) return 'Tablet';
   if (/android/.test(ua) && !/mobile/.test(ua)) return 'Tablet';
   if (/mobi|iphone|ipod|android.*mobile|windows phone/.test(ua)) return 'Mobile';
+  if (secChUaMobile === '?1' && !/ipad|tablet/.test(ua)) return 'Mobile';
   if (/windows|macintosh|mac os x|linux|cros/.test(ua)) return 'Desktop';
+  if (plat === 'win32' || plat === 'win64' || plat === 'macintel' || plat === 'linux x86_64') return 'Desktop';
   return 'Unknown';
 }
 
@@ -62,10 +71,14 @@ export function buildDeviceInfo(params: {
   userAgent?: string | null;
   platform?: string | null;
   language?: string | null;
+  maxTouchPoints?: number | null;
+  secChUaMobile?: string | null;
 }): AttendanceDeviceInfo {
   const userAgent = String(params.userAgent || '').slice(0, 500);
   const platform = String(params.platform || '').slice(0, 120);
   const language = String(params.language || '').slice(0, 40);
+  const maxTouchPoints = Number(params.maxTouchPoints) || 0;
+  const secChUaMobile = String(params.secChUaMobile || '').trim();
   const { browser, version } = detectBrowser(userAgent);
   const fingerprintSource = `${userAgent}|${platform}|${language}`;
   const fingerprint = fingerprintSource.trim() === '||'
@@ -73,7 +86,7 @@ export function buildDeviceInfo(params: {
     : crypto.createHash('sha256').update(fingerprintSource).digest('hex').slice(0, 20);
 
   return {
-    device_type: detectDeviceType(userAgent),
+    device_type: detectDeviceType(userAgent, platform, maxTouchPoints, secChUaMobile),
     os: detectOs(userAgent),
     browser,
     browser_version: version,
@@ -82,4 +95,21 @@ export function buildDeviceInfo(params: {
     platform: platform || undefined,
     language: language || undefined,
   };
+}
+
+/**
+ * Human-readable device summary, e.g. "Computer · Windows 10/11 · Chrome 120".
+ * `Desktop` is surfaced as "Computer" for non-technical readers.
+ */
+export function describeDevice(device: AttendanceDeviceInfo): string {
+  const typeLabel =
+    device.device_type === 'Desktop'
+      ? 'Computer'
+      : device.device_type === 'Mobile'
+        ? 'Mobile device'
+        : device.device_type === 'Tablet'
+          ? 'Tablet'
+          : 'Unknown device';
+  const browser = [device.browser, device.browser_version].filter(Boolean).join(' ');
+  return [typeLabel, device.os, browser].filter(Boolean).join(' · ');
 }

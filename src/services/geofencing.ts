@@ -1,4 +1,5 @@
-import type { AttendanceRecord } from '../types';
+import type { AttendanceDeviceType, AttendanceRecord } from '../types';
+import { detectClientDevice, isDesktopLikeDevice } from '../utils/device';
 
 export type GeofenceReasonCode =
   | 'WITHIN_GEOFENCE'
@@ -28,6 +29,8 @@ export interface GeofenceStatus {
   is_enabled: boolean;
   configured: boolean;
   max_accuracy_meters: number;
+  device_type?: AttendanceDeviceType;
+  device_label?: string;
 }
 
 export interface BrowserPosition {
@@ -152,7 +155,12 @@ export async function getGeofenceStatus(): Promise<GeofenceStatus | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`/api/geofencing/status?t=${Date.now()}`, {
+    const device = detectClientDevice();
+    const query = new URLSearchParams({
+      platform: device.platform,
+      touch_points: String(device.max_touch_points),
+    });
+    const res = await fetch(`/api/geofencing/status?${query.toString()}&t=${Date.now()}`, {
       signal: controller.signal,
       cache: 'no-store',
     });
@@ -163,6 +171,8 @@ export async function getGeofenceStatus(): Promise<GeofenceStatus | null> {
       is_enabled: data?.is_enabled === true,
       configured: data?.configured === true,
       max_accuracy_meters: Number(data?.max_accuracy_meters) || 100,
+      device_type: (data?.device_type as AttendanceDeviceType) || device.device_type,
+      device_label: data?.device_label ? String(data.device_label) : undefined,
     };
   } catch {
     return null;
@@ -191,9 +201,13 @@ function getCurrentPositionOnce(options: PositionOptions): Promise<BrowserPositi
   });
 }
 
+/** Desktop browsers use Wi-Fi/network positioning; ask for a wider fix. */
+const DESKTOP_ACCURACY_TARGET_METERS = 1500;
+
 /**
- * Collects a browser GPS fix with high accuracy. Retries a few times when the
- * reported accuracy is too coarse. The server still makes the final decision.
+ * Collects a browser position. Phones/tablets are asked for a tight GPS fix;
+ * computers get a wider target because their Wi-Fi positioning is much coarser.
+ * The server still makes the final decision.
  */
 export async function getBrowserPosition(maxAccuracyMeters = 100): Promise<BrowserPosition> {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -202,6 +216,11 @@ export async function getBrowserPosition(maxAccuracyMeters = 100): Promise<Brows
   if (typeof window !== 'undefined' && window.isSecureContext === false) {
     throw new Error('LOCATION_INSECURE_CONTEXT');
   }
+
+  const device = detectClientDevice();
+  const targetAccuracy = isDesktopLikeDevice(device.device_type)
+    ? Math.max(maxAccuracyMeters, DESKTOP_ACCURACY_TARGET_METERS)
+    : maxAccuracyMeters;
 
   if (typeof navigator.permissions?.query === 'function') {
     try {
@@ -228,7 +247,7 @@ export async function getBrowserPosition(maxAccuracyMeters = 100): Promise<Brows
       if (!best || position.accuracy < best.accuracy) {
         best = position;
       }
-      if (position.accuracy <= maxAccuracyMeters) {
+      if (position.accuracy <= targetAccuracy) {
         return position;
       }
     } catch (err: any) {
@@ -243,7 +262,7 @@ export async function getBrowserPosition(maxAccuracyMeters = 100): Promise<Brows
   }
 
   if (best) {
-    if (best.accuracy > maxAccuracyMeters) {
+    if (best.accuracy > targetAccuracy) {
       throw new Error('LOCATION_ACCURACY_LOW');
     }
     return best;
@@ -281,8 +300,10 @@ export async function submitSelfAttendance({
   try {
     const nav: any = typeof navigator !== 'undefined' ? navigator : null;
     if (nav) {
-      body.platform = String(nav.userAgentData?.platform || nav.platform || '');
+      const device = detectClientDevice();
+      body.platform = device.platform || String(nav.platform || '');
       body.language = String(nav.language || '');
+      body.max_touch_points = device.max_touch_points;
     }
   } catch {}
 

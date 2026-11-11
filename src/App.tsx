@@ -3635,6 +3635,7 @@ export default function App() {
           role,
           platform: String(nav?.userAgentData?.platform || nav?.platform || ''),
           language: String(nav?.language || ''),
+          max_touch_points: Number(nav?.maxTouchPoints) || 0,
         }),
         keepalive: true,
       }).catch(() => {});

@@ -50,6 +50,9 @@ interface SecurityAttendance {
   clock_in: string;
   clock_out: string;
   status: string;
+  attendance_status?: string;
+  late_minutes?: number;
+  scheduled_start_time?: string;
   attendance_location?: { latitude: number; longitude: number; accuracy: number; recorded_at: string } | null;
   check_in_location?: { latitude: number; longitude: number; accuracy: number; recorded_at: string } | null;
   check_out_location?: { latitude: number; longitude: number; accuracy: number; recorded_at: string } | null;
@@ -100,10 +103,17 @@ function DeviceIcon({ type }: { type?: string }) {
   return <Monitor className="w-3.5 h-3.5" />;
 }
 
-function deviceLabel(device: SecurityLog['device_info']): string {
+function deviceTypeLabel(type: string | undefined, isAr: boolean): string {
+  if (type === 'Mobile') return isAr ? 'هاتف محمول' : 'Mobile device';
+  if (type === 'Tablet') return isAr ? 'جهاز لوحي' : 'Tablet';
+  if (type === 'Desktop') return isAr ? 'كمبيوتر' : 'Computer';
+  return isAr ? 'جهاز غير معروف' : 'Unknown device';
+}
+
+function deviceLabel(device: SecurityLog['device_info'], isAr: boolean): string {
   if (!device) return '—';
   const browser = [device.browser, device.browser_version].filter(Boolean).join(' ');
-  return [device.device_type, device.os, browser].filter(Boolean).join(' · ') || '—';
+  return [deviceTypeLabel(device.device_type, isAr), device.os, browser].filter(Boolean).join(' · ') || '—';
 }
 
 export function AttendanceSecurityView({
@@ -584,7 +594,7 @@ export function AttendanceSecurityView({
                     <td className="px-3 py-2.5">
                       <div className="inline-flex items-center gap-1.5 text-slate-700 font-semibold">
                         <DeviceIcon type={log.device_info?.device_type} />
-                        {deviceLabel(log.device_info)}
+                        {deviceLabel(log.device_info, isAr)}
                       </div>
                       {log.device_info?.device_fingerprint && (
                         <div className="text-[10px] text-slate-400 font-mono inline-flex items-center gap-1 mt-0.5">
@@ -637,6 +647,11 @@ export function AttendanceSecurityView({
                       <td className="px-3 py-2.5">
                         <div className="font-bold text-slate-800">{record.employee_name}</div>
                         <div className="text-[10px] text-slate-400">{record.status}</div>
+                        {Number(record.late_minutes) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 mt-0.5 px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-[9px] font-bold">
+                            {L('Late', 'تأخير')} {record.late_minutes}m
+                          </span>
+                        )}
                         {record.qr_verified && (
                           <span className="inline-flex items-center gap-0.5 mt-0.5 px-1.5 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200 text-[9px] font-bold">
                             <QrCode className="w-2.5 h-2.5" /> QR
@@ -651,7 +666,7 @@ export function AttendanceSecurityView({
                       <td className="px-3 py-2.5">
                         <div className="inline-flex items-center gap-1.5 text-slate-700 font-semibold">
                           <DeviceIcon type={record.device_info?.device_type} />
-                          {deviceLabel(record.device_info)}
+                          {deviceLabel(record.device_info, isAr)}
                         </div>
                       </td>
                       <td className="px-3 py-2.5">

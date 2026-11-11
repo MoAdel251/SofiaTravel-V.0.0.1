@@ -30,10 +30,11 @@ import {
   isValidLatitude,
   isValidLongitude,
   normalizeGeofencingConfig,
+  resolveMaxAccuracyMeters,
   GEOFENCE_MESSAGES,
   type CompanyGeofencingConfig,
 } from './src/server/geofencing';
-import { buildDeviceInfo } from './src/server/deviceInfo';
+import { buildDeviceInfo, describeDevice } from './src/server/deviceInfo';
 
 // Suppress internal Firestore SDK warnings/errors such as non-critical BloomFilter calculation notices
 const suppressBloomFilter = (fn: (...args: any[]) => void) => {
@@ -1170,6 +1171,8 @@ async function recordGeofenceVerificationLog(params: {
     userAgent: req.headers['user-agent'],
     platform: req.body?.platform,
     language: req.body?.language,
+    maxTouchPoints: req.body?.max_touch_points,
+    secChUaMobile: req.headers['sec-ch-ua-mobile'] as string | undefined,
   });
 
   const entry: Record<string, any> = {
@@ -1183,6 +1186,8 @@ async function recordGeofenceVerificationLog(params: {
       ? Math.round(decision.distanceMeters * 100) / 100
       : null,
     accuracy_meters: decision.accuracyMeters,
+    accuracy_relaxed: decision.accuracyRelaxed,
+    max_accuracy_meters: decision.maxAccuracyMeters,
     radius_meters: decision.radiusMeters,
     geofencing_enabled: config.is_enabled,
     verified_at: serverIso,
@@ -1190,6 +1195,7 @@ async function recordGeofenceVerificationLog(params: {
     user_agent: String(req.headers['user-agent'] || '').substring(0, 300),
     ip_address: String(req.ip || ''),
     device_info: deviceInfo,
+    device_type: deviceInfo.device_type,
     entry_channel: entryChannel || 'MANUAL',
     qr_verified: Boolean(qrVerified),
     qr_token_id: qrTokenId || null,
@@ -1630,10 +1636,13 @@ async function notifyITAttendanceRegistered(params: {
   const time = action === 'clock_in' ? record.clock_in : record.clock_out;
   const title = action === 'clock_in' ? 'Employee Clock-In' : 'Employee Clock-Out';
   const channel = qrVerified ? 'QR code + GPS geofence verified' : 'GPS geofence verified';
+  const deviceLabel = record.device_info ? describeDevice(record.device_info) : '';
+  const lateMinutes = Math.max(0, Number(record.late_minutes) || 0);
+  const lateSuffix = action === 'clock_in' && lateMinutes > 0 ? ` · late by ${lateMinutes} min` : '';
   try {
     await addNotification(
       title,
-      `${employeeName} ${action === 'clock_in' ? 'clocked in' : 'clocked out'} at ${time || '--:--'} (${channel}).`,
+      `${employeeName} ${action === 'clock_in' ? 'clocked in' : 'clocked out'} at ${time || '--:--'} (${channel})${deviceLabel ? ` from ${deviceLabel}` : ''}${lateSuffix}.`,
       'attendance',
       record.id,
       {
@@ -1642,12 +1651,15 @@ async function notifyITAttendanceRegistered(params: {
         target_employee_name: 'IT',
         tab: 'attendance-security',
         category: 'attendance_event',
-        priority: 'Normal',
+        priority: lateMinutes > 0 ? 'Important' : 'Normal',
         employee_id: employeeId,
         employee_name: employeeName,
         attendance_action: action,
         attendance_time: time || '',
         attendance_date: record.date || '',
+        late_minutes: lateMinutes,
+        device_type: record.device_info?.device_type || 'Unknown',
+        device_label: deviceLabel,
         qr_verified: qrVerified,
         entry_channel: qrVerified ? 'QR' : 'MANUAL',
       }
@@ -1672,10 +1684,10 @@ app.post('/api/auth/session-event', async (req, res) => {
     userAgent: req.headers['user-agent'],
     platform: req.body?.platform,
     language: req.body?.language,
+    maxTouchPoints: req.body?.max_touch_points,
+    secChUaMobile: req.headers['sec-ch-ua-mobile'] as string | undefined,
   });
-  const label = [device.device_type, device.os, device.browser && `${device.browser} ${device.browser_version || ''}`.trim()]
-    .filter(Boolean)
-    .join(' · ');
+  const label = describeDevice(device);
   try {
     await addNotification(
       event === 'login' ? 'Site Login' : 'Site Logout',
@@ -1754,7 +1766,20 @@ app.post("/api/attendance/self", async (req, res) => {
 
   const config = await readGeofencingConfig();
   const serverTime = getServerAttendanceTime();
-  const decision = evaluateGeofence(config, latitude, longitude, accuracy);
+  const deviceInfo = buildDeviceInfo({
+    userAgent: req.headers['user-agent'],
+    platform: req.body?.platform,
+    language: req.body?.language,
+    maxTouchPoints: req.body?.max_touch_points,
+    secChUaMobile: req.headers['sec-ch-ua-mobile'] as string | undefined,
+  });
+  const decision = evaluateGeofence(
+    config,
+    latitude,
+    longitude,
+    accuracy,
+    deviceInfo.device_type
+  );
 
   // Optional QR scan: the code proves presence at the office terminal, but the
   // GPS/geofence decision below stays mandatory and server-authoritative.
@@ -1843,6 +1868,21 @@ app.post("/api/attendance/self", async (req, res) => {
   const attId = base.id || `ATT-${Date.now()}-${employeeId || 'EMP'}`;
   const nowIso = serverTime.iso;
 
+  // Delay indicator: compare the server-generated clock-in time with the
+  // employee's scheduled start plus grace period.
+  const lateInfo = action === 'clock_in'
+    ? computeServerLateMinutes({
+        employee,
+        employeeId,
+        employeeName,
+        clockIn,
+        date: serverTime.date,
+      })
+    : null;
+  const lateMinutes = action === 'clock_in'
+    ? lateInfo!.lateMinutes
+    : Math.max(0, Number(base.late_minutes) || 0);
+
   const geofenceVerification = {
     verified: decision.reasonCode === 'WITHIN_GEOFENCE',
     verification_result: decision.reasonCode,
@@ -1850,6 +1890,8 @@ app.post("/api/attendance/self", async (req, res) => {
       ? Math.round(decision.distanceMeters * 100) / 100
       : null,
     accuracy_meters: decision.accuracyMeters,
+    accuracy_relaxed: decision.accuracyRelaxed,
+    max_accuracy_meters: decision.maxAccuracyMeters,
     ...(config.store_coordinates
       ? { latitude: isValidLatitude(latitude) ? latitude : undefined, longitude: isValidLongitude(longitude) ? longitude : undefined }
       : {}),
@@ -1857,13 +1899,8 @@ app.post("/api/attendance/self", async (req, res) => {
     method: 'haversine',
     entry_channel: entryChannel,
     qr_verified: Boolean(qrTokenRecord),
+    device_type: deviceInfo.device_type,
   };
-
-  const deviceInfo = buildDeviceInfo({
-    userAgent: req.headers['user-agent'],
-    platform: req.body?.platform,
-    language: req.body?.language,
-  });
 
   const attendanceLocation = config.store_coordinates &&
     isValidLatitude(latitude) &&
@@ -1885,9 +1922,15 @@ app.post("/api/attendance/self", async (req, res) => {
     working_hours: shiftCompleted ? calc.working_hours : 0,
     working_hours_formatted: shiftCompleted ? calc.working_hours_formatted : '0h 00m',
     total_working_hours: shiftCompleted ? calc.working_hours_formatted : '--',
-    late_minutes: Number(base.late_minutes) || 0,
+    late_minutes: lateMinutes,
+    scheduled_start_time: lateInfo?.scheduledStart || base.scheduled_start_time || '',
+    grace_period_minutes: lateInfo?.graceMinutes ?? base.grace_period_minutes ?? 0,
     early_departure_minutes: Number(base.early_departure_minutes) || 0,
-    attendance_status: base.attendance_status || 'Present',
+    attendance_status: lateMinutes > 0
+      ? 'Late'
+      : action === 'clock_out'
+        ? (base.attendance_status || 'Present')
+        : 'Present',
     status: shiftCompleted ? 'Completed' : 'Clocked In',
     entry_source: 'Employee',
     recorded_by: employeeName,
@@ -2111,13 +2154,23 @@ app.post("/api/attendance-settings", async (req, res) => {
 // ---------------------------------------------------------------------------
 
 // Public, privacy-safe status: employees only learn whether verification is on.
-app.get("/api/geofencing/status", async (_req, res) => {
+app.get("/api/geofencing/status", async (req, res) => {
   const config = await readGeofencingConfig();
+  // Device classification drives the acquisition target: phones must provide a
+  // tight GPS fix, computers are allowed the wider Wi-Fi positioning spread.
+  const deviceInfo = buildDeviceInfo({
+    userAgent: req.headers['user-agent'],
+    platform: String(req.query?.platform || ''),
+    language: String(req.query?.language || ''),
+    maxTouchPoints: Number(req.query?.touch_points) || undefined,
+    secChUaMobile: req.headers['sec-ch-ua-mobile'] as string | undefined,
+  });
   res.json({
     is_enabled: config.is_enabled,
     configured: isCompanyLocationConfigured(config),
-    // A fixed acquisition target only; the true accuracy rule and radius stay server-side.
-    max_accuracy_meters: 50,
+    max_accuracy_meters: resolveMaxAccuracyMeters(config.allowed_radius_meters, deviceInfo.device_type),
+    device_type: deviceInfo.device_type,
+    device_label: describeDevice(deviceInfo),
   });
 });
 
@@ -2285,6 +2338,9 @@ app.get("/api/attendance/security-logs", async (req, res) => {
       clock_in: record.clock_in || record.check_in_time || '',
       clock_out: record.clock_out || record.check_out_time || '',
       status: record.status || record.attendance_status || '',
+      attendance_status: record.attendance_status || record.status || '',
+      late_minutes: Math.max(0, Number(record.late_minutes) || 0),
+      scheduled_start_time: record.scheduled_start_time || '',
       attendance_location: record.attendance_location || null,
       check_in_location: record.check_in_location || null,
       check_out_location: record.check_out_location || null,
@@ -4560,6 +4616,46 @@ function resolveEmployeeScheduleFromDb(
     working_days: defaultWorkingDays,
     is_date_override: false,
   };
+}
+
+function isScheduledWorkday(workingDays: string[] | undefined, weekdayEn: string): boolean {
+  if (!workingDays || workingDays.length === 0) return true;
+  const short = String(weekdayEn || '').trim().slice(0, 3).toLowerCase();
+  if (!short) return true;
+  return workingDays.some(day => String(day || '').trim().toLowerCase().startsWith(short));
+}
+
+/**
+ * Tardiness is computed on the server from the employee's work schedule and the
+ * configured grace period. The device clock is never trusted.
+ */
+function computeServerLateMinutes(params: {
+  employee: any;
+  employeeId: string;
+  employeeName: string;
+  clockIn: string;
+  date: string;
+}): { lateMinutes: number; scheduledStart: string; graceMinutes: number; scheduled: boolean } {
+  const { employee, employeeId, employeeName, clockIn, date } = params;
+  const wall = getWallClockInTimezone(ATTENDANCE_TIMEZONE);
+  const schedule = resolveEmployeeScheduleFromDb(
+    {
+      id: employeeId,
+      employee_id: employee?.employee_id,
+      name: employeeName,
+      username: employee?.username,
+    },
+    date
+  );
+  const scheduled = isScheduledWorkday(schedule.working_days, wall.weekdayEn);
+  const graceMinutes = Math.max(0, Number(schedule.grace_period_minutes) || 0);
+  const inSec = parseServerTimeToSeconds(clockIn);
+  const startSec = parseServerTimeToSeconds(schedule.start_time);
+  if (!scheduled || inSec === null || startSec === null) {
+    return { lateMinutes: 0, scheduledStart: schedule.start_time, graceMinutes, scheduled };
+  }
+  const lateMinutes = Math.max(0, Math.round((inSec - startSec) / 60) - graceMinutes);
+  return { lateMinutes, scheduledStart: schedule.start_time, graceMinutes, scheduled };
 }
 
 function doesSubscriptionMatchEmployee(sub: any, emp: { id?: string; employee_id?: string; name?: string; username?: string }): boolean {

@@ -6,6 +6,8 @@
  * decides whether an employee is inside the authorized area.
  */
 
+import type { AttendanceDeviceType } from '../types';
+
 export const GEOFENCE_COLLECTION = 'company_geofencing';
 export const GEOFENCE_CONFIG_DOC_ID = 'main';
 export const GEOFENCE_VERIFICATION_LOG_COLLECTION = 'attendance_verification_logs';
@@ -18,6 +20,15 @@ export const DEFAULT_ALLOWED_RADIUS_METERS = 50;
 export const MIN_ALLOWED_RADIUS_METERS = 5;
 export const MAX_ALLOWED_RADIUS_METERS = 10000;
 export const MAX_ACCURACY_CAP_METERS = 100;
+/**
+ * Browsers on computers rarely have a real GPS receiver: they fall back to
+ * Wi-Fi / network positioning, whose reported accuracy is often several
+ * hundred metres. Rejecting those fixes made clock-in impossible on desktops,
+ * so larger screens get a wider (but still bounded) accuracy allowance while
+ * the point estimate must remain inside the authorized radius.
+ */
+export const MAX_DESKTOP_ACCURACY_METERS = 3000;
+export const DEFAULT_DESKTOP_ACCURACY_METERS = 1500;
 export const ATTENDANCE_TIMEZONE = process.env.ATTENDANCE_TIMEZONE || 'Africa/Cairo';
 
 const EARTH_RADIUS_METERS = 6371000;
@@ -59,6 +70,8 @@ export interface GeofenceDecision {
   accuracyMeters: number | null;
   radiusMeters: number;
   maxAccuracyMeters: number;
+  /** Accuracy was coarser than the GPS target but accepted for the device type. */
+  accuracyRelaxed: boolean;
 }
 
 export function isFiniteNumber(value: unknown): value is number {
@@ -106,10 +119,24 @@ export function clampRadiusMeters(value: unknown): number {
 }
 
 /**
- * Maximum acceptable GPS accuracy for the configured radius. A tighter radius
- * requires a more precise fix, and we never accept worse than 100 m.
+ * Maximum acceptable positioning accuracy for a device. Phones report a GPS
+ * fix; computers/tablets use Wi-Fi/network positioning, so they get a wider,
+ * still bounded allowance.
  */
-export function resolveMaxAccuracyMeters(radiusMeters: number): number {
+export function resolveMaxAccuracyMeters(
+  radiusMeters: number,
+  deviceType: AttendanceDeviceType = 'Mobile'
+): number {
+  const safeRadius = clampRadiusMeters(radiusMeters);
+  const strict = Math.max(25, Math.min(MAX_ACCURACY_CAP_METERS, safeRadius));
+  const desktopLike = deviceType === 'Desktop' || deviceType === 'Tablet' || deviceType === 'Unknown';
+  if (!desktopLike) return strict;
+  const extended = Math.max(DEFAULT_DESKTOP_ACCURACY_METERS, safeRadius * 10);
+  return Math.max(strict, Math.min(MAX_DESKTOP_ACCURACY_METERS, extended));
+}
+
+/** The strict GPS target used to flag a coarse (but accepted) fix. */
+export function resolveStrictAccuracyMeters(radiusMeters: number): number {
   const safeRadius = clampRadiusMeters(radiusMeters);
   return Math.max(25, Math.min(MAX_ACCURACY_CAP_METERS, safeRadius));
 }
@@ -143,15 +170,20 @@ export function isCompanyLocationConfigured(config: CompanyGeofencingConfig): bo
 /**
  * Evaluate an attendance request against the server-side company geofence.
  * The result is authoritative for the attendance workflow.
+ *
+ * `deviceType` is derived server-side from request headers. It only widens the
+ * accuracy tolerance for computers/tablets; the distance rule never changes.
  */
 export function evaluateGeofence(
   config: CompanyGeofencingConfig,
   latitude: unknown,
   longitude: unknown,
-  accuracyMeters: unknown
+  accuracyMeters: unknown,
+  deviceType: AttendanceDeviceType = 'Mobile'
 ): GeofenceDecision {
   const radiusMeters = clampRadiusMeters(config.allowed_radius_meters);
-  const maxAccuracyMeters = resolveMaxAccuracyMeters(radiusMeters);
+  const strictAccuracyMeters = resolveStrictAccuracyMeters(radiusMeters);
+  const maxAccuracyMeters = resolveMaxAccuracyMeters(radiusMeters, deviceType);
 
   if (!config.is_enabled) {
     return {
@@ -161,6 +193,7 @@ export function evaluateGeofence(
       accuracyMeters: isFiniteNumber(accuracyMeters) ? Number(accuracyMeters) : null,
       radiusMeters,
       maxAccuracyMeters,
+      accuracyRelaxed: false,
     };
   }
 
@@ -172,6 +205,7 @@ export function evaluateGeofence(
       accuracyMeters: isFiniteNumber(accuracyMeters) ? Number(accuracyMeters) : null,
       radiusMeters,
       maxAccuracyMeters,
+      accuracyRelaxed: false,
     };
   }
 
@@ -183,6 +217,7 @@ export function evaluateGeofence(
       accuracyMeters: isFiniteNumber(accuracyMeters) ? Number(accuracyMeters) : null,
       radiusMeters,
       maxAccuracyMeters,
+      accuracyRelaxed: false,
     };
   }
 
@@ -195,6 +230,7 @@ export function evaluateGeofence(
       accuracyMeters: null,
       radiusMeters,
       maxAccuracyMeters,
+      accuracyRelaxed: false,
     };
   }
 
@@ -213,6 +249,7 @@ export function evaluateGeofence(
       accuracyMeters: accuracy,
       radiusMeters,
       maxAccuracyMeters,
+      accuracyRelaxed: false,
     };
   }
 
@@ -224,6 +261,7 @@ export function evaluateGeofence(
       accuracyMeters: accuracy,
       radiusMeters,
       maxAccuracyMeters,
+      accuracyRelaxed: accuracy > strictAccuracyMeters,
     };
   }
 
@@ -234,6 +272,7 @@ export function evaluateGeofence(
     accuracyMeters: accuracy,
     radiusMeters,
     maxAccuracyMeters,
+    accuracyRelaxed: accuracy > strictAccuracyMeters,
   };
 }
 

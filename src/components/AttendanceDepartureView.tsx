@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Clock,
   Calendar,
@@ -17,6 +17,10 @@ import {
   AlertCircle,
   RotateCcw,
   QrCode,
+  AlarmClock,
+  Monitor,
+  Smartphone,
+  Tablet,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -32,7 +36,13 @@ import {
   getPreviousTwoDaysDates,
   isAttendanceShiftOpen,
   normalizeTimeHHMM,
+  parseTimeToSeconds,
 } from '../utils/attendance';
+import {
+  detectClientDevice,
+  describeClientDevice,
+  deviceTypeLabel,
+} from '../utils/device';
 import { useLanguage } from '../context/LanguageContext';
 
 interface AttendanceDepartureViewProps {
@@ -601,6 +611,69 @@ export function AttendanceDepartureView({
 
   const selfShiftOpen = isAttendanceShiftOpen(todaySelfAttendance);
 
+  // Live clock used by the delay indicator (refreshes every 30 seconds).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Device the employee is using right now: computer, mobile, or tablet.
+  const clientDevice = useMemo(() => detectClientDevice(), []);
+  const DeviceTypeIcon =
+    clientDevice.device_type === 'Mobile'
+      ? Smartphone
+      : clientDevice.device_type === 'Tablet'
+        ? Tablet
+        : Monitor;
+
+  const selfEmployee = useMemo(
+    () =>
+      employees.find(
+        e =>
+          (currentEmpId && (e.id === currentEmpId || e.employee_id === currentEmpId)) ||
+          (e.username && e.username === currentUsername) ||
+          (e.name && e.name === currentUsername)
+      ),
+    [employees, currentEmpId, currentUsername]
+  );
+
+  const selfSchedule = useMemo(() => {
+    if (!selfEmployee) return undefined;
+    return workSchedules.find(
+      s =>
+        s.employee_id === selfEmployee.id ||
+        s.employee_id === selfEmployee.employee_id ||
+        (selfEmployee.name && s.employee_name === selfEmployee.name)
+    );
+  }, [workSchedules, selfEmployee]);
+
+  const scheduledStart =
+    normalizeTimeHHMM(selfSchedule?.start_time) || attendanceSettings?.default_start_time || '09:00';
+  const graceMinutes = Math.max(
+    0,
+    Number(selfSchedule?.grace_period_minutes ?? attendanceSettings?.default_grace_period_minutes ?? 0) || 0
+  );
+
+  const now = new Date(nowTick);
+  const nowHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const todayShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
+  const selfWorksToday =
+    !selfSchedule?.working_days?.length ||
+    selfSchedule.working_days.some(
+      day => String(day || '').slice(0, 3).toLowerCase() === todayShort.toLowerCase()
+    );
+
+  const recordedClockIn = todaySelfAttendance?.clock_in || todaySelfAttendance?.check_in_time || '';
+  const referenceClockIn = recordedClockIn || nowHHMM;
+  const startSeconds = parseTimeToSeconds(scheduledStart);
+  const clockInSeconds = parseTimeToSeconds(referenceClockIn);
+  const delayMinutes =
+    selfWorksToday && startSeconds !== null && clockInSeconds !== null
+      ? Math.max(0, Math.floor((clockInSeconds - startSeconds) / 60) - graceMinutes)
+      : 0;
+  const isDelayed = delayMinutes > 0;
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-slate-50 min-h-screen">
       {/* Page Header */}
@@ -742,6 +815,49 @@ export function AttendanceDepartureView({
                   <span>
                     {isAr ? 'وقت الانصراف المسجل:' : 'Clock-Out Time:'}{' '}
                     <strong className="text-blue-300 font-bold">{todaySelfAttendance.clock_out}</strong>
+                  </span>
+                </div>
+              )}
+
+              {/* Device identification: computer vs mobile device */}
+              <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700">
+                <DeviceTypeIcon className="w-4 h-4 text-cyan-300 shrink-0" />
+                <span>
+                  {isAr ? 'الجهاز:' : 'Device:'}{' '}
+                  <strong className="text-cyan-200 font-bold">
+                    {describeClientDevice(clientDevice, isAr)}
+                  </strong>
+                </span>
+              </div>
+
+              {/* Delay indicator: shown when the employee is past start + grace */}
+              {selfWorksToday && isDelayed && (
+                <div
+                  className="flex items-center gap-2 bg-rose-500/20 px-3 py-1.5 rounded-xl border border-rose-400/50 font-bold"
+                  title={
+                    isAr
+                      ? `بداية الدوام ${scheduledStart} + سماح ${graceMinutes} دقيقة`
+                      : `Scheduled start ${scheduledStart} + ${graceMinutes} min grace`
+                  }
+                >
+                  <AlarmClock className="w-4 h-4 text-rose-300 shrink-0 animate-pulse" />
+                  <span className="text-rose-100">
+                    {recordedClockIn
+                      ? isAr
+                        ? `تأخير ${delayMinutes} دقيقة`
+                        : `Late by ${delayMinutes} min`
+                      : isAr
+                        ? `تأخير ${delayMinutes} دقيقة — لم تسجل الحضور بعد`
+                        : `${delayMinutes} min late — not clocked in yet`}
+                  </span>
+                </div>
+              )}
+
+              {selfWorksToday && recordedClockIn && !isDelayed && (
+                <div className="flex items-center gap-2 bg-emerald-500/15 px-3 py-1.5 rounded-xl border border-emerald-400/40">
+                  <Check className="w-4 h-4 text-emerald-300 shrink-0" />
+                  <span className="text-emerald-200">
+                    {isAr ? 'في الموعد' : 'On time'}
                   </span>
                 </div>
               )}
@@ -1200,6 +1316,18 @@ export function AttendanceDepartureView({
                             <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-bold w-fit">
                               {isAr ? 'تسجيل الموظف' : 'Employee Clock'}
                             </span>
+                            {rec.device_info?.device_type && (
+                              <span className="px-2 py-0.5 rounded-md bg-cyan-50 border border-cyan-200 text-cyan-800 text-[10px] font-bold w-fit inline-flex items-center gap-1">
+                                {rec.device_info.device_type === 'Mobile' ? (
+                                  <Smartphone className="w-3 h-3" />
+                                ) : rec.device_info.device_type === 'Tablet' ? (
+                                  <Tablet className="w-3 h-3" />
+                                ) : (
+                                  <Monitor className="w-3 h-3" />
+                                )}
+                                {deviceTypeLabel(rec.device_info.device_type, isAr)}
+                              </span>
+                            )}
                             {rec.reset_by_it && (
                               <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold w-fit">
                                 {isAr ? 'إعادة ضبط بواسطة IT' : 'Reset by IT'}
@@ -1230,16 +1358,15 @@ export function AttendanceDepartureView({
                                 : 'Completed'}
                             </span>
 
-                            {tardinessEnabled &&
-                              ((rec.attendance_status === 'Late' || lateMins > 0) ? (
-                                <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold">
-                                  {isAr ? `تأخير ${lateMins} د` : `Late ${lateMins}m`}
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 text-[10px] font-bold">
-                                  {isAr ? 'منتظم' : 'On Time'}
-                                </span>
-                              ))}
+                            {lateMins > 0 ? (
+                              <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold">
+                                {isAr ? `تأخير ${lateMins} د` : `Late ${lateMins}m`}
+                              </span>
+                            ) : tardinessEnabled ? (
+                              <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 text-[10px] font-bold">
+                                {isAr ? 'منتظم' : 'On Time'}
+                              </span>
+                            ) : null}
 
                             {(Number(rec.overtime_minutes) || 0) > 0 && (
                               <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-bold">
