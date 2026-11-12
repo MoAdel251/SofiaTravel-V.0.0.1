@@ -213,8 +213,8 @@ export function NotificationsView({
         showLocalFeedback(
           'success',
           isAr
-            ? `تم تفعيل إشعارات الهاتف وإرسال تنبيه فوري لهاتفك! مواعيدك: حضور ${result.schedule.checkIn} • انصراف ${result.schedule.checkOut}.`
-            : `Phone push notifications enabled & instant alert sent to your phone! Schedule: Check-In ${result.schedule.checkIn} • Check-Out ${result.schedule.checkOut}.`
+            ? `تم تفعيل إشعارات الهاتف بنجاح. ستصل إليك إشعارات الدخول والخروج وإعلانات الإدارة حتى إذا كان الموقع مغلقاً. مواعيدك: حضور ${result.schedule.checkIn} • انصراف ${result.schedule.checkOut}.`
+            : `Phone alerts enabled. Login, logout and admin announcements will reach your phone even when the website is closed. Schedule: Check-In ${result.schedule.checkIn} • Check-Out ${result.schedule.checkOut}.`
         );
       } else if (result.status === 'ios_install_required') {
         showLocalFeedback(
@@ -330,11 +330,16 @@ export function NotificationsView({
         setCustomMessage('');
         if (targetScope === 'SELECTED') setSelectedEmpIds([]);
         await refreshPushStats();
+        const notifiedDevices = Number(data.devicesNotified) || 0;
         showLocalFeedback(
           'success',
-          isAr
-            ? `تم إرسال الإشعار المخصص بنجاح (${data.devicesNotified || 0} هاتف مشترك تم تنبيهه فوراً)!`
-            : `Custom notification sent successfully (${data.devicesNotified || 0} subscribed phone(s) alerted immediately)!`
+          notifiedDevices > 0
+            ? (isAr
+                ? `تم إرسال الإشعار المخصص بنجاح (${notifiedDevices} هاتف مشترك تم تنبيهه فوراً)!`
+                : `Custom notification sent successfully (${notifiedDevices} subscribed phone(s) alerted immediately)!`)
+            : (isAr
+                ? 'تم حفظ الإشعار وإرساله داخل النظام. لم يتم تنبيه أي هاتف بعد لأن الموظفين لم يفعّلوا إشعارات الهاتف من المتصفح.'
+                : 'Notification saved and delivered in-app. No phone was alerted yet because employees have not enabled phone alerts from a browser.')
         );
       } else {
         // Direct Firestore fallback so real-time connected phones still receive the notification
@@ -622,7 +627,7 @@ export function NotificationsView({
               <span>{isAr ? 'التذكير التلقائي اليومي:' : 'Automatic Daily Reminders:'}</span>
             </div>
             <span className="font-bold text-amber-300">
-              {isAr ? 'مفعل لجميع الموظفين' : 'Active for All Staff'}
+              {isAr ? 'حسب وردية كل موظف' : 'Per employee shift'}
             </span>
           </div>
         </div>

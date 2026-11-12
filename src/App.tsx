@@ -3603,8 +3603,8 @@ export default function App() {
       if (result.granted) {
         showToast(
           isAr
-            ? `تم تفعيل إشعارات الهاتف وإرسال تنبيه فوري لهاتفك! (حضور ${result.schedule.checkIn} • انصراف ${result.schedule.checkOut})`
-            : `Phone alerts enabled & instant notification sent! (Check-In ${result.schedule.checkIn} • Check-Out ${result.schedule.checkOut})`
+            ? `تم تفعيل إشعارات الهاتف بنجاح. ستصل إليك إشعارات الدخول والخروج وإعلانات الإدارة حتى إذا كان الموقع مغلقاً. (حضور ${result.schedule.checkIn} • انصراف ${result.schedule.checkOut})`
+            : `Phone alerts enabled. Login, logout and admin announcements will reach your phone even when the website is closed. (Check-In ${result.schedule.checkIn} • Check-Out ${result.schedule.checkOut})`
         );
       } else if (result.status === 'ios_install_required') {
         showToast(

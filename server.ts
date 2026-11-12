@@ -514,8 +514,21 @@ async function addNotification(
  * Resolves the relevant in-app tab for a notification and pushes it to every
  * matching device subscription. Employee-scoped notifications never reach other
  * employees' phones.
+ *
+ * On serverless hosts the in-memory cache starts empty on every cold start, so
+ * the subscriber collection is loaded on demand. Without this, notifications
+ * created by short request handlers (site login/logout, attendance events,
+ * permission requests) were never delivered to phones in production.
  */
 async function pushNotificationToSubscribers(notif: any): Promise<void> {
+  if (!db.push_subscriptions || db.push_subscriptions.length === 0) {
+    try {
+      await getCollectionDocs('push_subscriptions');
+    } catch (err: any) {
+      console.warn('Could not load push subscriptions:', err?.message || err);
+      return;
+    }
+  }
   const allSubs: any[] = db.push_subscriptions || [];
   if (allSubs.length === 0) return;
 
@@ -4677,6 +4690,13 @@ async function dispatchWebPushToSubscriptions(
   if (!targetSubs || targetSubs.length === 0) {
     return { sent: 0, failed: 0, pruned: 0 };
   }
+
+  // Safety switch for staging/local runs: no real phone can ever be notified.
+  if (String(process.env.WEB_PUSH_DISABLED || '').trim().toLowerCase() === 'true') {
+    console.log(`Web push suppressed for ${targetSubs.length} device(s) (WEB_PUSH_DISABLED=true).`);
+    return { sent: 0, failed: 0, pruned: 0 };
+  }
+
   await ensureVapidConfigured();
 
   let sent = 0;
@@ -4960,6 +4980,7 @@ app.post("/api/push/send-custom", async (req, res) => {
 
     const createdNotifications: any[] = [];
     let targetSubs: any[] = [];
+    let deliveredToDevices = 0;
 
     if (target_scope === 'ALL' || !Array.isArray(target_employees) || target_employees.length === 0) {
       const notifId = `NOTIF-CUSTOM-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -4986,7 +5007,9 @@ app.post("/api/push/send-custom", async (req, res) => {
         tab,
         url: `/?tab=${encodeURIComponent(tab)}`,
         timestamp: Date.now(),
-      }));
+      })).then(result => {
+        deliveredToDevices = result.sent;
+      });
     } else {
       // Send targeted custom notifications to selected employees
       const matchedSubIds = new Set<string>();
@@ -5040,7 +5063,9 @@ app.post("/api/push/send-custom", async (req, res) => {
         tab,
         url: `/?tab=${encodeURIComponent(tab)}`,
         timestamp: Date.now(),
-      }));
+      })).then(result => {
+        deliveredToDevices = result.sent;
+      });
     }
 
     await logActivity(
@@ -5053,7 +5078,8 @@ app.post("/api/push/send-custom", async (req, res) => {
     res.json({
       success: true,
       notificationsCreated: createdNotifications.length,
-      devicesNotified: targetSubs.length,
+      devicesNotified: deliveredToDevices,
+      devicesTargeted: targetSubs.length,
       notifications: createdNotifications,
     });
   } catch (err: any) {
@@ -5200,6 +5226,42 @@ app.post("/api/push/send-schedule-reminders", async (req, res) => {
   } catch (err: any) {
     console.error("Schedule reminder broadcast error:", err);
     res.status(500).json({ error: err?.message || "Failed to send schedule reminders" });
+  }
+});
+
+// Scheduler hook used when the site is hosted on a platform without a
+// long-lived process (Vercel serverless). An external cron (Vercel Cron or any
+// uptime pinger) calls this endpoint so reminders are still pushed to phones
+// while nobody has the website open. Protected by CRON_SECRET.
+app.all("/api/push/cron/reminders", async (req, res) => {
+  const secret = String(process.env.CRON_SECRET || '').trim();
+  if (!secret) {
+    return res.status(503).json({
+      error: "CRON_SECRET is not configured. Add it to the environment to enable scheduled phone reminders.",
+    });
+  }
+  const provided = String(req.headers['x-cron-secret'] || req.query.secret || '').trim();
+  const fromPlatformCron = Boolean(req.headers['x-vercel-cron']);
+  if (!fromPlatformCron && provided !== secret) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  try {
+    await Promise.all([
+      getCollectionDocs('employees'),
+      getCollectionDocs('work_schedules'),
+      getCollectionDocs('attendance_settings'),
+      getCollectionDocs('push_subscriptions'),
+      getCollectionDocs('customer_inquiries'),
+      getCollectionDocs('reservations'),
+      getCollectionDocs('invoices'),
+    ]);
+    await runScheduledAttendanceRemindersTick();
+    await runScheduledCalendarRemindersTick();
+    await maybeNotifyAttendanceQrRenewal();
+    return res.json({ success: true, checked_at: new Date().toISOString() });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "Reminder tick failed" });
   }
 });
 
@@ -7087,6 +7149,19 @@ app.post("/api/ai-assistant", async (req, res) => {
   }
 });
 
+/**
+ * The in-process reminder engine sends real Web Push messages to employees'
+ * phones, so it never starts on its own. It must be explicitly enabled on a
+ * long-lived host that serves the live site (ENABLE_BACKGROUND_REMINDERS=true).
+ * This keeps developer machines, preview environments and serverless platforms
+ * from pushing "test" alerts while the code is being modified or the site is
+ * not actually serving traffic.
+ */
+function backgroundReminderEngineEnabled(): boolean {
+  const flag = String(process.env.ENABLE_BACKGROUND_REMINDERS || '').trim().toLowerCase();
+  return flag === 'true' || flag === '1' || flag === 'on';
+}
+
 async function startServer() {
   // Vite middleware for development or static serving for production
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
@@ -7138,6 +7213,16 @@ async function startServer() {
     try {
       await testConnection();
       await loadFromFirestore();
+
+      if (!backgroundReminderEngineEnabled()) {
+        console.log(
+          "Background reminder engine is disabled (ENABLE_BACKGROUND_REMINDERS is not 'true'). " +
+          "No schedule reminders or QR renewal alerts will be pushed from this host. " +
+          "Enable the flag only on the long-lived server that serves the live site."
+        );
+        return;
+      }
+
       await ensureVapidConfigured();
       console.log("Persistent data & Web Push VAPID keys synchronized from Firestore. Starting schedule reminder engine...");
       runScheduledAttendanceRemindersTick();
